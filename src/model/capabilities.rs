@@ -3,6 +3,13 @@ use crate::model::diagnostics::EdidWarning;
 use crate::model::prelude::prelude::{String, Vec};
 
 #[derive(Debug, Clone, PartialEq, Default)]
+pub struct VideoMode {
+    pub width: u16,
+    pub height: u16,
+    pub refresh_rate: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct DisplayCapabilities {
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub manufacturer: Option<String>,
@@ -13,6 +20,8 @@ pub struct DisplayCapabilities {
     pub digital: bool,
     pub width_cm: Option<u16>,
     pub height_cm: Option<u16>,
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub supported_modes: Vec<VideoMode>,
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub warnings: Vec<EdidWarning>,
 }
