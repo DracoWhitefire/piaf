@@ -72,7 +72,15 @@ pub fn capabilities_from_edid(edid: &ParsedEdid) -> DisplayCapabilities {
                 if !trimmed.is_empty() {
                     caps.display_name = Some(trimmed);
                 }
-                break; // Found the name
+            }
+
+            // Monitor Range Limits: Header 00 00 00 FD 00
+            if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFD] {
+                caps.min_v_rate = Some(descriptor[5]);
+                caps.max_v_rate = Some(descriptor[6]);
+                caps.min_h_rate_khz = Some(descriptor[7]);
+                caps.max_h_rate_khz = Some(descriptor[8]);
+                caps.max_pixel_clock_mhz = Some((descriptor[9] as u16) * 10);
             }
         }
     }
@@ -129,14 +137,28 @@ pub fn capabilities_from_edid(edid: &ParsedEdid) -> DisplayCapabilities {
             }
 
             let hactive = (((dtd[4] as u16) & 0xF0) << 4) | (dtd[2] as u16);
+            let hblank = (((dtd[4] as u16) & 0x0F) << 8) | (dtd[3] as u16);
             let vactive = (((dtd[7] as u16) & 0xF0) << 4) | (dtd[5] as u16);
+            let vblank = (((dtd[7] as u16) & 0x0F) << 8) | (dtd[6] as u16);
 
-            // Rough refresh rate estimate: PixelClock / (HActive+HBlank * VActive+VBlank)
-            // But for simple v0.1 we can just store the mode if it's not a duplicate
+            // Refresh rate calculation: PixelClock / (HActive+HBlank * VActive+VBlank)
+            // Pixel clock is in 10kHz units.
+            let refresh_rate = if hactive > 0 && vactive > 0 && hblank > 0 && vblank > 0 {
+                let total_pixels = (hactive + hblank) as u32 * (vactive + vblank) as u32;
+                if total_pixels > 0 {
+                    let rate = (pixel_clock * 10_000) / total_pixels;
+                    rate as u8
+                } else {
+                    60
+                }
+            } else {
+                60
+            };
+
             let mode = VideoMode {
                 width: hactive,
                 height: vactive,
-                refresh_rate: 60, // Placeholder: True refresh rate calculation is complex
+                refresh_rate,
             };
 
             if !caps.supported_modes.contains(&mode) {
@@ -274,10 +296,20 @@ mod tests {
         bytes[0x36 + 2] = 0x80;
         bytes[0x36 + 4] = 0x70;
 
+        // HBlank: 280 = 0x118.
+        // LSB: 0x18. Bits 0-3 of offset 4: 0x1
+        bytes[0x36 + 3] = 0x18;
+        bytes[0x36 + 4] |= 0x01;
+
         // VActive: 1080 = 0x438.
         // LSB: 0x38. Bits 4-7 of offset 7: 0x4
         bytes[0x36 + 5] = 0x38;
         bytes[0x36 + 7] = 0x40;
+
+        // VBlank: 45 = 0x02D.
+        // LSB: 0x2D. Bits 0-3 of offset 7: 0x0
+        bytes[0x36 + 6] = 0x2D;
+        bytes[0x36 + 7] |= 0x00;
 
         // Checksum
         let mut sum = 0u8;
