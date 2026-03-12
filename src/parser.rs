@@ -1,4 +1,6 @@
-use crate::model::{EdidError, ParsedEdid, ExtensionTagRegistry};
+use crate::model::diagnostics::{EdidError, EdidWarning};
+use crate::model::extension::ExtensionTagRegistry;
+use crate::model::ParsedEdid;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::Vec;
 
@@ -47,7 +49,7 @@ pub fn parse_edid(bytes: &[u8], registry: &ExtensionTagRegistry) -> Result<Parse
 
             let tag = ext_block[0];
             if !registry.is_known(tag) {
-                warnings.push(crate::model::EdidWarning::UnknownExtension(tag));
+                warnings.push(EdidWarning::UnknownExtension(tag));
             }
 
             extensions.push(ext_block);
@@ -157,7 +159,7 @@ mod tests {
         assert_eq!(parsed.warnings.len(), 1);
         assert_eq!(
             parsed.warnings[0],
-            crate::model::EdidWarning::UnknownExtension(0xEE)
+            EdidWarning::UnknownExtension(0xEE)
         );
     }
     #[test]
@@ -172,7 +174,7 @@ mod tests {
         bytes[128] = 0x70;
         bytes[255] = 256u16.wrapping_sub(0x70) as u8;
 
-        let registry = crate::model::ExtensionLibrary::new().export_tags();
+        let registry = crate::model::extension::ExtensionLibrary::new().export_tags();
         let result = parse_edid(&bytes, &registry);
         assert!(result.is_ok());
         let parsed = result.unwrap();
