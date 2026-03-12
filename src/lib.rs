@@ -4,11 +4,13 @@
 extern crate alloc;
 
 pub mod model;
-pub use model::{DisplayCapabilities, EdidError, EdidWarning, ParsedEdid, ExtensionTagRegistry, ExtensionLibrary, ExtensionMetadata};
+pub use model::{
+    DisplayCapabilities, EdidError, EdidWarning, ExtensionLibrary, ExtensionMetadata,
+    ExtensionTagRegistry, ParsedEdid,
+};
 
 pub mod parser;
 pub use parser::parse_edid;
-
 
 pub fn capabilities_from_edid(edid: &ParsedEdid) -> DisplayCapabilities {
     let mut caps = DisplayCapabilities::default();
@@ -81,6 +83,71 @@ pub fn capabilities_from_edid(edid: &ParsedEdid) -> DisplayCapabilities {
             }
         }
     }
-    
+
     caps
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::ExtensionTagRegistry;
+
+    #[test]
+    fn test_capabilities_identification() {
+        let mut bytes = [0u8; 128];
+        bytes[0..8].copy_from_slice(&crate::parser::EDID_HEADER);
+
+        // Manufacturer "SAM"
+        // S = 19 (10011), A = 1 (00001), M = 13 (01101)
+        // 0 10011 00 001 01101 => 01001100 00101101 => 0x4C, 0x2D
+        bytes[0x08] = 0x4C;
+        bytes[0x09] = 0x2D;
+
+        // Product Code: 0x1234
+        bytes[0x0A] = 0x34;
+        bytes[0x0B] = 0x12;
+
+        // Serial Number: 0x12345678
+        bytes[0x0C] = 0x78;
+        bytes[0x0D] = 0x56;
+        bytes[0x0E] = 0x34;
+        bytes[0x0F] = 0x12;
+
+        // Video Input: Digital (0x80)
+        bytes[0x14] = 0x80;
+
+        // Dimensions: 51cm x 29cm
+        bytes[0x15] = 51;
+        bytes[0x16] = 29;
+
+        // Monitor Name descriptor at offset 0x36
+        // 00 00 00 FC 00 'P' 'I' 'A' 'F' 0A 20 20 20 20 20 20 20 20
+        bytes[0x36..0x3B].copy_from_slice(&[0x00, 0x00, 0x00, 0xFC, 0x00]);
+        bytes[0x3B..0x3F].copy_from_slice(b"PIAF");
+        bytes[0x3F] = 0x0A; // Newline
+        for i in 0x40..0x48 {
+            bytes[i] = 0x20;
+        } // Padding
+
+        // Calculate checksum for header + IDs
+        let mut sum = 0u8;
+        for i in 0..127 {
+            sum = sum.wrapping_add(bytes[i]);
+        }
+        bytes[127] = 0u8.wrapping_sub(sum);
+
+        let registry = ExtensionTagRegistry::new();
+        let parsed = parse_edid(&bytes, &registry).unwrap();
+        let caps = capabilities_from_edid(&parsed);
+
+        #[cfg(any(feature = "alloc", feature = "std"))]
+        assert_eq!(caps.manufacturer, Some("SAM".to_string()));
+        assert_eq!(caps.product_code, Some(0x1234));
+        assert_eq!(caps.serial_number, Some(0x12345678));
+        assert!(caps.digital);
+        assert_eq!(caps.width_cm, Some(51));
+        assert_eq!(caps.height_cm, Some(29));
+        #[cfg(any(feature = "alloc", feature = "std"))]
+        assert_eq!(caps.display_name, Some("PIAF".to_string()));
+    }
 }
