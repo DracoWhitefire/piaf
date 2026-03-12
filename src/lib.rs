@@ -47,5 +47,9 @@ pub fn capabilities_from_edid(edid: &ParsedEdid) -> DisplayCapabilities {
         caps.serial_number = Some(serial);
     }
 
+    // 4. Video Input Definition (offset 0x14)
+    // Bit 7: 1=Digital, 0=Analog
+    caps.digital = (base[0x14] & 0x80) != 0;
+
     caps
 }
