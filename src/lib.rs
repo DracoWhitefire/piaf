@@ -13,3 +13,10 @@ mod prelude {
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 use prelude::Vec;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParsedEdid {
+    pub base_block: [u8; 128],
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub extensions: Vec<[u8; 128]>,
+}
