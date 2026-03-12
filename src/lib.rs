@@ -60,5 +60,27 @@ pub fn capabilities_from_edid(edid: &ParsedEdid) -> DisplayCapabilities {
         caps.height_cm = Some(height);
     }
 
+    // 6. 18-byte Descriptors (offsets 0x36, 0x48, 0x5A, 0x6C)
+    // We'll look for the Display Name descriptor (Tag 0xFC)
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    {
+        for i in 0..4 {
+            let offset = 0x36 + (i * 18);
+            let descriptor = &base[offset..offset + 18];
+
+            // Monitor Name Descriptor: Header 00 00 00 FC 00
+            if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFC] {
+                let name_bytes = &descriptor[5..18];
+                // Strip trailing newline (0x0A) or padding (0x20)
+                let name = String::from_utf8_lossy(name_bytes);
+                let trimmed = name.trim().to_string();
+                if !trimmed.is_empty() {
+                    caps.display_name = Some(trimmed);
+                }
+                break; // Found the name
+            }
+        }
+    }
+    
     caps
 }
