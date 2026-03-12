@@ -32,5 +32,11 @@ pub fn capabilities_from_edid(edid: &ParsedEdid) -> DisplayCapabilities {
         }
     }
 
+    // 2. Product Code (offsets 0x0A-0x0B, little-endian)
+    let product_code = ((base[0x0B] as u16) << 8) | (base[0x0A] as u16);
+    if product_code != 0 {
+        caps.product_code = Some(product_code);
+    }
+
     caps
 }
