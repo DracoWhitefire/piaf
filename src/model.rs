@@ -31,11 +31,38 @@ impl From<u8> for ExtensionTag {
     }
 }
 
-pub struct ExtensionRegistry;
+pub struct ExtensionRegistry {
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub custom_tags: Vec<u8>,
+}
 
 impl ExtensionRegistry {
-    pub fn is_known(tag: u8) -> bool {
-        !matches!(ExtensionTag::from(tag), ExtensionTag::Unknown(_))
+    pub fn new() -> Self {
+        Self {
+            #[cfg(any(feature = "alloc", feature = "std"))]
+            custom_tags: Vec::new(),
+        }
+    }
+
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub fn register(&mut self, tag: u8) {
+        if !self.custom_tags.contains(&tag) {
+            self.custom_tags.push(tag);
+        }
+    }
+
+    pub fn is_known(&self, tag: u8) -> bool {
+        if !matches!(ExtensionTag::from(tag), ExtensionTag::Unknown(_)) {
+            return true;
+        }
+
+        #[cfg(any(feature = "alloc", feature = "std"))]
+        {
+            return self.custom_tags.contains(&tag);
+        }
+
+        #[cfg(not(any(feature = "alloc", feature = "std")))]
+        false
     }
 }
 

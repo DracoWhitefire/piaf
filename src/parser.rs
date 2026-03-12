@@ -4,7 +4,7 @@ use crate::model::Vec;
 
 pub const EDID_HEADER: [u8; 8] = [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00];
 
-pub fn parse_edid(bytes: &[u8]) -> Result<ParsedEdid, EdidError> {
+pub fn parse_edid(bytes: &[u8], registry: &ExtensionRegistry) -> Result<ParsedEdid, EdidError> {
     if bytes.len() < 128 {
         return Err(EdidError::InvalidLength);
     }
@@ -46,7 +46,7 @@ pub fn parse_edid(bytes: &[u8]) -> Result<ParsedEdid, EdidError> {
             }
 
             let tag = ext_block[0];
-            if !ExtensionRegistry::is_known(tag) {
+            if !registry.is_known(tag) {
                 warnings.push(crate::model::EdidWarning::UnknownExtension(tag));
             }
 
@@ -70,14 +70,16 @@ mod tests {
     #[test]
     fn test_parse_invalid_length() {
         let bytes = [0u8; 10];
-        assert_eq!(parse_edid(&bytes), Err(EdidError::InvalidLength));
+        let registry = ExtensionRegistry::new();
+        assert_eq!(parse_edid(&bytes, &registry), Err(EdidError::InvalidLength));
     }
 
     #[test]
     fn test_parse_invalid_header() {
         let mut bytes = [0u8; 128];
         bytes[0] = 0x01; // Corrupt header
-        assert_eq!(parse_edid(&bytes), Err(EdidError::InvalidHeader));
+        let registry = ExtensionRegistry::new();
+        assert_eq!(parse_edid(&bytes, &registry), Err(EdidError::InvalidHeader));
     }
 
     #[test]
@@ -85,7 +87,8 @@ mod tests {
         let mut bytes = [0u8; 128];
         bytes[0..8].copy_from_slice(&EDID_HEADER);
         bytes[127] = 0x01; // Wrong checksum (should be 6 for all-zeros block with header)
-        assert_eq!(parse_edid(&bytes), Err(EdidError::ChecksumMismatch));
+        let registry = ExtensionRegistry::new();
+        assert_eq!(parse_edid(&bytes, &registry), Err(EdidError::ChecksumMismatch));
     }
 
     #[test]
@@ -93,7 +96,8 @@ mod tests {
         let mut bytes = [0u8; 128];
         bytes[0..8].copy_from_slice(&EDID_HEADER);
         bytes[127] = 6; // Correct checksum for header + zeros
-        let result = parse_edid(&bytes);
+        let registry = ExtensionRegistry::new();
+        let result = parse_edid(&bytes, &registry);
         assert!(result.is_ok());
         let parsed = result.unwrap();
         assert_eq!(parsed.base_block[0..8], EDID_HEADER);
@@ -113,7 +117,8 @@ mod tests {
         bytes[128] = 0x02; // Some tag
         bytes[255] = 254; // Checksum: 256 - 2 = 254 (0xFE)
 
-        let result = parse_edid(&bytes);
+        let registry = ExtensionRegistry::new();
+        let result = parse_edid(&bytes, &registry);
         assert!(result.is_ok());
         let parsed = result.unwrap();
         assert_eq!(parsed.extensions.len(), 1);
@@ -129,7 +134,8 @@ mod tests {
         bytes[127] = 5;
         bytes[128] = 0x01;
         bytes[255] = 0x00; // Wrong checksum
-        assert_eq!(parse_edid(&bytes), Err(EdidError::ChecksumMismatch));
+        let registry = ExtensionRegistry::new();
+        assert_eq!(parse_edid(&bytes, &registry), Err(EdidError::ChecksumMismatch));
     }
 
     #[test]
@@ -144,7 +150,8 @@ mod tests {
         bytes[128] = 0xEE;
         bytes[255] = 256u16.wrapping_sub(0xEE) as u8; // Correct checksum for 0xEE
 
-        let result = parse_edid(&bytes);
+        let registry = ExtensionRegistry::new();
+        let result = parse_edid(&bytes, &registry);
         assert!(result.is_ok());
         let parsed = result.unwrap();
         assert_eq!(parsed.warnings.len(), 1);
@@ -165,11 +172,38 @@ mod tests {
         bytes[128] = 0x70;
         bytes[255] = 256u16.wrapping_sub(0x70) as u8;
 
-        let result = parse_edid(&bytes);
+        let registry = ExtensionRegistry::new();
+        let result = parse_edid(&bytes, &registry);
         assert!(result.is_ok());
         let parsed = result.unwrap();
         assert_eq!(parsed.warnings.len(), 0); // Should be known
         assert_eq!(parsed.extensions.len(), 1);
         assert_eq!(parsed.extensions[0][0], 0x70);
+    }
+
+    #[test]
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    fn test_custom_extension_registration() {
+        let mut bytes = [0u8; 256];
+        bytes[0..8].copy_from_slice(&EDID_HEADER);
+        bytes[126] = 1;
+        bytes[127] = 5;
+
+        // Custom tag 0xEE
+        let custom_tag = 0xEE;
+        bytes[128] = custom_tag;
+        bytes[255] = 256u16.wrapping_sub(custom_tag as u16) as u8;
+
+        let mut registry = ExtensionRegistry::new();
+        registry.register(custom_tag);
+
+        let result = parse_edid(&bytes, &registry);
+        assert!(result.is_ok());
+        let parsed = result.unwrap();
+        
+        // Should NOT have a warning because it was registered
+        assert_eq!(parsed.warnings.len(), 0);
+        assert_eq!(parsed.extensions.len(), 1);
+        assert_eq!(parsed.extensions[0][0], custom_tag);
     }
 }
