@@ -1,0 +1,20 @@
+[package]
+name = "piaf"
+version = "0.1.0"
+edition = "2021"
+description = "A library for reading and interpreting display capability data (EDID)."
+license = "MIT OR Apache-2.0"
+
+[features]
+default = ["std"]
+std = []
+alloc = []
+serde = ["dep:serde"]
+
+[dependencies]
+serde = { version = "1.0", optional = true, features = ["derive"] }
+bitflags = "2.4"
+thiserror = { version = "2.0", optional = true }
+
+[dev-dependencies]
+# Future additions: insta, cargo-fuzz
