@@ -31,16 +31,14 @@ impl ExtensionTagRegistry {
         }
     }
 
+    #[cfg(any(feature = "alloc", feature = "std"))]
     pub fn is_known(&self, tag: u8) -> bool {
-        #[cfg(any(feature = "alloc", feature = "std"))]
-        {
-            return self.known_tags.contains(&tag);
-        }
+        self.known_tags.contains(&tag)
+    }
 
-        #[cfg(not(any(feature = "alloc", feature = "std")))]
-        {
-            tag == 0x02 || tag == 0x70
-        }
+    #[cfg(not(any(feature = "alloc", feature = "std")))]
+    pub fn is_known(&self, tag: u8) -> bool {
+        tag == 0x02 || tag == 0x70
     }
 }
 

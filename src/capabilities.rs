@@ -1,4 +1,6 @@
-use crate::model::capabilities::{DisplayCapabilities, VideoMode};
+use crate::model::capabilities::DisplayCapabilities;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::capabilities::VideoMode;
 use crate::model::ParsedEdid;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::prelude::String;
