@@ -21,12 +21,39 @@ pub fn parse_edid(bytes: &[u8]) -> Result<ParsedEdid, EdidError> {
         return Err(EdidError::ChecksumMismatch);
     }
 
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    let mut extensions = Vec::new();
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    let mut warnings = Vec::new();
+
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    {
+        let extension_count = base_block[126] as usize;
+        let total_required = 128 * (1 + extension_count);
+
+        if bytes.len() < total_required {
+            return Err(EdidError::InvalidLength);
+        }
+
+        for i in 1..=extension_count {
+            let start = i * 128;
+            let mut ext_block = [0u8; 128];
+            ext_block.copy_from_slice(&bytes[start..start + 128]);
+
+            let ext_sum: u8 = ext_block.iter().fold(0u8, |acc, &x| acc.wrapping_add(x));
+            if ext_sum != 0 {
+                return Err(EdidError::ChecksumMismatch);
+            }
+            extensions.push(ext_block);
+        }
+    }
+
     Ok(ParsedEdid {
         base_block,
         #[cfg(any(feature = "alloc", feature = "std"))]
-        extensions: Vec::new(),
+        extensions,
         #[cfg(any(feature = "alloc", feature = "std"))]
-        warnings: Vec::new(),
+        warnings,
     })
 }
 
