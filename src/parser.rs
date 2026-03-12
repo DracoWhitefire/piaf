@@ -1,10 +1,10 @@
-use crate::model::{EdidError, ParsedEdid, ExtensionRegistry};
+use crate::model::{EdidError, ParsedEdid, ExtensionTagRegistry};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::Vec;
 
 pub const EDID_HEADER: [u8; 8] = [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00];
 
-pub fn parse_edid(bytes: &[u8], registry: &ExtensionRegistry) -> Result<ParsedEdid, EdidError> {
+pub fn parse_edid(bytes: &[u8], registry: &ExtensionTagRegistry) -> Result<ParsedEdid, EdidError> {
     if bytes.len() < 128 {
         return Err(EdidError::InvalidLength);
     }
@@ -70,7 +70,7 @@ mod tests {
     #[test]
     fn test_parse_invalid_length() {
         let bytes = [0u8; 10];
-        let registry = ExtensionRegistry::new();
+        let registry = ExtensionTagRegistry::new();
         assert_eq!(parse_edid(&bytes, &registry), Err(EdidError::InvalidLength));
     }
 
@@ -78,7 +78,7 @@ mod tests {
     fn test_parse_invalid_header() {
         let mut bytes = [0u8; 128];
         bytes[0] = 0x01; // Corrupt header
-        let registry = ExtensionRegistry::new();
+        let registry = ExtensionTagRegistry::new();
         assert_eq!(parse_edid(&bytes, &registry), Err(EdidError::InvalidHeader));
     }
 
@@ -87,7 +87,7 @@ mod tests {
         let mut bytes = [0u8; 128];
         bytes[0..8].copy_from_slice(&EDID_HEADER);
         bytes[127] = 0x01; // Wrong checksum (should be 6 for all-zeros block with header)
-        let registry = ExtensionRegistry::new();
+        let registry = ExtensionTagRegistry::new();
         assert_eq!(parse_edid(&bytes, &registry), Err(EdidError::ChecksumMismatch));
     }
 
@@ -96,7 +96,7 @@ mod tests {
         let mut bytes = [0u8; 128];
         bytes[0..8].copy_from_slice(&EDID_HEADER);
         bytes[127] = 6; // Correct checksum for header + zeros
-        let registry = ExtensionRegistry::new();
+        let registry = ExtensionTagRegistry::new();
         let result = parse_edid(&bytes, &registry);
         assert!(result.is_ok());
         let parsed = result.unwrap();
@@ -117,7 +117,7 @@ mod tests {
         bytes[128] = 0x02; // Some tag
         bytes[255] = 254; // Checksum: 256 - 2 = 254 (0xFE)
 
-        let registry = ExtensionRegistry::new();
+        let registry = ExtensionTagRegistry::new();
         let result = parse_edid(&bytes, &registry);
         assert!(result.is_ok());
         let parsed = result.unwrap();
@@ -134,7 +134,7 @@ mod tests {
         bytes[127] = 5;
         bytes[128] = 0x01;
         bytes[255] = 0x00; // Wrong checksum
-        let registry = ExtensionRegistry::new();
+        let registry = ExtensionTagRegistry::new();
         assert_eq!(parse_edid(&bytes, &registry), Err(EdidError::ChecksumMismatch));
     }
 
@@ -150,7 +150,7 @@ mod tests {
         bytes[128] = 0xEE;
         bytes[255] = 256u16.wrapping_sub(0xEE) as u8; // Correct checksum for 0xEE
 
-        let registry = ExtensionRegistry::new();
+        let registry = ExtensionTagRegistry::new();
         let result = parse_edid(&bytes, &registry);
         assert!(result.is_ok());
         let parsed = result.unwrap();
@@ -172,7 +172,7 @@ mod tests {
         bytes[128] = 0x70;
         bytes[255] = 256u16.wrapping_sub(0x70) as u8;
 
-        let registry = ExtensionRegistry::new();
+        let registry = crate::model::ExtensionLibrary::new().export_tags();
         let result = parse_edid(&bytes, &registry);
         assert!(result.is_ok());
         let parsed = result.unwrap();
@@ -194,11 +194,8 @@ mod tests {
         bytes[128] = custom_tag;
         bytes[255] = 256u16.wrapping_sub(custom_tag as u16) as u8;
 
-        let mut registry = ExtensionRegistry::new();
-        registry.register(crate::model::Extension {
-            tag: custom_tag,
-            display_name: crate::model::String::from("Custom Extension"),
-        });
+        let mut registry = ExtensionTagRegistry::new();
+        registry.register(custom_tag);
 
         let result = parse_edid(&bytes, &registry);
         assert!(result.is_ok());

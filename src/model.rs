@@ -14,28 +14,64 @@ mod prelude {
 pub use prelude::{String, Vec};
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Extension {
+pub struct ExtensionMetadata {
     pub tag: u8,
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub display_name: String,
 }
 
-pub struct ExtensionRegistry {
+pub struct ExtensionTagRegistry {
     #[cfg(any(feature = "alloc", feature = "std"))]
-    pub known_extensions: Vec<Extension>,
+    pub known_tags: Vec<u8>,
 }
 
-impl ExtensionRegistry {
+impl ExtensionTagRegistry {
     pub fn new() -> Self {
         #[cfg(any(feature = "alloc", feature = "std"))]
-        let mut known_extensions = Vec::new();
+        let known_tags = Vec::new();
+
+        Self {
+            #[cfg(any(feature = "alloc", feature = "std"))]
+            known_tags,
+        }
+    }
+
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub fn register(&mut self, tag: u8) {
+        if !self.known_tags.contains(&tag) {
+            self.known_tags.push(tag);
+        }
+    }
+
+    pub fn is_known(&self, tag: u8) -> bool {
         #[cfg(any(feature = "alloc", feature = "std"))]
         {
-            known_extensions.push(Extension {
+            return self.known_tags.contains(&tag);
+        }
+
+        #[cfg(not(any(feature = "alloc", feature = "std")))]
+        {
+            tag == 0x02 || tag == 0x70
+        }
+    }
+}
+
+pub struct ExtensionLibrary {
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub extensions: Vec<ExtensionMetadata>,
+}
+
+impl ExtensionLibrary {
+    pub fn new() -> Self {
+        #[cfg(any(feature = "alloc", feature = "std"))]
+        let mut extensions = Vec::new();
+        #[cfg(any(feature = "alloc", feature = "std"))]
+        {
+            extensions.push(ExtensionMetadata {
                 tag: 0x02,
                 display_name: String::from("CEA-861"),
             });
-            known_extensions.push(Extension {
+            extensions.push(ExtensionMetadata {
                 tag: 0x70,
                 display_name: String::from("DisplayID"),
             });
@@ -43,29 +79,24 @@ impl ExtensionRegistry {
 
         Self {
             #[cfg(any(feature = "alloc", feature = "std"))]
-            known_extensions,
+            extensions,
         }
     }
 
     #[cfg(any(feature = "alloc", feature = "std"))]
-    pub fn register(&mut self, extension: Extension) {
-        if !self.known_extensions.iter().any(|ext| ext.tag == extension.tag) {
-            self.known_extensions.push(extension);
+    pub fn register(&mut self, metadata: ExtensionMetadata) {
+        if !self.extensions.iter().any(|ext| ext.tag == metadata.tag) {
+            self.extensions.push(metadata);
         }
     }
 
-    pub fn is_known(&self, tag: u8) -> bool {
-        #[cfg(any(feature = "alloc", feature = "std"))]
-        {
-            return self.known_extensions.iter().any(|ext| ext.tag == tag);
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub fn export_tags(&self) -> ExtensionTagRegistry {
+        let mut known_tags = Vec::new();
+        for ext in &self.extensions {
+            known_tags.push(ext.tag);
         }
-
-        #[cfg(not(any(feature = "alloc", feature = "std")))]
-        {
-            // In a truly no_alloc/no_std environment, we might have to hardcode standard tags
-            // or provide a different mechanism. For now, let's keep it simple.
-            tag == 0x02 || tag == 0x70
-        }
+        ExtensionTagRegistry { known_tags }
     }
 }
 
