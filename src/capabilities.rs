@@ -174,4 +174,49 @@ mod tests {
         #[cfg(any(feature = "alloc", feature = "std"))]
         assert_eq!(caps.display_name, Some("PIAF".to_string()));
     }
+
+    #[test]
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    fn test_standard_timings_decoding() {
+        let mut bytes = [0u8; 128];
+        bytes[0..8].copy_from_slice(&crate::parser::EDID_HEADER);
+
+        // 1920x1080 @ 60Hz (Standard Timing)
+        // Width: (239 + 31) * 8 = 2160? No.
+        // For 1920: 1920/8 = 240. 240 - 31 = 209 (0xD1)
+        // Ratio 16:9 is 11 (3). 60Hz is 0.
+        // Byte 2: (3 << 6) | 0 = 0xC0
+        bytes[0x26] = 209;
+        bytes[0x26 + 1] = 0xC0;
+
+        // 1280x1024 @ 75Hz
+        // Width: 1280/8 = 160. 160 - 31 = 129 (0x81)
+        // Ratio 5:4 is 10 (2). 75Hz is 15 (0x0F)
+        // Byte 2: (2 << 6) | 15 = 0x80 | 0x0F = 0x8F
+        bytes[0x28] = 129;
+        bytes[0x28 + 1] = 0x8F;
+
+        // Checksum
+        let mut sum = 0u8;
+        for i in 0..127 {
+            sum = sum.wrapping_add(bytes[i]);
+        }
+        bytes[127] = 0u8.wrapping_sub(sum);
+
+        let registry = ExtensionTagRegistry::new();
+        let parsed = parse_edid(&bytes, &registry).unwrap();
+        let caps = capabilities_from_edid(&parsed);
+
+        assert_eq!(caps.supported_modes.len(), 2);
+
+        // Mode 1: 1920x1080 @ 60Hz
+        assert_eq!(caps.supported_modes[0].width, 1920);
+        assert_eq!(caps.supported_modes[0].height, 1080);
+        assert_eq!(caps.supported_modes[0].refresh_rate, 60);
+
+        // Mode 2: 1280x1024 @ 75Hz
+        assert_eq!(caps.supported_modes[1].width, 1280);
+        assert_eq!(caps.supported_modes[1].height, 1024);
+        assert_eq!(caps.supported_modes[1].refresh_rate, 75);
+    }
 }
