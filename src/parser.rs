@@ -24,7 +24,7 @@ pub fn parse_edid(bytes: &[u8]) -> Result<ParsedEdid, EdidError> {
     #[cfg(any(feature = "alloc", feature = "std"))]
     let mut extensions = Vec::new();
     #[cfg(any(feature = "alloc", feature = "std"))]
-    let mut warnings = Vec::new();
+    let warnings = Vec::new();
 
     #[cfg(any(feature = "alloc", feature = "std"))]
     {
@@ -91,6 +91,38 @@ mod tests {
         assert!(result.is_ok());
         let parsed = result.unwrap();
         assert_eq!(parsed.base_block[0..8], EDID_HEADER);
+        #[cfg(any(feature = "alloc", feature = "std"))]
+        assert_eq!(parsed.extensions.len(), 0);
+    }
+
+    #[test]
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    fn test_parse_with_extensions() {
+        let mut bytes = [0u8; 256];
+        bytes[0..8].copy_from_slice(&EDID_HEADER);
+        bytes[126] = 1; // 1 extension
+        bytes[127] = 5; // Checksum for header + extension_count=1
+
+        // Extension block
+        bytes[128] = 0x02; // Some tag
+        bytes[255] = 254; // Checksum: 256 - 2 = 254 (0xFE)
+
+        let result = parse_edid(&bytes);
+        assert!(result.is_ok());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.extensions.len(), 1);
+        assert_eq!(parsed.extensions[0][0], 0x02);
+    }
+
+    #[test]
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    fn test_parse_extension_checksum_mismatch() {
+        let mut bytes = [0u8; 256];
+        bytes[0..8].copy_from_slice(&EDID_HEADER);
+        bytes[126] = 1;
+        bytes[127] = 5;
+        bytes[128] = 0x01;
+        bytes[255] = 0x00; // Wrong checksum
+        assert_eq!(parse_edid(&bytes), Err(EdidError::ChecksumMismatch));
     }
 }
-
