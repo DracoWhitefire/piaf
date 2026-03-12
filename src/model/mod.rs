@@ -1,33 +1,12 @@
+pub mod prelude;
 #[cfg(any(feature = "alloc", feature = "std"))]
-mod prelude {
-    #[cfg(feature = "std")]
-    pub use std::string::String;
-    #[cfg(feature = "std")]
-    pub use std::vec::Vec;
-    #[cfg(all(feature = "alloc", not(feature = "std")))]
-    pub use alloc::string::String;
-    #[cfg(all(feature = "alloc", not(feature = "std")))]
-    pub use alloc::vec::Vec;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-pub use prelude::{String, Vec};
+pub use prelude::prelude::{String, Vec};
 
 pub mod extension;
 pub use extension::{ExtensionLibrary, ExtensionMetadata, ExtensionTagRegistry};
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum EdidWarning {
-    UnknownExtension(u8),
-    DescriptorParseFailed,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum EdidError {
-    InvalidLength,
-    InvalidHeader,
-    ChecksumMismatch,
-}
+pub mod diagnostics;
+pub use diagnostics::{EdidError, EdidWarning};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedEdid {

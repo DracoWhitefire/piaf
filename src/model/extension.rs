@@ -1,17 +1,5 @@
 #[cfg(any(feature = "alloc", feature = "std"))]
-mod prelude {
-    #[cfg(feature = "std")]
-    pub use std::string::String;
-    #[cfg(feature = "std")]
-    pub use std::vec::Vec;
-    #[cfg(all(feature = "alloc", not(feature = "std")))]
-    pub use alloc::string::String;
-    #[cfg(all(feature = "alloc", not(feature = "std")))]
-    pub use alloc::vec::Vec;
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-use prelude::{String, Vec};
+use crate::model::prelude::prelude::{String, Vec};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExtensionMetadata {
