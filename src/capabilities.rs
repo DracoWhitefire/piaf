@@ -1,7 +1,7 @@
-use crate::model::capabilities::DisplayCapabilities;
+use crate::model::capabilities::{DisplayCapabilities, VideoMode};
 use crate::model::ParsedEdid;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::prelude::String;
+use crate::model::prelude::prelude::{String, Vec};
 
 pub fn capabilities_from_edid(edid: &ParsedEdid) -> DisplayCapabilities {
     let mut caps = DisplayCapabilities::default();
@@ -72,6 +72,38 @@ pub fn capabilities_from_edid(edid: &ParsedEdid) -> DisplayCapabilities {
                 }
                 break; // Found the name
             }
+        }
+    }
+
+    // 7. Standard Timings (offsets 0x26-0x35, 8 descriptors, 2 bytes each)
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    {
+        for i in 0..8 {
+            let offset = 0x26 + (i * 2);
+            let b1 = base[offset];
+            let b2 = base[offset + 1];
+
+            if b1 == 0x01 && b2 == 0x01 {
+                continue; // Unused
+            }
+
+            let width = (b1 as u16 + 31) * 8;
+            let ratio_bits = (b2 >> 6) & 0x03;
+            let refresh_rate = (b2 & 0x3F) + 60;
+
+            let height = match ratio_bits {
+                0x00 => (width * 10) / 16, // 16:10
+                0x01 => (width * 3) / 4,   // 4:3
+                0x02 => (width * 4) / 5,   // 5:4
+                0x03 => (width * 9) / 16,  // 16:9
+                _ => unreachable!(),
+            };
+
+            caps.supported_modes.push(VideoMode {
+                width,
+                height,
+                refresh_rate,
+            });
         }
     }
 
