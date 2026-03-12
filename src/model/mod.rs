@@ -12,4 +12,4 @@ pub mod edid;
 pub use edid::ParsedEdid;
 
 pub mod capabilities;
-pub use capabilities::DisplayCapabilities;
+pub use capabilities::{DisplayCapabilities, VideoMode};
