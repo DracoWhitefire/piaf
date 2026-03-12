@@ -38,5 +38,14 @@ pub fn capabilities_from_edid(edid: &ParsedEdid) -> DisplayCapabilities {
         caps.product_code = Some(product_code);
     }
 
+    // 3. Serial Number (offsets 0x0C-0x0F, little-endian)
+    let serial = ((base[0x0F] as u32) << 24)
+        | ((base[0x0E] as u32) << 16)
+        | ((base[0x0D] as u32) << 8)
+        | (base[0x0C] as u32);
+    if serial != 0 {
+        caps.serial_number = Some(serial);
+    }
+
     caps
 }
