@@ -1,7 +1,7 @@
 use crate::model::capabilities::{DisplayCapabilities, VideoMode};
 use crate::model::ParsedEdid;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::prelude::{String, Vec};
+use crate::model::prelude::prelude::String;
 
 pub fn capabilities_from_edid(edid: &ParsedEdid) -> DisplayCapabilities {
     let mut caps = DisplayCapabilities::default();
@@ -83,7 +83,7 @@ pub fn capabilities_from_edid(edid: &ParsedEdid) -> DisplayCapabilities {
             let b1 = base[offset];
             let b2 = base[offset + 1];
 
-            if b1 == 0x01 && b2 == 0x01 {
+            if b1 == 0x01 && b2 == 0x01 || b1 == 0x00 {
                 continue; // Unused
             }
 
@@ -104,6 +104,42 @@ pub fn capabilities_from_edid(edid: &ParsedEdid) -> DisplayCapabilities {
                 height,
                 refresh_rate,
             });
+        }
+    }
+
+    // 8. Detailed Timing Descriptors (DTD) (offsets 0x36, 0x48, 0x5A, 0x6C)
+    // First one is mandatory, others can be Monitor Descriptors
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    {
+        for i in 0..4 {
+            let offset = 0x36 + (i * 18);
+            let dtd = &base[offset..offset + 18];
+
+            // If first two bytes are 0, it's NOT a DTD (it's a monitor descriptor)
+            if dtd[0] == 0x00 && dtd[1] == 0x00 {
+                continue;
+            }
+
+            // Simple DTD extraction (pixel clock != 0)
+            let pixel_clock = ((dtd[1] as u32) << 8) | (dtd[0] as u32);
+            if pixel_clock == 0 {
+                continue;
+            }
+
+            let hactive = (((dtd[4] as u16) & 0xF0) << 4) | (dtd[2] as u16);
+            let vactive = (((dtd[7] as u16) & 0xF0) << 4) | (dtd[5] as u16);
+
+            // Rough refresh rate estimate: PixelClock / (HActive+HBlank * VActive+VBlank)
+            // But for simple v0.1 we can just store the mode if it's not a duplicate
+            let mode = VideoMode {
+                width: hactive,
+                height: vactive,
+                refresh_rate: 60, // Placeholder: True refresh rate calculation is complex
+            };
+
+            if !caps.supported_modes.contains(&mode) {
+                caps.supported_modes.push(mode);
+            }
         }
     }
 
@@ -218,5 +254,44 @@ mod tests {
         assert_eq!(caps.supported_modes[1].width, 1280);
         assert_eq!(caps.supported_modes[1].height, 1024);
         assert_eq!(caps.supported_modes[1].refresh_rate, 75);
+    }
+
+    #[test]
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    fn test_detailed_timing_decoding() {
+        let mut bytes = [0u8; 128];
+        bytes[0..8].copy_from_slice(&crate::parser::EDID_HEADER);
+
+        // 1920x1080 @ 60Hz DTD (common example)
+        // Pixel clock: 148.50 MHz = 14850 = 0x3A02
+        bytes[0x36] = 0x02;
+        bytes[0x36 + 1] = 0x3A;
+        
+        // HActive: 1920 = 0x780. 
+        // LSB: 0x80. Bits 4-7 of offset 4: 0x7
+        bytes[0x36 + 2] = 0x80;
+        bytes[0x36 + 4] = 0x70;
+
+        // VActive: 1080 = 0x438.
+        // LSB: 0x38. Bits 4-7 of offset 7: 0x4
+        bytes[0x36 + 5] = 0x38;
+        bytes[0x36 + 7] = 0x40;
+
+        // Checksum
+        let mut sum = 0u8;
+        for i in 0..127 {
+            sum = sum.wrapping_add(bytes[i]);
+        }
+        bytes[127] = 0u8.wrapping_sub(sum);
+
+        let registry = ExtensionTagRegistry::new();
+        let parsed = parse_edid(&bytes, &registry).unwrap();
+        let caps = capabilities_from_edid(&parsed);
+
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 1920);
+        assert_eq!(caps.supported_modes[0].height, 1080);
+        // Refresh rate is currently hardcoded to 60 for DTDs
+        assert_eq!(caps.supported_modes[0].refresh_rate, 60);
     }
 }
