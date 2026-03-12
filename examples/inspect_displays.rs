@@ -53,6 +53,23 @@ fn main() {
                             println!("  Serial:       {:?}", caps.serial_number);
                             println!("  Dimensions:   {:?}x{:?} cm", caps.width_cm, caps.height_cm);
                             println!("  Input type:   {}", if caps.digital { "Digital" } else { "Analog" });
+
+                            if let (Some(min_v), Some(max_v)) = (caps.min_v_rate, caps.max_v_rate) {
+                                println!("  V-Range:      {} - {} Hz", min_v, max_v);
+                            }
+                            if let (Some(min_h), Some(max_h)) = (caps.min_h_rate_khz, caps.max_h_rate_khz) {
+                                println!("  H-Range:      {} - {} kHz", min_h, max_h);
+                            }
+                            if let Some(clock) = caps.max_pixel_clock_mhz {
+                                println!("  Max Clock:    {} MHz", clock);
+                            }
+                            
+                            if !caps.warnings.is_empty() {
+                                println!("  Warnings ({}):", caps.warnings.len());
+                                for warning in &caps.warnings {
+                                    println!("    - {:?}", warning);
+                                }
+                            }
                             
                             if !caps.supported_modes.is_empty() {
                                 println!("  Supported Modes ({}):", caps.supported_modes.len());

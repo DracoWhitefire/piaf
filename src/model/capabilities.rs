@@ -21,6 +21,11 @@ pub struct DisplayCapabilities {
     pub digital: bool,
     pub width_cm: Option<u16>,
     pub height_cm: Option<u16>,
+    pub min_v_rate: Option<u8>,
+    pub max_v_rate: Option<u8>,
+    pub min_h_rate_khz: Option<u8>,
+    pub max_h_rate_khz: Option<u8>,
+    pub max_pixel_clock_mhz: Option<u16>,
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub supported_modes: Vec<VideoMode>,
     #[cfg(any(feature = "alloc", feature = "std"))]

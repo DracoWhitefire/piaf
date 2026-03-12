@@ -311,6 +311,15 @@ mod tests {
         bytes[0x36 + 6] = 0x2D;
         bytes[0x36 + 7] |= 0x00;
 
+        // Monitor Range Limits descriptor at offset 0x48
+        // 00 00 00 FD 00 VMin VMax HMin HMax Clock
+        bytes[0x48..0x4D].copy_from_slice(&[0x00, 0x00, 0x00, 0xFD, 0x00]);
+        bytes[0x4D] = 48; // VMin
+        bytes[0x4E] = 75; // VMax
+        bytes[0x4F] = 30; // HMin
+        bytes[0x50] = 83; // HMax
+        bytes[0x51] = 17; // Max clock: 170MHz
+
         // Checksum
         let mut sum = 0u8;
         for i in 0..127 {
@@ -325,7 +334,12 @@ mod tests {
         assert_eq!(caps.supported_modes.len(), 1);
         assert_eq!(caps.supported_modes[0].width, 1920);
         assert_eq!(caps.supported_modes[0].height, 1080);
-        // Refresh rate is currently hardcoded to 60 for DTDs
         assert_eq!(caps.supported_modes[0].refresh_rate, 60);
+
+        assert_eq!(caps.min_v_rate, Some(48));
+        assert_eq!(caps.max_v_rate, Some(75));
+        assert_eq!(caps.min_h_rate_khz, Some(30));
+        assert_eq!(caps.max_h_rate_khz, Some(83));
+        assert_eq!(caps.max_pixel_clock_mhz, Some(170));
     }
 }
