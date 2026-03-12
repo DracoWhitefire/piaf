@@ -51,5 +51,14 @@ pub fn capabilities_from_edid(edid: &ParsedEdid) -> DisplayCapabilities {
     // Bit 7: 1=Digital, 0=Analog
     caps.digital = (base[0x14] & 0x80) != 0;
 
+    // 5. Physical Dimensions (offsets 0x15-0x16, width and height in cm)
+    // 0, 0 means undefined
+    let width = base[0x15] as u16;
+    let height = base[0x16] as u16;
+    if width > 0 && height > 0 {
+        caps.width_cm = Some(width);
+        caps.height_cm = Some(height);
+    }
+
     caps
 }
