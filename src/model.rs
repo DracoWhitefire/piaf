@@ -13,38 +13,51 @@ mod prelude {
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use prelude::{String, Vec};
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Extension {
+    pub tag: u8,
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub display_name: String,
+}
+
 pub struct ExtensionRegistry {
     #[cfg(any(feature = "alloc", feature = "std"))]
-    pub known_tags: Vec<u8>,
+    pub known_extensions: Vec<Extension>,
 }
 
 impl ExtensionRegistry {
     pub fn new() -> Self {
         #[cfg(any(feature = "alloc", feature = "std"))]
-        let mut known_tags = Vec::new();
+        let mut known_extensions = Vec::new();
         #[cfg(any(feature = "alloc", feature = "std"))]
         {
-            known_tags.push(0x02); // CEA-861
-            known_tags.push(0x70); // DisplayID
+            known_extensions.push(Extension {
+                tag: 0x02,
+                display_name: String::from("CEA-861"),
+            });
+            known_extensions.push(Extension {
+                tag: 0x70,
+                display_name: String::from("DisplayID"),
+            });
         }
 
         Self {
             #[cfg(any(feature = "alloc", feature = "std"))]
-            known_tags,
+            known_extensions,
         }
     }
 
     #[cfg(any(feature = "alloc", feature = "std"))]
-    pub fn register(&mut self, tag: u8) {
-        if !self.known_tags.contains(&tag) {
-            self.known_tags.push(tag);
+    pub fn register(&mut self, extension: Extension) {
+        if !self.known_extensions.iter().any(|ext| ext.tag == extension.tag) {
+            self.known_extensions.push(extension);
         }
     }
 
     pub fn is_known(&self, tag: u8) -> bool {
         #[cfg(any(feature = "alloc", feature = "std"))]
         {
-            return self.known_tags.contains(&tag);
+            return self.known_extensions.iter().any(|ext| ext.tag == tag);
         }
 
         #[cfg(not(any(feature = "alloc", feature = "std")))]

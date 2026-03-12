@@ -4,7 +4,7 @@
 extern crate alloc;
 
 pub mod model;
-pub use model::{DisplayCapabilities, EdidError, EdidWarning, ParsedEdid, ExtensionRegistry};
+pub use model::{DisplayCapabilities, EdidError, EdidWarning, ParsedEdid, ExtensionRegistry, Extension};
 
 pub mod parser;
 pub use parser::parse_edid;

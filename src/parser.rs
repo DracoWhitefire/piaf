@@ -195,7 +195,10 @@ mod tests {
         bytes[255] = 256u16.wrapping_sub(custom_tag as u16) as u8;
 
         let mut registry = ExtensionRegistry::new();
-        registry.register(custom_tag);
+        registry.register(crate::model::Extension {
+            tag: custom_tag,
+            display_name: crate::model::String::from("Custom Extension"),
+        });
 
         let result = parse_edid(&bytes, &registry);
         assert!(result.is_ok());
