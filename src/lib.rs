@@ -21,10 +21,21 @@ pub enum EdidWarning {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum EdidError {
+    InvalidLength,
+    InvalidHeader,
+    ChecksumMismatch,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ParsedEdid {
     pub base_block: [u8; 128],
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub extensions: Vec<[u8; 128]>,
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub warnings: Vec<EdidWarning>,
+}
+
+pub fn parse_edid(_bytes: &[u8]) -> Result<ParsedEdid, EdidError> {
+    unimplemented!("EDID parsing is not yet implemented");
 }
