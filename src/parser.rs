@@ -1,4 +1,4 @@
-use crate::model::{EdidError, ParsedEdid};
+use crate::model::{EdidError, ParsedEdid, ExtensionRegistry};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::Vec;
 
@@ -46,9 +46,7 @@ pub fn parse_edid(bytes: &[u8]) -> Result<ParsedEdid, EdidError> {
             }
 
             let tag = ext_block[0];
-            // CEA-861 (0x02) and DisplayID (0x70) are some common ones.
-            // For now, let's treat anything other than 0x02 as unknown for demonstration.
-            if tag != 0x02 {
+            if !ExtensionRegistry::is_known(tag) {
                 warnings.push(crate::model::EdidWarning::UnknownExtension(tag));
             }
 
@@ -154,5 +152,24 @@ mod tests {
             parsed.warnings[0],
             crate::model::EdidWarning::UnknownExtension(0xEE)
         );
+    }
+    #[test]
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    fn test_parse_known_extension_displayid() {
+        let mut bytes = [0u8; 256];
+        bytes[0..8].copy_from_slice(&EDID_HEADER);
+        bytes[126] = 1;
+        bytes[127] = 5;
+
+        // Extension block with tag 0x70 (DisplayID)
+        bytes[128] = 0x70;
+        bytes[255] = 256u16.wrapping_sub(0x70) as u8;
+
+        let result = parse_edid(&bytes);
+        assert!(result.is_ok());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.warnings.len(), 0); // Should be known
+        assert_eq!(parsed.extensions.len(), 1);
+        assert_eq!(parsed.extensions[0][0], 0x70);
     }
 }

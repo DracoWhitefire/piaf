@@ -13,6 +13,32 @@ mod prelude {
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use prelude::{String, Vec};
 
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtensionTag {
+    Cea861 = 0x02,
+    DisplayId = 0x70,
+    Unknown(u8),
+}
+
+impl From<u8> for ExtensionTag {
+    fn from(tag: u8) -> Self {
+        match tag {
+            0x02 => ExtensionTag::Cea861,
+            0x70 => ExtensionTag::DisplayId,
+            _ => ExtensionTag::Unknown(tag),
+        }
+    }
+}
+
+pub struct ExtensionRegistry;
+
+impl ExtensionRegistry {
+    pub fn is_known(tag: u8) -> bool {
+        !matches!(ExtensionTag::from(tag), ExtensionTag::Unknown(_))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum EdidWarning {
     UnknownExtension(u8),
