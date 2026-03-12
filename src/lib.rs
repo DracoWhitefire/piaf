@@ -6,7 +6,7 @@ extern crate alloc;
 pub mod model;
 pub use model::{
     DisplayCapabilities, EdidError, EdidWarning, ExtensionLibrary, ExtensionMetadata,
-    ExtensionTagRegistry, ParsedEdid,
+    ExtensionTagRegistry, ParsedEdid, VideoMode,
 };
 
 pub mod parser;
