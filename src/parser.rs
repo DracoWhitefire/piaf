@@ -1,4 +1,6 @@
-use crate::model::diagnostics::{EdidError, EdidWarning};
+use crate::model::diagnostics::EdidError;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::diagnostics::EdidWarning;
 use crate::model::extension::ExtensionTagRegistry;
 use crate::model::ParsedEdid;
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -7,6 +9,7 @@ use crate::model::Vec;
 pub const EDID_HEADER: [u8; 8] = [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00];
 
 pub fn parse_edid(bytes: &[u8], registry: &ExtensionTagRegistry) -> Result<ParsedEdid, EdidError> {
+    let _ = registry; // Suppress unused warning in no_alloc
     if bytes.len() < 128 {
         return Err(EdidError::InvalidLength);
     }
