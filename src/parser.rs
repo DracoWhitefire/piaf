@@ -24,7 +24,7 @@ pub fn parse_edid(bytes: &[u8]) -> Result<ParsedEdid, EdidError> {
     #[cfg(any(feature = "alloc", feature = "std"))]
     let mut extensions = Vec::new();
     #[cfg(any(feature = "alloc", feature = "std"))]
-    let warnings = Vec::new();
+    let mut warnings = Vec::new();
 
     #[cfg(any(feature = "alloc", feature = "std"))]
     {
@@ -44,6 +44,14 @@ pub fn parse_edid(bytes: &[u8]) -> Result<ParsedEdid, EdidError> {
             if ext_sum != 0 {
                 return Err(EdidError::ChecksumMismatch);
             }
+
+            let tag = ext_block[0];
+            // CEA-861 (0x02) and DisplayID (0x70) are some common ones.
+            // For now, let's treat anything other than 0x02 as unknown for demonstration.
+            if tag != 0x02 {
+                warnings.push(crate::model::EdidWarning::UnknownExtension(tag));
+            }
+
             extensions.push(ext_block);
         }
     }
@@ -124,5 +132,27 @@ mod tests {
         bytes[128] = 0x01;
         bytes[255] = 0x00; // Wrong checksum
         assert_eq!(parse_edid(&bytes), Err(EdidError::ChecksumMismatch));
+    }
+
+    #[test]
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    fn test_parse_unknown_extension_warning() {
+        let mut bytes = [0u8; 256];
+        bytes[0..8].copy_from_slice(&EDID_HEADER);
+        bytes[126] = 1;
+        bytes[127] = 5;
+
+        // Extension block with tag 0xEE (Unknown)
+        bytes[128] = 0xEE;
+        bytes[255] = 256u16.wrapping_sub(0xEE) as u8; // Correct checksum for 0xEE
+
+        let result = parse_edid(&bytes);
+        assert!(result.is_ok());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.warnings.len(), 1);
+        assert_eq!(
+            parsed.warnings[0],
+            crate::model::EdidWarning::UnknownExtension(0xEE)
+        );
     }
 }
