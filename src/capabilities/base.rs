@@ -152,3 +152,119 @@ impl ExtensionHandler for BaseBlockHandler {
         }
     }
 }
+
+#[cfg(test)]
+#[cfg(any(feature = "alloc", feature = "std"))]
+mod tests {
+    use super::*;
+    use crate::model::capabilities::DisplayCapabilities;
+
+    #[test]
+    fn test_identification() {
+        let mut base = [0u8; 128];
+
+        // Manufacturer "SAM": S=19 (10011), A=1 (00001), M=13 (01101)
+        // 0 10011 00001 01101 => 0x4C 0x2D
+        base[0x08] = 0x4C;
+        base[0x09] = 0x2D;
+
+        // Product Code: 0x1234 (little-endian)
+        base[0x0A] = 0x34;
+        base[0x0B] = 0x12;
+
+        // Serial Number: 0x12345678 (little-endian)
+        base[0x0C] = 0x78;
+        base[0x0D] = 0x56;
+        base[0x0E] = 0x34;
+        base[0x0F] = 0x12;
+
+        // Video Input: Digital
+        base[0x14] = 0x80;
+
+        // Physical Dimensions: 51cm x 29cm
+        base[0x15] = 51;
+        base[0x16] = 29;
+
+        // Monitor Name Descriptor at 0x36: "PIAF"
+        base[0x36..0x3B].copy_from_slice(&[0x00, 0x00, 0x00, 0xFC, 0x00]);
+        base[0x3B..0x3F].copy_from_slice(b"PIAF");
+        base[0x3F] = 0x0A;
+        for i in 0x40..0x48 {
+            base[i] = 0x20;
+        }
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps);
+
+        assert_eq!(caps.manufacturer, Some("SAM".to_string()));
+        assert_eq!(caps.product_code, Some(0x1234));
+        assert_eq!(caps.serial_number, Some(0x12345678));
+        assert!(caps.digital);
+        assert_eq!(caps.width_cm, Some(51));
+        assert_eq!(caps.height_cm, Some(29));
+        assert_eq!(caps.display_name, Some("PIAF".to_string()));
+    }
+
+    #[test]
+    fn test_standard_timings() {
+        let mut base = [0u8; 128];
+
+        // 1920x1080 @ 60Hz: width byte = 1920/8 - 31 = 209, flags = 16:9 (3<<6) | 0Hz offset
+        base[0x26] = 209;
+        base[0x27] = 0xC0;
+
+        // 1280x1024 @ 75Hz: width byte = 1280/8 - 31 = 129, flags = 5:4 (2<<6) | 15Hz offset
+        base[0x28] = 129;
+        base[0x29] = 0x8F;
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps);
+
+        assert_eq!(caps.supported_modes.len(), 2);
+        assert_eq!(caps.supported_modes[0].width, 1920);
+        assert_eq!(caps.supported_modes[0].height, 1080);
+        assert_eq!(caps.supported_modes[0].refresh_rate, 60);
+        assert_eq!(caps.supported_modes[1].width, 1280);
+        assert_eq!(caps.supported_modes[1].height, 1024);
+        assert_eq!(caps.supported_modes[1].refresh_rate, 75);
+    }
+
+    #[test]
+    fn test_detailed_timing_and_range_limits() {
+        let mut base = [0u8; 128];
+
+        // DTD at 0x36: 1920x1080 @ 60Hz
+        // Pixel clock: 14850 (units of 10kHz = 148.50 MHz)
+        base[0x36] = 0x02;
+        base[0x37] = 0x3A;
+        // HActive=1920 (0x780), HBlank=280 (0x118): high nibbles packed into byte 4
+        base[0x38] = 0x80; // HActive LSB
+        base[0x39] = 0x18; // HBlank LSB
+        base[0x3A] = 0x71; // HActive high (0x7) | HBlank high (0x1)
+        // VActive=1080 (0x438), VBlank=45 (0x02D): high nibbles packed into byte 7
+        base[0x3B] = 0x38; // VActive LSB
+        base[0x3C] = 0x2D; // VBlank LSB
+        base[0x3D] = 0x40; // VActive high (0x4) | VBlank high (0x0)
+
+        // Monitor Range Limits at 0x48
+        base[0x48..0x4D].copy_from_slice(&[0x00, 0x00, 0x00, 0xFD, 0x00]);
+        base[0x4D] = 48; // VMin
+        base[0x4E] = 75; // VMax
+        base[0x4F] = 30; // HMin (kHz)
+        base[0x50] = 83; // HMax (kHz)
+        base[0x51] = 17; // Max pixel clock (170 MHz)
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps);
+
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 1920);
+        assert_eq!(caps.supported_modes[0].height, 1080);
+        assert_eq!(caps.supported_modes[0].refresh_rate, 60);
+        assert_eq!(caps.min_v_rate, Some(48));
+        assert_eq!(caps.max_v_rate, Some(75));
+        assert_eq!(caps.min_h_rate_khz, Some(30));
+        assert_eq!(caps.max_h_rate_khz, Some(83));
+        assert_eq!(caps.max_pixel_clock_mhz, Some(170));
+    }
+}

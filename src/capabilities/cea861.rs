@@ -19,3 +19,33 @@ impl ExtensionHandler for Cea861Handler {
         // We could also parse Video Data Blocks (VICs) here to get more modes
     }
 }
+
+#[cfg(test)]
+#[cfg(any(feature = "alloc", feature = "std"))]
+mod tests {
+    use super::*;
+    use crate::model::capabilities::DisplayCapabilities;
+
+    #[test]
+    fn test_audio_flag() {
+        let mut ext = [0u8; 128];
+
+        // Byte 3, bit 6 set = basic audio supported
+        ext[3] = 0x40;
+
+        let mut caps = DisplayCapabilities::default();
+        Cea861Handler.process(&ext, &mut caps);
+
+        assert!(caps.has_audio);
+    }
+
+    #[test]
+    fn test_no_audio_flag() {
+        let ext = [0u8; 128];
+
+        let mut caps = DisplayCapabilities::default();
+        Cea861Handler.process(&ext, &mut caps);
+
+        assert!(!caps.has_audio);
+    }
+}
