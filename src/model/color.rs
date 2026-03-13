@@ -217,3 +217,33 @@ impl ColorBitDepth {
         }
     }
 }
+
+/// DCM polynomial coefficients for a single primary colour, decoded from a `0xF9` descriptor.
+///
+/// The `a3` and `a2` values are the second- and third-order coefficients of the colour
+/// management polynomial defined in the VESA DCM Standard v1 (January 2003).
+/// Both values are unsigned 16-bit little-endian quantities.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DcmChannel {
+    /// Third-order polynomial coefficient (`a3`).
+    pub a3: u16,
+    /// Second-order polynomial coefficient (`a2`).
+    pub a2: u16,
+}
+
+/// Color Management Data decoded from a `0xF9` descriptor.
+///
+/// Contains DCM polynomial coefficients for the red, green, and blue primaries.
+/// Only present when the EDID includes a Color Management Data descriptor with version
+/// byte `0x03`.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ColorManagementData {
+    /// DCM coefficients for the red primary.
+    pub red: DcmChannel,
+    /// DCM coefficients for the green primary.
+    pub green: DcmChannel,
+    /// DCM coefficients for the blue primary.
+    pub blue: DcmChannel,
+}

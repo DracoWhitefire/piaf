@@ -22,8 +22,8 @@ pub use edid::{EdidVersion, ParsedEdid};
 /// Color-related model types.
 pub mod color;
 pub use color::{
-    AnalogColorType, Chromaticity, ChromaticityPoint, ColorBitDepth, DigitalColorEncoding,
-    DisplayGamma, WhitePoint,
+    AnalogColorType, Chromaticity, ChromaticityPoint, ColorBitDepth, ColorManagementData,
+    DcmChannel, DigitalColorEncoding, DisplayGamma, WhitePoint,
 };
 
 /// Input interface model types.

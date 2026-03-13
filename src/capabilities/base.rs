@@ -2,8 +2,8 @@ use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::VideoMode;
 use crate::model::color::{
-    AnalogColorType, Chromaticity, ChromaticityPoint, ColorBitDepth, DigitalColorEncoding,
-    DisplayGamma, WhitePoint,
+    AnalogColorType, Chromaticity, ChromaticityPoint, ColorBitDepth, ColorManagementData,
+    DcmChannel, DigitalColorEncoding, DisplayGamma, WhitePoint,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
@@ -301,6 +301,26 @@ fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilities) {
             if !trimmed.is_empty() {
                 caps.unspecified_text.push(trimmed);
             }
+        }
+
+        // Color Management Data: tag 0xF9
+        // Byte 5 = version (must be 0x03). Bytes 6-17: three pairs of (a3 LSB, a3 MSB, a2 LSB, a2 MSB)
+        // for red, green, blue in that order.
+        if descriptor[0..5] == [0x00, 0x00, 0x00, 0xF9, 0x00] && descriptor[5] == 0x03 {
+            caps.color_management = Some(ColorManagementData {
+                red: DcmChannel {
+                    a3: ((descriptor[7] as u16) << 8) | (descriptor[6] as u16),
+                    a2: ((descriptor[9] as u16) << 8) | (descriptor[8] as u16),
+                },
+                green: DcmChannel {
+                    a3: ((descriptor[11] as u16) << 8) | (descriptor[10] as u16),
+                    a2: ((descriptor[13] as u16) << 8) | (descriptor[12] as u16),
+                },
+                blue: DcmChannel {
+                    a3: ((descriptor[15] as u16) << 8) | (descriptor[14] as u16),
+                    a2: ((descriptor[17] as u16) << 8) | (descriptor[16] as u16),
+                },
+            });
         }
 
         // Monitor Name Descriptor: tag 0xFC
@@ -1327,5 +1347,63 @@ mod tests {
                 preferred_v_rate: Some(60),
             }))
         );
+    }
+
+    #[test]
+    fn test_color_management_data() {
+        use crate::model::color::{ColorManagementData, DcmChannel};
+
+        let mut base = [0u8; 128];
+        base[0x36..0x3C].copy_from_slice(&[0x00, 0x00, 0x00, 0xF9, 0x00, 0x03]);
+        // Red:   a3 = 0x1234, a2 = 0x5678
+        base[0x3C] = 0x34;
+        base[0x3D] = 0x12; // red a3 LSB, MSB
+        base[0x3E] = 0x78;
+        base[0x3F] = 0x56; // red a2 LSB, MSB
+                           // Green: a3 = 0xABCD, a2 = 0xEF01
+        base[0x40] = 0xCD;
+        base[0x41] = 0xAB; // green a3
+        base[0x42] = 0x01;
+        base[0x43] = 0xEF; // green a2
+                           // Blue:  a3 = 0x0200, a2 = 0x0400
+        base[0x44] = 0x00;
+        base[0x45] = 0x02; // blue a3
+        base[0x46] = 0x00;
+        base[0x47] = 0x04; // blue a2
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+
+        assert_eq!(
+            caps.color_management,
+            Some(ColorManagementData {
+                red: DcmChannel {
+                    a3: 0x1234,
+                    a2: 0x5678
+                },
+                green: DcmChannel {
+                    a3: 0xABCD,
+                    a2: 0xEF01
+                },
+                blue: DcmChannel {
+                    a3: 0x0200,
+                    a2: 0x0400
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn test_color_management_wrong_version_ignored() {
+        let mut base = [0u8; 128];
+        // Version byte = 0x02 (reserved) — should not decode
+        base[0x36..0x3C].copy_from_slice(&[0x00, 0x00, 0x00, 0xF9, 0x00, 0x02]);
+        base[0x3C] = 0xFF;
+        base[0x3D] = 0xFF;
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+
+        assert_eq!(caps.color_management, None);
     }
 }

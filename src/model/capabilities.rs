@@ -119,6 +119,8 @@ pub struct DisplayCapabilities {
     pub preferred_image_size_mm: Option<(u16, u16)>,
     /// Video timing formula reported in the display range limits descriptor (`0xFD`), byte 10.
     pub timing_formula: Option<crate::model::timing::TimingFormula>,
+    /// DCM polynomial coefficients decoded from a Color Management Data descriptor (`0xF9`).
+    pub color_management: Option<crate::model::color::ColorManagementData>,
     /// Video modes decoded from standard timing and detailed timing descriptors.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub supported_modes: Vec<VideoMode>,
