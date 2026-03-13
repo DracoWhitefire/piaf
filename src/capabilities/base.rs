@@ -1,7 +1,9 @@
 use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::VideoMode;
-use crate::model::color::{AnalogColorType, Chromaticity, ColorBitDepth, DigitalColorEncoding, DisplayGamma};
+use crate::model::color::{
+    AnalogColorType, Chromaticity, ColorBitDepth, DigitalColorEncoding, DisplayGamma,
+};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 use crate::model::edid::EdidVersion;
@@ -280,7 +282,9 @@ fn decode_detailed_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) {
 mod tests {
     use super::*;
     use crate::model::capabilities::{DisplayCapabilities, VideoMode};
-    use crate::model::color::{AnalogColorType, Chromaticity, ColorBitDepth, DigitalColorEncoding, DisplayGamma};
+    use crate::model::color::{
+        AnalogColorType, Chromaticity, ColorBitDepth, DigitalColorEncoding, DisplayGamma,
+    };
     use crate::model::edid::EdidVersion;
     use crate::model::features::DisplayFeatureFlags;
     use crate::model::input::VideoInterface;
@@ -400,13 +404,15 @@ mod tests {
         base[0x1D] = (307u16 >> 2) as u8; // G x MSB
         base[0x1E] = (614u16 >> 2) as u8; // G y MSB
         base[0x1F] = (154u16 >> 2) as u8; // B x MSB
-        base[0x20] = (61u16  >> 2) as u8; // B y MSB
+        base[0x20] = (61u16 >> 2) as u8; // B y MSB
         base[0x21] = (320u16 >> 2) as u8; // W x MSB
         base[0x22] = (337u16 >> 2) as u8; // W y MSB
-        // LSB byte 0x19: Rx[1:0] | Ry[1:0] | Gx[1:0] | Gy[1:0]
-        base[0x19] = (((655u16 & 3) << 6) | ((338u16 & 3) << 4) | ((307u16 & 3) << 2) | (614u16 & 3)) as u8;
+                                          // LSB byte 0x19: Rx[1:0] | Ry[1:0] | Gx[1:0] | Gy[1:0]
+        base[0x19] =
+            (((655u16 & 3) << 6) | ((338u16 & 3) << 4) | ((307u16 & 3) << 2) | (614u16 & 3)) as u8;
         // LSB byte 0x1A: Bx[1:0] | By[1:0] | Wx[1:0] | Wy[1:0]
-        base[0x1A] = (((154u16 & 3) << 6) | ((61u16  & 3) << 4) | ((320u16 & 3) << 2) | (337u16 & 3)) as u8;
+        base[0x1A] =
+            (((154u16 & 3) << 6) | ((61u16 & 3) << 4) | ((320u16 & 3) << 2) | (337u16 & 3)) as u8;
 
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());

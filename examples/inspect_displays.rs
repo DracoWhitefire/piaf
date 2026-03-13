@@ -133,6 +133,13 @@ fn main() {
                             if let Some(gamma) = caps.gamma {
                                 println!("  Gamma:        {:.2}", gamma.value());
                             }
+                            let c = &caps.chromaticity;
+                            println!("  Chromaticity: R({:.4},{:.4}) G({:.4},{:.4}) B({:.4},{:.4}) W({:.4},{:.4})",
+                                c.red.x(),   c.red.y(),
+                                c.green.x(), c.green.y(),
+                                c.blue.x(),  c.blue.y(),
+                                c.white.x(), c.white.y(),
+                            );
                             if let Some(iface) = caps.video_interface {
                                 println!("  Interface:    {:?}", iface);
                             }

@@ -57,10 +57,34 @@ fn lg_ultragear_identification() {
     // EDID 1.3 digital — color encoding field not decoded
     assert_eq!(caps.digital_color_encoding, None);
     // Chromaticity — wide-gamut red, D65 white point
-    assert_eq!(caps.chromaticity.red,   ChromaticityPoint { x_raw: 702, y_raw: 316 });
-    assert_eq!(caps.chromaticity.green, ChromaticityPoint { x_raw: 271, y_raw: 684 });
-    assert_eq!(caps.chromaticity.blue,  ChromaticityPoint { x_raw: 154, y_raw:  59 });
-    assert_eq!(caps.chromaticity.white, ChromaticityPoint { x_raw: 321, y_raw: 337 });
+    assert_eq!(
+        caps.chromaticity.red,
+        ChromaticityPoint {
+            x_raw: 702,
+            y_raw: 316
+        }
+    );
+    assert_eq!(
+        caps.chromaticity.green,
+        ChromaticityPoint {
+            x_raw: 271,
+            y_raw: 684
+        }
+    );
+    assert_eq!(
+        caps.chromaticity.blue,
+        ChromaticityPoint {
+            x_raw: 154,
+            y_raw: 59
+        }
+    );
+    assert_eq!(
+        caps.chromaticity.white,
+        ChromaticityPoint {
+            x_raw: 321,
+            y_raw: 337
+        }
+    );
     assert_eq!(caps.width_cm, Some(60));
     assert_eq!(caps.height_cm, Some(34));
 }
@@ -148,10 +172,34 @@ fn auo_edp_identification() {
     );
     assert_eq!(caps.analog_color_type, None);
     // Chromaticity — sRGB-ish primaries, D65 white point
-    assert_eq!(caps.chromaticity.red,   ChromaticityPoint { x_raw: 589, y_raw: 355 });
-    assert_eq!(caps.chromaticity.green, ChromaticityPoint { x_raw: 360, y_raw: 592 });
-    assert_eq!(caps.chromaticity.blue,  ChromaticityPoint { x_raw: 165, y_raw: 131 });
-    assert_eq!(caps.chromaticity.white, ChromaticityPoint { x_raw: 321, y_raw: 337 });
+    assert_eq!(
+        caps.chromaticity.red,
+        ChromaticityPoint {
+            x_raw: 589,
+            y_raw: 355
+        }
+    );
+    assert_eq!(
+        caps.chromaticity.green,
+        ChromaticityPoint {
+            x_raw: 360,
+            y_raw: 592
+        }
+    );
+    assert_eq!(
+        caps.chromaticity.blue,
+        ChromaticityPoint {
+            x_raw: 165,
+            y_raw: 131
+        }
+    );
+    assert_eq!(
+        caps.chromaticity.white,
+        ChromaticityPoint {
+            x_raw: 321,
+            y_raw: 337
+        }
+    );
     assert_eq!(caps.width_cm, Some(38));
     assert_eq!(caps.height_cm, Some(22));
 }

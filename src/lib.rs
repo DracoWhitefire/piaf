@@ -29,9 +29,9 @@ pub use model::ExtensionData;
 pub use model::ExtensionHandler;
 pub use model::{
     AnalogColorType, Chromaticity, ChromaticityPoint, ColorBitDepth, DigitalColorEncoding,
-    DisplayCapabilities, DisplayFeatureFlags, DisplayGamma, EdidError, EdidVersion, EdidWarning, ExtensionLibrary, ExtensionMetadata,
-    ExtensionTagRegistry, KnownExtensions, ManufactureDate, ParsedEdid, VideoInputFlags,
-    VideoInterface, VideoMode,
+    DisplayCapabilities, DisplayFeatureFlags, DisplayGamma, EdidError, EdidVersion, EdidWarning,
+    ExtensionLibrary, ExtensionMetadata, ExtensionTagRegistry, KnownExtensions, ManufactureDate,
+    ParsedEdid, VideoInputFlags, VideoInterface, VideoMode,
 };
 
 /// EDID byte-level parser.
