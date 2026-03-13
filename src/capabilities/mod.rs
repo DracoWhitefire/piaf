@@ -12,7 +12,7 @@ use crate::model::extension::ExtensionLibrary;
 #[cfg(not(any(feature = "alloc", feature = "std")))]
 use crate::model::extension::ExtensionLibrary;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::prelude::Box;
+use crate::model::prelude::Box;
 use crate::model::ParsedEdid;
 
 #[cfg(any(feature = "alloc", feature = "std"))]

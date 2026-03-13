@@ -1,7 +1,7 @@
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::prelude::Vec;
+use crate::model::prelude::Vec;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedEdid {

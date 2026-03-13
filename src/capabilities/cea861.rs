@@ -4,7 +4,7 @@ use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::extension::ExtensionHandler;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::prelude::Vec;
+use crate::model::prelude::Vec;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[derive(Debug)]

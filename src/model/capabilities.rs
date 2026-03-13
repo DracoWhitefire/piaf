@@ -1,7 +1,7 @@
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::prelude::{String, Vec};
+use crate::model::prelude::{String, Vec};
 #[cfg(feature = "std")]
 use core::any::Any;
 #[cfg(feature = "std")]

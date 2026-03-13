@@ -3,7 +3,7 @@ use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::prelude::{Box, String, Vec};
+use crate::model::prelude::{Box, String, Vec};
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub trait ExtensionHandler: core::fmt::Debug {
@@ -52,6 +52,13 @@ pub struct ExtensionTagRegistry {
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]
+impl Default for ExtensionTagRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl ExtensionTagRegistry {
     pub fn new() -> Self {
         Self {
@@ -74,6 +81,13 @@ impl ExtensionTagRegistry {
 pub struct ExtensionTagRegistry {
     tags: [u8; 16],
     len: usize,
+}
+
+#[cfg(not(any(feature = "alloc", feature = "std")))]
+impl Default for ExtensionTagRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(not(any(feature = "alloc", feature = "std")))]
@@ -108,6 +122,12 @@ pub struct ExtensionLibrary {
     pub base_handlers: Vec<Box<dyn ExtensionHandler>>,
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub extensions: Vec<ExtensionMetadata>,
+}
+
+impl Default for ExtensionLibrary {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ExtensionLibrary {
