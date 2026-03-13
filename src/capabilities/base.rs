@@ -14,7 +14,12 @@ pub struct BaseBlockHandler;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl ExtensionHandler for BaseBlockHandler {
-    fn process(&self, base: &[u8; 128], caps: &mut DisplayCapabilities, _warnings: &mut Vec<EdidWarning>) {
+    fn process(
+        &self,
+        base: &[u8; 128],
+        caps: &mut DisplayCapabilities,
+        _warnings: &mut Vec<EdidWarning>,
+    ) {
         // 1. Manufacturer ID (offsets 0x08-0x09)
         // 2 bytes, 3 characters, 5 bits per character (00001=A, ..., 11010=Z)
         let id_raw = ((base[0x08] as u16) << 8) | (base[0x09] as u16);
@@ -140,7 +145,9 @@ impl ExtensionHandler for BaseBlockHandler {
             }
 
             let rate = (pixel_clock * 10_000) / total_pixels;
-            let Some(refresh_rate) = u8::try_from(rate).ok() else { continue };
+            let Some(refresh_rate) = u8::try_from(rate).ok() else {
+                continue;
+            };
 
             let mode = VideoMode {
                 width: hactive,
@@ -243,7 +250,7 @@ mod tests {
         base[0x38] = 0x80; // HActive LSB
         base[0x39] = 0x18; // HBlank LSB
         base[0x3A] = 0x71; // HActive high (0x7) | HBlank high (0x1)
-        // VActive=1080 (0x438), VBlank=45 (0x02D): high nibbles packed into byte 7
+                           // VActive=1080 (0x438), VBlank=45 (0x02D): high nibbles packed into byte 7
         base[0x3B] = 0x38; // VActive LSB
         base[0x3C] = 0x2D; // VBlank LSB
         base[0x3D] = 0x40; // VActive high (0x4) | VBlank high (0x0)

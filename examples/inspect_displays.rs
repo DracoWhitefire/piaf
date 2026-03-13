@@ -1,9 +1,9 @@
+use piaf::{
+    capabilities_from_edid, parse_edid, DisplayCapabilities, EdidWarning, ExtensionHandler,
+    ExtensionLibrary,
+};
 use std::fs;
 use std::path::Path;
-use piaf::{
-    parse_edid, capabilities_from_edid,
-    DisplayCapabilities, EdidWarning, ExtensionHandler, ExtensionLibrary,
-};
 
 // ---------------------------------------------------------------------------
 // Custom extension data example
@@ -26,17 +26,25 @@ struct CeaDetails {
 struct CeaDetailsHandler;
 
 impl ExtensionHandler for CeaDetailsHandler {
-    fn process(&self, ext: &[u8; 128], caps: &mut DisplayCapabilities, _warnings: &mut Vec<EdidWarning>) {
+    fn process(
+        &self,
+        ext: &[u8; 128],
+        caps: &mut DisplayCapabilities,
+        _warnings: &mut Vec<EdidWarning>,
+    ) {
         // Bit 6 of byte 3: basic audio support
         if (ext[3] & 0x40) != 0 {
             caps.has_audio = true;
         }
 
         // Store additional typed data alongside standard capability fields
-        caps.set_extension_data(0x02, CeaDetails {
-            version: ext[1],
-            dtd_offset: ext[2],
-        });
+        caps.set_extension_data(
+            0x02,
+            CeaDetails {
+                version: ext[1],
+                dtd_offset: ext[2],
+            },
+        );
     }
 }
 
@@ -65,9 +73,7 @@ fn main() {
                 continue;
             }
 
-            let name = path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
             let edid_path = path.join("edid");
             if edid_path.exists() {
@@ -84,18 +90,35 @@ fn main() {
                         Ok(parsed) => {
                             let caps = capabilities_from_edid(&parsed, &library);
 
-                            println!("  Manufacturer: {:?}", caps.manufacturer.as_deref().unwrap_or("Unknown"));
-                            println!("  Display Name: {:?}", caps.display_name.as_deref().unwrap_or("Unknown"));
+                            println!(
+                                "  Manufacturer: {:?}",
+                                caps.manufacturer.as_deref().unwrap_or("Unknown")
+                            );
+                            println!(
+                                "  Display Name: {:?}",
+                                caps.display_name.as_deref().unwrap_or("Unknown")
+                            );
                             println!("  Product Code: {:?}", caps.product_code);
                             println!("  Serial:       {:?}", caps.serial_number);
-                            println!("  Dimensions:   {:?}x{:?} cm", caps.width_cm, caps.height_cm);
-                            println!("  Input type:   {}", if caps.digital { "Digital" } else { "Analog" });
-                            println!("  Audio support: {}", if caps.has_audio { "Yes" } else { "No" });
+                            println!(
+                                "  Dimensions:   {:?}x{:?} cm",
+                                caps.width_cm, caps.height_cm
+                            );
+                            println!(
+                                "  Input type:   {}",
+                                if caps.digital { "Digital" } else { "Analog" }
+                            );
+                            println!(
+                                "  Audio support: {}",
+                                if caps.has_audio { "Yes" } else { "No" }
+                            );
 
                             if let (Some(min_v), Some(max_v)) = (caps.min_v_rate, caps.max_v_rate) {
                                 println!("  V-Range:      {} - {} Hz", min_v, max_v);
                             }
-                            if let (Some(min_h), Some(max_h)) = (caps.min_h_rate_khz, caps.max_h_rate_khz) {
+                            if let (Some(min_h), Some(max_h)) =
+                                (caps.min_h_rate_khz, caps.max_h_rate_khz)
+                            {
                                 println!("  H-Range:      {} - {} kHz", min_h, max_h);
                             }
                             if let Some(clock) = caps.max_pixel_clock_mhz {
@@ -118,7 +141,10 @@ fn main() {
                             if !caps.supported_modes.is_empty() {
                                 println!("  Supported Modes ({}):", caps.supported_modes.len());
                                 for mode in caps.supported_modes.iter().take(5) {
-                                    println!("    - {}x{}@{}Hz", mode.width, mode.height, mode.refresh_rate);
+                                    println!(
+                                        "    - {}x{}@{}Hz",
+                                        mode.width, mode.height, mode.refresh_rate
+                                    );
                                 }
                                 if caps.supported_modes.len() > 5 {
                                     println!("    ... and {} more", caps.supported_modes.len() - 5);

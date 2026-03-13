@@ -1,13 +1,18 @@
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::prelude::{String, Vec, Box};
-#[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::prelude::prelude::{Box, String, Vec};
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub trait ExtensionHandler: core::fmt::Debug {
-    fn process(&self, block: &[u8; 128], caps: &mut DisplayCapabilities, warnings: &mut Vec<EdidWarning>);
+    fn process(
+        &self,
+        block: &[u8; 128],
+        caps: &mut DisplayCapabilities,
+        warnings: &mut Vec<EdidWarning>,
+    );
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -49,7 +54,9 @@ pub struct ExtensionTagRegistry {
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl ExtensionTagRegistry {
     pub fn new() -> Self {
-        Self { known_tags: Vec::new() }
+        Self {
+            known_tags: Vec::new(),
+        }
     }
 
     pub fn register(&mut self, tag: u8) {
@@ -72,7 +79,10 @@ pub struct ExtensionTagRegistry {
 #[cfg(not(any(feature = "alloc", feature = "std")))]
 impl ExtensionTagRegistry {
     pub fn new() -> Self {
-        Self { tags: [0u8; 16], len: 0 }
+        Self {
+            tags: [0u8; 16],
+            len: 0,
+        }
     }
 
     pub fn register(&mut self, tag: u8) {

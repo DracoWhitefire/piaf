@@ -7,13 +7,13 @@ pub use base::BaseBlockHandler;
 pub use cea861::Cea861Handler;
 
 use crate::model::capabilities::DisplayCapabilities;
-use crate::model::ParsedEdid;
-#[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::prelude::Box;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::extension::ExtensionLibrary;
 #[cfg(not(any(feature = "alloc", feature = "std")))]
 use crate::model::extension::ExtensionLibrary;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::prelude::prelude::Box;
+use crate::model::ParsedEdid;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl ExtensionLibrary {
@@ -27,7 +27,10 @@ impl ExtensionLibrary {
     }
 }
 
-pub fn capabilities_from_edid(edid: &ParsedEdid, library: &ExtensionLibrary) -> DisplayCapabilities {
+pub fn capabilities_from_edid(
+    edid: &ParsedEdid,
+    library: &ExtensionLibrary,
+) -> DisplayCapabilities {
     #[cfg(any(feature = "alloc", feature = "std"))]
     let mut caps = DisplayCapabilities::default();
     #[cfg(not(any(feature = "alloc", feature = "std")))]

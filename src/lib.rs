@@ -4,14 +4,14 @@
 extern crate alloc;
 
 pub mod model;
+#[cfg(feature = "std")]
+pub use model::ExtensionData;
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use model::ExtensionHandler;
 pub use model::{
     DisplayCapabilities, EdidError, EdidWarning, ExtensionLibrary, ExtensionMetadata,
     ExtensionTagRegistry, KnownExtensions, ParsedEdid, VideoMode,
 };
-#[cfg(any(feature = "alloc", feature = "std"))]
-pub use model::ExtensionHandler;
-#[cfg(feature = "std")]
-pub use model::ExtensionData;
 
 pub mod parser;
 pub use parser::parse_edid;

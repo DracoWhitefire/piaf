@@ -94,7 +94,10 @@ mod tests {
         bytes[0..8].copy_from_slice(&EDID_HEADER);
         bytes[127] = 0x01; // Wrong checksum (should be 6 for all-zeros block with header)
         let registry = ExtensionTagRegistry::new();
-        assert_eq!(parse_edid(&bytes, &registry), Err(EdidError::ChecksumMismatch));
+        assert_eq!(
+            parse_edid(&bytes, &registry),
+            Err(EdidError::ChecksumMismatch)
+        );
     }
 
     #[test]
@@ -141,7 +144,10 @@ mod tests {
         bytes[128] = 0x01;
         bytes[255] = 0x00; // Wrong checksum
         let registry = ExtensionTagRegistry::new();
-        assert_eq!(parse_edid(&bytes, &registry), Err(EdidError::ChecksumMismatch));
+        assert_eq!(
+            parse_edid(&bytes, &registry),
+            Err(EdidError::ChecksumMismatch)
+        );
     }
 
     #[test]
@@ -161,10 +167,7 @@ mod tests {
         assert!(result.is_ok());
         let parsed = result.unwrap();
         assert_eq!(parsed.warnings.len(), 1);
-        assert_eq!(
-            parsed.warnings[0],
-            EdidWarning::UnknownExtension(0xEE)
-        );
+        assert_eq!(parsed.warnings[0], EdidWarning::UnknownExtension(0xEE));
     }
     #[test]
     #[cfg(any(feature = "alloc", feature = "std"))]
@@ -178,7 +181,8 @@ mod tests {
         bytes[128] = 0x70;
         bytes[255] = 256u16.wrapping_sub(0x70) as u8;
 
-        let registry = crate::model::extension::ExtensionLibrary::with_standard_extensions().export_tags();
+        let registry =
+            crate::model::extension::ExtensionLibrary::with_standard_extensions().export_tags();
         let result = parse_edid(&bytes, &registry);
         assert!(result.is_ok());
         let parsed = result.unwrap();
@@ -206,7 +210,7 @@ mod tests {
         let result = parse_edid(&bytes, &registry);
         assert!(result.is_ok());
         let parsed = result.unwrap();
-        
+
         // Should NOT have a warning because it was registered
         assert_eq!(parsed.warnings.len(), 0);
         assert_eq!(parsed.extensions.len(), 1);

@@ -3,11 +3,11 @@ use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::prelude::{String, Vec};
 #[cfg(feature = "std")]
+use core::any::Any;
+#[cfg(feature = "std")]
 use std::collections::HashMap;
 #[cfg(feature = "std")]
 use std::sync::Arc;
-#[cfg(feature = "std")]
-use core::any::Any;
 
 /// Trait for typed data stored in [`DisplayCapabilities::extension_data`] by custom handlers.
 ///
