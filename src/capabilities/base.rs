@@ -125,6 +125,19 @@ fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilities) {
         let offset = 0x36 + (i * 18);
         let descriptor = &base[offset..offset + 18];
 
+        // Additional Standard Timing Descriptor: tag 0xFA
+        // Bytes 5-16 contain up to 6 standard timing entries (2 bytes each).
+        if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFA] {
+            for j in 0..6 {
+                let base_off = 5 + (j * 2);
+                if let Some(mode) = decode_standard_timing_entry(descriptor[base_off], descriptor[base_off + 1]) {
+                    if !caps.supported_modes.contains(&mode) {
+                        caps.supported_modes.push(mode);
+                    }
+                }
+            }
+        }
+
         // Serial Number Descriptor: tag 0xFF
         if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFF] {
             let s = String::from_utf8_lossy(&descriptor[5..18]);
@@ -198,35 +211,32 @@ fn decode_established_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) 
     }
 }
 
+/// Decodes a single 2-byte standard timing entry into a [`VideoMode`].
+///
+/// Returns `None` for unused entries (`0x01 0x01` or a zero first byte).
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn decode_standard_timing_entry(b1: u8, b2: u8) -> Option<VideoMode> {
+    if (b1 == 0x01 && b2 == 0x01) || b1 == 0x00 {
+        return None;
+    }
+    let w = (b1 as u16 + 31) * 8;
+    let h = match (b2 >> 6) & 0x03 {
+        0x00 => (w * 10) / 16, // 16:10
+        0x01 => (w * 3) / 4,   // 4:3
+        0x02 => (w * 4) / 5,   // 5:4
+        _    => (w * 9) / 16,  // 16:9
+    };
+    Some(VideoMode { width: w, height: h, refresh_rate: (b2 & 0x3F) + 60 })
+}
+
 /// Decodes the eight standard timing descriptors (offsets 0x26–0x35, 2 bytes each).
 #[cfg(any(feature = "alloc", feature = "std"))]
 fn decode_standard_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) {
     for i in 0..8 {
         let offset = 0x26 + (i * 2);
-        let b1 = base[offset];
-        let b2 = base[offset + 1];
-
-        if b1 == 0x01 && b2 == 0x01 || b1 == 0x00 {
-            continue; // Unused
+        if let Some(mode) = decode_standard_timing_entry(base[offset], base[offset + 1]) {
+            caps.supported_modes.push(mode);
         }
-
-        let w = (b1 as u16 + 31) * 8;
-        let ratio_bits = (b2 >> 6) & 0x03;
-        let refresh_rate = (b2 & 0x3F) + 60;
-
-        let h = match ratio_bits {
-            0x00 => (w * 10) / 16, // 16:10
-            0x01 => (w * 3) / 4,   // 4:3
-            0x02 => (w * 4) / 5,   // 5:4
-            0x03 => (w * 9) / 16,  // 16:9
-            _ => unreachable!(),
-        };
-
-        caps.supported_modes.push(VideoMode {
-            width: w,
-            height: h,
-            refresh_rate,
-        });
     }
 }
 
@@ -553,6 +563,32 @@ mod tests {
         assert_eq!(caps.width_cm, Some(51));
         assert_eq!(caps.height_cm, Some(29));
         assert_eq!(caps.display_name, Some("PIAF".to_string()));
+    }
+
+    #[test]
+    fn test_additional_standard_timings() {
+        let mut base = [0u8; 128];
+
+        // 0xFA descriptor at 0x36 with two valid entries and four unused (0x01 0x01)
+        base[0x36..0x3A].copy_from_slice(&[0x00, 0x00, 0x00, 0xFA]);
+        base[0x3A] = 0x00; // reserved
+        // 1920x1080@60: b1 = 1920/8 - 31 = 209, b2 = 16:9 (3<<6) | 0
+        base[0x3B] = 209;
+        base[0x3C] = 0xC0;
+        // 1280x720@60: b1 = 1280/8 - 31 = 129, b2 = 16:9 (3<<6) | 0
+        base[0x3D] = 129;
+        base[0x3E] = 0xC0;
+        // remaining 4 entries unused
+        for i in 0..4 {
+            base[0x3F + (i * 2)] = 0x01;
+            base[0x40 + (i * 2)] = 0x01;
+        }
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+
+        assert!(caps.supported_modes.contains(&VideoMode { width: 1920, height: 1080, refresh_rate: 60 }));
+        assert!(caps.supported_modes.contains(&VideoMode { width: 1280, height: 720, refresh_rate: 60 }));
     }
 
     #[test]
