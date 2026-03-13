@@ -1,6 +1,6 @@
 pub mod prelude;
 #[cfg(any(feature = "alloc", feature = "std"))]
-pub use prelude::prelude::{String, Vec};
+pub use prelude::prelude::{String, Vec, Box};
 
 pub mod extension;
 pub use extension::{ExtensionLibrary, ExtensionMetadata, ExtensionTagRegistry};
