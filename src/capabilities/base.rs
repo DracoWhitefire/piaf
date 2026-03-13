@@ -2,6 +2,7 @@ use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::VideoMode;
 use crate::model::color::ColorBitDepth;
+use crate::model::input::VideoInterface;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -84,6 +85,7 @@ impl ExtensionHandler for BaseBlockHandler {
         caps.digital = video_input.contains(VideoInputFlags::DIGITAL);
         if caps.digital {
             caps.color_bit_depth = ColorBitDepth::from_edid_bits(base[0x14] >> 4);
+            caps.video_interface = VideoInterface::from_edid_bits(base[0x14]);
         }
 
         // 5. Physical Dimensions (offsets 0x15-0x16, width and height in cm)
@@ -200,30 +202,34 @@ mod tests {
     use super::*;
     use crate::model::capabilities::DisplayCapabilities;
     use crate::model::color::ColorBitDepth;
+    use crate::model::input::VideoInterface;
 
     #[test]
-    fn test_color_bit_depth() {
+    fn test_color_bit_depth_and_video_interface() {
         let mut base = [0u8; 128];
 
-        // Digital, 8 bpc (0b010 in bits 6-4 → 0x20), interface undefined
-        base[0x14] = 0x80 | 0x20;
+        // Digital, 8 bpc (bits 6-4 = 0b010), DisplayPort (bits 3-0 = 0x5)
+        base[0x14] = 0x80 | 0x25;
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
         assert!(caps.digital);
         assert_eq!(caps.color_bit_depth, Some(ColorBitDepth::Depth8));
+        assert_eq!(caps.video_interface, Some(VideoInterface::DisplayPort));
 
-        // Digital, undefined depth (0b000)
+        // Digital, undefined depth and interface
         base[0x14] = 0x80;
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
         assert_eq!(caps.color_bit_depth, None);
+        assert_eq!(caps.video_interface, None);
 
-        // Analog — no color bit depth
+        // Analog — neither field populated
         base[0x14] = 0x00;
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
         assert!(!caps.digital);
         assert_eq!(caps.color_bit_depth, None);
+        assert_eq!(caps.video_interface, None);
     }
 
     #[test]

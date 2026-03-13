@@ -23,6 +23,10 @@ pub use edid::ParsedEdid;
 pub mod color;
 pub use color::ColorBitDepth;
 
+/// Input interface model types.
+pub mod input;
+pub use input::VideoInterface;
+
 /// Consumer-facing capability types.
 pub mod capabilities;
 #[cfg(feature = "std")]

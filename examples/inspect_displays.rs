@@ -111,6 +111,9 @@ fn main() {
                             if let Some(depth) = caps.color_bit_depth {
                                 println!("  Color depth:  {} bpc", depth.bits_per_primary());
                             }
+                            if let Some(iface) = caps.video_interface {
+                                println!("  Interface:    {:?}", iface);
+                            }
                             println!(
                                 "  Audio support: {}",
                                 if caps.has_audio { "Yes" } else { "No" }

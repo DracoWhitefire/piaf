@@ -29,7 +29,8 @@ pub use model::ExtensionData;
 pub use model::ExtensionHandler;
 pub use model::{
     ColorBitDepth, DisplayCapabilities, EdidError, EdidWarning, ExtensionLibrary,
-    ExtensionMetadata, ExtensionTagRegistry, KnownExtensions, ParsedEdid, VideoMode,
+    ExtensionMetadata, ExtensionTagRegistry, KnownExtensions, ParsedEdid, VideoInterface,
+    VideoMode,
 };
 
 /// EDID byte-level parser.
