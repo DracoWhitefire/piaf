@@ -33,7 +33,7 @@ impl ExtensionHandler for CeaDetailsHandler {
     ) {
         // Store the standard CEA-861 capabilities under tag 0x02
         let flags = Cea861Flags::from_bits_truncate(ext[3]);
-        caps.set_extension_data(0x02, Cea861Capabilities { flags });
+        caps.set_extension_data(0x02, Cea861Capabilities { flags, vics: Vec::new() });
 
         // Store additional typed data under a custom key
         caps.set_extension_data(

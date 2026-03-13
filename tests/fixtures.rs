@@ -121,6 +121,36 @@ fn lg_ultragear_has_audio() {
 }
 
 #[test]
+fn lg_ultragear_cea_vics() {
+    let bytes = load("testdata/valid/lg_ultragear_gsm.bin");
+    let library = ExtensionLibrary::with_standard_handlers();
+    let parsed = parse_edid(&bytes, &library).unwrap();
+    let caps = capabilities_from_edid(&parsed, &library);
+
+    let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
+
+    // VICs present in the LG UltraGear Video Data Block
+    let vic_nums: Vec<u8> = cea.vics.iter().map(|(v, _)| *v).collect();
+    for expected in [1u8, 3, 4, 16, 18, 19, 31, 63] {
+        assert!(vic_nums.contains(&expected), "VIC {expected} missing");
+    }
+
+    // Each in-table VIC should have a corresponding entry in supported_modes
+    assert!(caps
+        .supported_modes
+        .iter()
+        .any(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 60 && !m.interlaced)); // VIC 16
+    assert!(caps
+        .supported_modes
+        .iter()
+        .any(|m| m.width == 1280 && m.height == 720 && m.refresh_rate == 60)); // VIC 4
+    assert!(caps
+        .supported_modes
+        .iter()
+        .any(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 120 && !m.interlaced)); // VIC 63
+}
+
+#[test]
 fn lg_ultragear_has_cea_extension() {
     let bytes = load("testdata/valid/lg_ultragear_gsm.bin");
     let library = ExtensionLibrary::with_standard_handlers();
