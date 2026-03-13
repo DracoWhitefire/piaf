@@ -50,7 +50,7 @@ impl Chromaticity {
             },
             green: ChromaticityPoint {
                 x_raw: ((base[0x1D] as u16) << 2) | ((lsb0 >> 2) & 0x03) as u16,
-                y_raw: ((base[0x1E] as u16) << 2) | ((lsb0 >> 0) & 0x03) as u16,
+                y_raw: ((base[0x1E] as u16) << 2) | (lsb0 & 0x03) as u16,
             },
             blue: ChromaticityPoint {
                 x_raw: ((base[0x1F] as u16) << 2) | ((lsb1 >> 6) & 0x03) as u16,
@@ -58,7 +58,7 @@ impl Chromaticity {
             },
             white: ChromaticityPoint {
                 x_raw: ((base[0x21] as u16) << 2) | ((lsb1 >> 2) & 0x03) as u16,
-                y_raw: ((base[0x22] as u16) << 2) | ((lsb1 >> 0) & 0x03) as u16,
+                y_raw: ((base[0x22] as u16) << 2) | (lsb1 & 0x03) as u16,
             },
         }
     }

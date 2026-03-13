@@ -1,7 +1,7 @@
 use piaf::{
-    capabilities_from_edid, parse_edid, AnalogColorType, ChromaticityPoint, ColorBitDepth,
-    DigitalColorEncoding, DisplayFeatureFlags, DisplayGamma, EdidVersion, ExtensionLibrary,
-    ExtensionTagRegistry, ManufactureDate, ScreenSize, VideoInterface,
+    capabilities_from_edid, parse_edid, ChromaticityPoint, ColorBitDepth, DigitalColorEncoding,
+    DisplayFeatureFlags, DisplayGamma, EdidVersion, ExtensionLibrary, ExtensionTagRegistry,
+    ManufactureDate, ScreenSize, VideoInterface,
 };
 
 fn load(path: &str) -> Vec<u8> {

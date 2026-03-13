@@ -149,29 +149,29 @@ fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilities) {
         if descriptor[0..5] == [0x00, 0x00, 0x00, 0xF7, 0x00] && descriptor[5] == 0x0A {
             const ET3: &[(usize, u8, u16, u16, u8)] = &[
                 // Byte 6
-                (6, 0x80,  640,  350, 85),
-                (6, 0x40,  640,  400, 85),
-                (6, 0x20,  720,  400, 85),
-                (6, 0x10,  640,  480, 85),
-                (6, 0x08,  848,  480, 60),
-                (6, 0x04,  800,  600, 85),
-                (6, 0x02, 1024,  768, 85),
-                (6, 0x01, 1152,  864, 75),
+                (6, 0x80, 640, 350, 85),
+                (6, 0x40, 640, 400, 85),
+                (6, 0x20, 720, 400, 85),
+                (6, 0x10, 640, 480, 85),
+                (6, 0x08, 848, 480, 60),
+                (6, 0x04, 800, 600, 85),
+                (6, 0x02, 1024, 768, 85),
+                (6, 0x01, 1152, 864, 75),
                 // Byte 7
-                (7, 0x80, 1280,  768, 60), // RB — same mode as non-RB below; deduplicates
-                (7, 0x40, 1280,  768, 60),
-                (7, 0x20, 1280,  768, 75),
-                (7, 0x10, 1280,  768, 85),
-                (7, 0x08, 1280,  960, 60),
-                (7, 0x04, 1280,  960, 85),
+                (7, 0x80, 1280, 768, 60), // RB — same mode as non-RB below; deduplicates
+                (7, 0x40, 1280, 768, 60),
+                (7, 0x20, 1280, 768, 75),
+                (7, 0x10, 1280, 768, 85),
+                (7, 0x08, 1280, 960, 60),
+                (7, 0x04, 1280, 960, 85),
                 (7, 0x02, 1280, 1024, 60),
                 (7, 0x01, 1280, 1024, 85),
                 // Byte 8
-                (8, 0x80, 1360,  768, 60),
-                (8, 0x40, 1440,  900, 60), // RB
-                (8, 0x20, 1440,  900, 60),
-                (8, 0x10, 1440,  900, 75),
-                (8, 0x08, 1440,  900, 85),
+                (8, 0x80, 1360, 768, 60),
+                (8, 0x40, 1440, 900, 60), // RB
+                (8, 0x20, 1440, 900, 60),
+                (8, 0x10, 1440, 900, 75),
+                (8, 0x08, 1440, 900, 85),
                 (8, 0x04, 1400, 1050, 60), // RB
                 (8, 0x02, 1400, 1050, 60),
                 (8, 0x01, 1400, 1050, 75),
@@ -201,9 +201,67 @@ fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilities) {
             ];
             for &(byte_off, mask, w, h, rate) in ET3 {
                 if descriptor[byte_off] & mask != 0 {
-                    let mode = VideoMode { width: w, height: h, refresh_rate: rate };
+                    let mode = VideoMode {
+                        width: w,
+                        height: h,
+                        refresh_rate: rate,
+                    };
                     if !caps.supported_modes.contains(&mode) {
                         caps.supported_modes.push(mode);
+                    }
+                }
+            }
+        }
+
+        // CVT 3 Byte Code Descriptor: tag 0xF8
+        // Byte 5 must be version 0x01. Bytes 6-17 hold up to 4 entries of 3 bytes each.
+        // An entry of (00 00 00) is unused. Byte 0 of an entry = 0x00 is reserved.
+        if descriptor[0..5] == [0x00, 0x00, 0x00, 0xF8, 0x00] && descriptor[5] == 0x01 {
+            for entry in 0..4usize {
+                let off = 6 + entry * 3;
+                let b0 = descriptor[off];
+                let b1 = descriptor[off + 1];
+                let b2 = descriptor[off + 2];
+
+                if b0 == 0 {
+                    continue; // unused or reserved
+                }
+
+                // Reconstruct vertical addressable lines:
+                // stored = (VAdd / 2) - 1  →  VAdd = (stored + 1) * 2
+                let lines_raw = (((b1 as u16) & 0xF0) << 4) | (b0 as u16);
+                let v_add = (lines_raw + 1) * 2;
+
+                // HAdd = 8 * floor((VAdd * AR) / 8)
+                let h_add = {
+                    let v = v_add as u32;
+                    let h = match (b1 >> 2) & 0x03 {
+                        0b00 => v * 4 / 3,   // 4:3
+                        0b01 => v * 16 / 9,  // 16:9
+                        0b10 => v * 16 / 10, // 16:10
+                        _ => v * 15 / 9,     // 15:9
+                    };
+                    ((h / 8) * 8) as u16
+                };
+
+                // Rate bits 4-0: 50Hz std, 60Hz std, 75Hz std, 85Hz std, 60Hz RB
+                // 60Hz RB deduplicates against 60Hz std since VideoMode has no RB flag.
+                for (mask, rate) in [
+                    (0x10u8, 50u8),
+                    (0x08, 60),
+                    (0x04, 75),
+                    (0x02, 85),
+                    (0x01, 60),
+                ] {
+                    if b2 & mask != 0 {
+                        let mode = VideoMode {
+                            width: h_add,
+                            height: v_add,
+                            refresh_rate: rate,
+                        };
+                        if !caps.supported_modes.contains(&mode) {
+                            caps.supported_modes.push(mode);
+                        }
                     }
                 }
             }
@@ -393,7 +451,7 @@ mod tests {
     use crate::model::capabilities::{DisplayCapabilities, VideoMode};
     use crate::model::color::{
         AnalogColorType, Chromaticity, ChromaticityPoint, ColorBitDepth, DigitalColorEncoding,
-        DisplayGamma, WhitePoint,
+        DisplayGamma,
     };
     use crate::model::edid::EdidVersion;
     use crate::model::features::DisplayFeatureFlags;
@@ -846,10 +904,26 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
 
-        assert!(caps.supported_modes.contains(&VideoMode { width: 1024, height: 768,  refresh_rate: 85 }));
-        assert!(caps.supported_modes.contains(&VideoMode { width: 1152, height: 864,  refresh_rate: 75 }));
-        assert!(caps.supported_modes.contains(&VideoMode { width: 1280, height: 1024, refresh_rate: 60 }));
-        assert!(caps.supported_modes.contains(&VideoMode { width: 1600, height: 1200, refresh_rate: 60 }));
+        assert!(caps.supported_modes.contains(&VideoMode {
+            width: 1024,
+            height: 768,
+            refresh_rate: 85
+        }));
+        assert!(caps.supported_modes.contains(&VideoMode {
+            width: 1152,
+            height: 864,
+            refresh_rate: 75
+        }));
+        assert!(caps.supported_modes.contains(&VideoMode {
+            width: 1280,
+            height: 1024,
+            refresh_rate: 60
+        }));
+        assert!(caps.supported_modes.contains(&VideoMode {
+            width: 1600,
+            height: 1200,
+            refresh_rate: 60
+        }));
         assert_eq!(caps.supported_modes.len(), 4);
     }
 
@@ -984,5 +1058,54 @@ mod tests {
         assert_eq!(caps.min_h_rate_khz, Some(30));
         assert_eq!(caps.max_h_rate_khz, Some(83));
         assert_eq!(caps.max_pixel_clock_mhz, Some(170));
+    }
+
+    #[test]
+    fn test_cvt_3_byte_code_descriptor() {
+        let mut base = [0u8; 128];
+
+        // 0xF8 descriptor at 0x36, version byte 0x01
+        base[0x36..0x3B].copy_from_slice(&[0x00, 0x00, 0x00, 0xF8, 0x00]);
+        base[0x3B] = 0x01; // version
+
+        // Entry 0: 1920x1080 @ 60 Hz preferred, 16:9
+        // lines_raw = 1080/2 - 1 = 539 = 0x21B
+        // b0 = 0x1B, b1 = (0x200>>4) | AR(16:9=0b01<<2) = 0x20|0x04 = 0x24
+        // b2: preferred-60Hz bit = 0x08
+        base[0x3C] = 0x1B;
+        base[0x3D] = 0x24;
+        base[0x3E] = 0x08;
+
+        // Entry 1: 1280x720 @ 50 Hz, 16:9
+        // lines_raw = 720/2 - 1 = 359 = 0x167
+        // b0 = 0x67, b1 = (0x100>>4) | 0x04 = 0x10|0x04 = 0x14
+        // b2: 50 Hz bit = 0x10
+        base[0x3F] = 0x67;
+        base[0x40] = 0x14;
+        base[0x41] = 0x10;
+
+        // Entries 2-3: unused (b0 = 0)
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+
+        assert!(caps.supported_modes.contains(&VideoMode {
+            width: 1920,
+            height: 1080,
+            refresh_rate: 60
+        }));
+        assert!(caps.supported_modes.contains(&VideoMode {
+            width: 1280,
+            height: 720,
+            refresh_rate: 50
+        }));
+        // 60 Hz RB (0x01 bit) deduplicates against preferred 60 Hz
+        assert_eq!(
+            caps.supported_modes
+                .iter()
+                .filter(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 60)
+                .count(),
+            1
+        );
     }
 }
