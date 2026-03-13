@@ -94,6 +94,15 @@ fn main() {
                                 "  Manufacturer: {:?}",
                                 caps.manufacturer.as_deref().unwrap_or("Unknown")
                             );
+                            match caps.manufacture_date {
+                                Some(piaf::ManufactureDate::Manufactured { week: Some(w), year }) =>
+                                    println!("  Manufactured: week {}, {}", w, year),
+                                Some(piaf::ManufactureDate::Manufactured { week: None, year }) =>
+                                    println!("  Manufactured: {}", year),
+                                Some(piaf::ManufactureDate::ModelYear(year)) =>
+                                    println!("  Model year:   {}", year),
+                                None => {}
+                            }
                             println!(
                                 "  Display Name: {:?}",
                                 caps.display_name.as_deref().unwrap_or("Unknown")
