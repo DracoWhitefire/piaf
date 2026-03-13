@@ -207,6 +207,7 @@ fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilities) {
                         height: h,
                         refresh_rate: rate,
                         interlaced: false,
+                        ..Default::default()
                     };
                     if !caps.supported_modes.contains(&mode) {
                         caps.supported_modes.push(mode);
@@ -261,6 +262,7 @@ fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilities) {
                             height: v_add,
                             refresh_rate: rate,
                             interlaced: false,
+                            ..Default::default()
                         };
                         if !caps.supported_modes.contains(&mode) {
                             caps.supported_modes.push(mode);
@@ -390,6 +392,7 @@ fn decode_established_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) 
                 height: h,
                 refresh_rate: rate,
                 interlaced: false,
+                ..Default::default()
             };
             if !caps.supported_modes.contains(&mode) {
                 caps.supported_modes.push(mode);
@@ -418,6 +421,7 @@ fn decode_standard_timing_entry(b1: u8, b2: u8) -> Option<VideoMode> {
         height: h,
         refresh_rate: (b2 & 0x3F) + 60,
         interlaced: false,
+        ..Default::default()
     })
 }
 
@@ -470,6 +474,14 @@ fn decode_detailed_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) {
 
         let interlaced = dtd[17] & 0x80 != 0;
 
+        // Sync timing (bytes 8-11).
+        // H values are 10-bit; V values are 6-bit. Byte 11 holds all four MSB pairs.
+        let h_front_porch = (((dtd[11] as u16) >> 6) << 8) | (dtd[8] as u16);
+        let h_sync_width = ((((dtd[11] as u16) >> 4) & 0x03) << 8) | (dtd[9] as u16);
+        let v_front_porch =
+            ((((dtd[11] as u16) >> 2) & 0x03) << 4) | (((dtd[10] as u16) >> 4) & 0x0F);
+        let v_sync_width = (((dtd[11] as u16) & 0x03) << 4) | ((dtd[10] as u16) & 0x0F);
+
         // Physical image area in mm: 12-bit H from byte 12 + upper nibble of byte 14,
         // 12-bit V from byte 13 + lower nibble of byte 14. Both zero = undefined.
         let h_mm = (((dtd[14] as u16) & 0xF0) << 4) | (dtd[12] as u16);
@@ -483,8 +495,21 @@ fn decode_detailed_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) {
             height: vactive,
             refresh_rate,
             interlaced,
+            h_front_porch,
+            h_sync_width,
+            v_front_porch,
+            v_sync_width,
         };
-        if !caps.supported_modes.contains(&mode) {
+        // If a mode with matching identity (w/h/rate/interlaced) was already added from a
+        // non-DTD source (which has zero sync fields), upgrade it in place. Otherwise append.
+        if let Some(existing) = caps.supported_modes.iter_mut().find(|m| {
+            m.width == mode.width
+                && m.height == mode.height
+                && m.refresh_rate == mode.refresh_rate
+                && m.interlaced == mode.interlaced
+        }) {
+            *existing = mode;
+        } else {
             caps.supported_modes.push(mode);
         }
     }
@@ -1114,6 +1139,94 @@ mod tests {
         assert_eq!(caps.min_h_rate_khz, Some(30));
         assert_eq!(caps.max_h_rate_khz, Some(83));
         assert_eq!(caps.max_pixel_clock_mhz, Some(170));
+        // Sync timing fields (bytes 8-11)
+        // 1080p timing: H front porch=88px, H sync=44px, V front porch=4 lines, V sync=5 lines
+        // Encode: byte8=88, byte9=44, byte10=(4<<4)|5=0x45, byte11=0 (all MSBs zero)
+    }
+
+    #[test]
+    fn test_dtd_sync_timing() {
+        let mut base = [0u8; 128];
+
+        // DTD at 0x36: pixel clock 14850 (148.50 MHz), 1920x1080 active
+        base[0x36] = 0x02;
+        base[0x37] = 0x3A;
+        base[0x38] = 0x80;
+        base[0x39] = 0x18;
+        base[0x3A] = 0x71; // H
+        base[0x3B] = 0x38;
+        base[0x3C] = 0x2D;
+        base[0x3D] = 0x40; // V
+                           // Sync timing:
+                           //   H front porch = 88 px  → byte8 = 88, byte11 bits 7-6 = 0
+                           //   H sync width  = 44 px  → byte9 = 44, byte11 bits 5-4 = 0
+                           //   V front porch = 4 lines → byte10 bits 7-4 = 4, byte11 bits 3-2 = 0
+                           //   V sync width  = 5 lines → byte10 bits 3-0 = 5, byte11 bits 1-0 = 0
+        base[0x3E] = 88; // byte 8: H front porch LSBs
+        base[0x3F] = 44; // byte 9: H sync width LSBs
+        base[0x40] = (4 << 4) | 5; // byte 10: V FP nibble | V SW nibble
+        base[0x41] = 0x00; // byte 11: all MSBs zero
+
+        // Test MSB extension: set byte11 = 0b10_01_11_10
+        //   H FP MSBs = 0b10 → H front porch = (2 << 8) | 88 = 600
+        //   H SW MSBs = 0b01 → H sync width  = (1 << 8) | 44 = 300
+        //   V FP MSBs = 0b11 → V front porch = (3 << 4) | 4  = 52
+        //   V SW MSBs = 0b10 → V sync width  = (2 << 4) | 5  = 37
+        // Override byte11 for this test
+        base[0x41] = 0b10_01_11_10;
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+
+        assert_eq!(caps.supported_modes.len(), 1);
+        let mode = &caps.supported_modes[0];
+        assert_eq!(mode.h_front_porch, 600);
+        assert_eq!(mode.h_sync_width, 300);
+        assert_eq!(mode.v_front_porch, 52);
+        assert_eq!(mode.v_sync_width, 37);
+    }
+
+    #[test]
+    fn test_dtd_upgrades_standard_timing_entry() {
+        let mut base = [0u8; 128];
+
+        // Standard timing at 0x26: 1920x1080@60 (16:9)
+        // b1 = 1920/8 - 31 = 209, b2 = (3<<6) | 0 = 0xC0
+        base[0x26] = 209;
+        base[0x27] = 0xC0;
+
+        // DTD at 0x36: same 1920x1080@60 with sync detail
+        base[0x36] = 0x02;
+        base[0x37] = 0x3A;
+        base[0x38] = 0x80;
+        base[0x39] = 0x18;
+        base[0x3A] = 0x71;
+        base[0x3B] = 0x38;
+        base[0x3C] = 0x2D;
+        base[0x3D] = 0x40;
+        base[0x3E] = 88;
+        base[0x3F] = 44;
+        base[0x40] = (4 << 4) | 5;
+        base[0x41] = 0x00;
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+
+        // Should be only one entry — the DTD upgraded the standard timing entry
+        assert_eq!(
+            caps.supported_modes
+                .iter()
+                .filter(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 60)
+                .count(),
+            1
+        );
+        let mode = caps
+            .supported_modes
+            .iter()
+            .find(|m| m.width == 1920 && m.height == 1080)
+            .unwrap();
+        assert_eq!(mode.h_front_porch, 88);
+        assert_eq!(mode.v_front_porch, 4);
     }
 
     #[test]

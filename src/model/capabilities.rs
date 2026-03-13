@@ -39,6 +39,14 @@ pub struct VideoMode {
     pub refresh_rate: u8,
     /// `true` for interlaced modes; `false` for progressive (the common case).
     pub interlaced: bool,
+    /// Horizontal front porch in pixels (0 when not decoded from a DTD).
+    pub h_front_porch: u16,
+    /// Horizontal sync pulse width in pixels (0 when not decoded from a DTD).
+    pub h_sync_width: u16,
+    /// Vertical front porch in lines (0 when not decoded from a DTD).
+    pub v_front_porch: u16,
+    /// Vertical sync pulse width in lines (0 when not decoded from a DTD).
+    pub v_sync_width: u16,
 }
 
 /// Consumer-facing display capability model derived from a parsed EDID.
