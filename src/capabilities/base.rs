@@ -5,9 +5,9 @@ use crate::model::color::{ColorBitDepth, DisplayGamma};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 use crate::model::edid::EdidVersion;
-use crate::model::features::DisplayFeatureFlags;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::extension::ExtensionHandler;
+use crate::model::features::DisplayFeatureFlags;
 use crate::model::input::{VideoInputFlags, VideoInterface};
 use crate::model::manufacture::ManufactureDate;
 #[cfg(any(feature = "alloc", feature = "std"))]

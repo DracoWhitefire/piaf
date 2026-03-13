@@ -45,6 +45,7 @@ fn lg_ultragear_identification() {
     assert!(caps.digital);
     assert_eq!(caps.color_bit_depth, None); // undefined in base block
     assert_eq!(caps.video_interface, None); // undefined in base block
+
     // 0xEA = DPMS_STANDBY | DPMS_SUSPEND | DPMS_ACTIVE_OFF | PREFERRED_TIMING
     let features = caps.display_features.unwrap();
     assert!(features.contains(DisplayFeatureFlags::DPMS_STANDBY));
