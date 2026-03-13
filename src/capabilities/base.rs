@@ -1,6 +1,7 @@
 use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::VideoMode;
+use crate::model::color::ColorBitDepth;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -81,6 +82,9 @@ impl ExtensionHandler for BaseBlockHandler {
         // 4. Video Input Definition (offset 0x14)
         let video_input = VideoInputFlags::from_bits_truncate(base[0x14]);
         caps.digital = video_input.contains(VideoInputFlags::DIGITAL);
+        if caps.digital {
+            caps.color_bit_depth = ColorBitDepth::from_edid_bits(base[0x14] >> 4);
+        }
 
         // 5. Physical Dimensions (offsets 0x15-0x16, width and height in cm)
         let width = base[0x15] as u16;
