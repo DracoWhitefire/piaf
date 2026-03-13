@@ -5,8 +5,15 @@ use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{Box, String, Vec};
 
+/// Processes a single 128-byte EDID block and populates [`DisplayCapabilities`].
+///
+/// Implement this trait to add support for extension block formats or to customise
+/// base block parsing. Register handlers via [`ExtensionLibrary`].
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub trait ExtensionHandler: core::fmt::Debug {
+    /// Inspect `block` and update `caps` accordingly.
+    ///
+    /// Push non-fatal issues to `warnings` rather than panicking or discarding silently.
     fn process(
         &self,
         block: &[u8; 128],
@@ -15,10 +22,15 @@ pub trait ExtensionHandler: core::fmt::Debug {
     );
 }
 
+/// Registration entry for an EDID extension block type.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub struct ExtensionMetadata {
+    /// The tag byte that identifies this extension block format (e.g. `0x02` for CEA-861).
     pub tag: u8,
+    /// Human-readable name used in diagnostics.
     pub display_name: String,
+    /// Optional handler that processes blocks with this tag.
+    /// `None` means the tag is recognised but no processing is performed.
     pub handler: Option<Box<dyn ExtensionHandler>>,
 }
 
