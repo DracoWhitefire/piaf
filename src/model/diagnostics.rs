@@ -15,17 +15,23 @@ pub enum EdidWarning {
     /// The manufacturer ID bytes do not encode a valid PNP ID.
     ///
     /// Each of the three 5-bit fields must be in the range 1–26 (A–Z). Values of 0 or
-    /// 27–31 indicate a corrupted or unprogrammed EEPROM. [`DisplayCapabilities::manufacturer`]
+    /// 27–31 indicate a corrupted or unprogrammed EEPROM.
+    /// [`DisplayCapabilities::manufacturer`][crate::DisplayCapabilities::manufacturer]
     /// is left as `None`.
     #[error("manufacturer ID bytes do not encode a valid PNP ID")]
     InvalidManufacturerId,
     /// The byte slice length does not match the size implied by the extension count.
     ///
     /// The EDID header declares `extension_count` extension blocks, so the expected
-    /// size is `(1 + extension_count) × 128` bytes.  Extra bytes are ignored but may
+    /// size is `(1 + extension_count) × 128` bytes. Extra bytes are ignored but may
     /// indicate a driver bug, a KVM device, or a hotplug race.
     #[error("EDID byte length {actual} does not match expected {expected}")]
-    SizeMismatch { expected: usize, actual: usize },
+    SizeMismatch {
+        /// The size implied by the extension count: `(1 + extension_count) × 128`.
+        expected: usize,
+        /// The actual length of the byte slice passed to [`crate::parse_edid`].
+        actual: usize,
+    },
 }
 
 /// A fatal error that prevents useful parsing of an EDID byte stream.

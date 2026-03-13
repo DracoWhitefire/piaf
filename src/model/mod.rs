@@ -51,6 +51,6 @@ pub use timing::{
 
 /// Consumer-facing capability types.
 pub mod capabilities;
-#[cfg(feature = "std")]
+#[cfg(any(feature = "alloc", feature = "std"))]
 pub use capabilities::ExtensionData;
 pub use capabilities::{DisplayCapabilities, StereoMode, SyncDefinition, VideoMode};

@@ -1,26 +1,24 @@
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::prelude::Arc;
+#[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{String, Vec};
-#[cfg(feature = "std")]
+#[cfg(any(feature = "alloc", feature = "std"))]
 use core::any::Any;
-#[cfg(feature = "std")]
-use std::collections::HashMap;
-#[cfg(feature = "std")]
-use std::sync::Arc;
 
 /// Trait for typed data stored in [`DisplayCapabilities::extension_data`] by custom handlers.
 ///
 /// A blanket implementation covers any type that is `Any + Debug + Send + Sync`, so consumers
 /// do not need to implement this trait manually — `#[derive(Debug)]` on a `Send + Sync` type
 /// is sufficient.
-#[cfg(feature = "std")]
+#[cfg(any(feature = "alloc", feature = "std"))]
 pub trait ExtensionData: Any + core::fmt::Debug + Send + Sync {
     /// Returns `self` as `&dyn Any` to enable downcasting.
     fn as_any(&self) -> &dyn Any;
 }
 
-#[cfg(feature = "std")]
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl<T: Any + core::fmt::Debug + Send + Sync> ExtensionData for T {
     fn as_any(&self) -> &dyn Any {
         self
@@ -200,23 +198,38 @@ pub struct DisplayCapabilities {
     /// Non-fatal conditions collected from the parser and all handlers.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub warnings: Vec<EdidWarning>,
-    /// Typed data attached by custom extension handlers, keyed by extension tag byte.
+    /// Typed data attached by extension handlers, keyed by extension tag byte.
+    ///
+    /// Uses a `Vec` of `(tag, data)` pairs rather than a `HashMap` so that this field is
+    /// available in `alloc`-only (no_std) builds. The number of distinct extension tags in
+    /// any real EDID is small enough that linear scan is negligible.
+    ///
     /// Not serialized — use a custom handler to map this to a serializable form.
-    #[cfg(feature = "std")]
+    #[cfg(any(feature = "alloc", feature = "std"))]
     #[cfg_attr(feature = "serde", serde(skip))]
-    pub extension_data: HashMap<u8, Arc<dyn ExtensionData>>,
+    pub extension_data: Vec<(u8, Arc<dyn ExtensionData>)>,
 }
 
-#[cfg(feature = "std")]
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl DisplayCapabilities {
-    /// Store typed data from a custom handler, keyed by an extension tag.
+    /// Store typed data from a handler, keyed by an extension tag.
+    /// Replaces any previously stored entry for the same tag.
     pub fn set_extension_data<T: ExtensionData>(&mut self, tag: u8, data: T) {
-        self.extension_data.insert(tag, Arc::new(data));
+        if let Some(entry) = self.extension_data.iter_mut().find(|(t, _)| *t == tag) {
+            entry.1 = Arc::new(data);
+        } else {
+            self.extension_data.push((tag, Arc::new(data)));
+        }
     }
 
     /// Retrieve typed data previously stored by a handler for the given tag.
     /// Returns `None` if no data is stored for the tag or the type does not match.
     pub fn get_extension_data<T: Any>(&self, tag: u8) -> Option<&T> {
-        self.extension_data.get(&tag)?.as_any().downcast_ref::<T>()
+        self.extension_data
+            .iter()
+            .find(|(t, _)| *t == tag)?
+            .1
+            .as_any()
+            .downcast_ref::<T>()
     }
 }

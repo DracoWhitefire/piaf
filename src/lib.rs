@@ -23,7 +23,7 @@ extern crate alloc;
 
 /// Types for the EDID data model.
 pub mod model;
-#[cfg(feature = "std")]
+#[cfg(any(feature = "alloc", feature = "std"))]
 pub use model::ExtensionData;
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use model::ExtensionHandler;
