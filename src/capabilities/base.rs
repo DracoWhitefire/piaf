@@ -206,6 +206,7 @@ fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilities) {
                         width: w,
                         height: h,
                         refresh_rate: rate,
+                        interlaced: false,
                     };
                     if !caps.supported_modes.contains(&mode) {
                         caps.supported_modes.push(mode);
@@ -259,6 +260,7 @@ fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilities) {
                             width: h_add,
                             height: v_add,
                             refresh_rate: rate,
+                            interlaced: false,
                         };
                         if !caps.supported_modes.contains(&mode) {
                             caps.supported_modes.push(mode);
@@ -367,6 +369,7 @@ fn decode_established_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) 
                 width: w,
                 height: h,
                 refresh_rate: rate,
+                interlaced: false,
             };
             if !caps.supported_modes.contains(&mode) {
                 caps.supported_modes.push(mode);
@@ -394,6 +397,7 @@ fn decode_standard_timing_entry(b1: u8, b2: u8) -> Option<VideoMode> {
         width: w,
         height: h,
         refresh_rate: (b2 & 0x3F) + 60,
+        interlaced: false,
     })
 }
 
@@ -444,10 +448,21 @@ fn decode_detailed_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) {
             continue;
         };
 
+        let interlaced = dtd[17] & 0x80 != 0;
+
+        // Physical image area in mm: 12-bit H from byte 12 + upper nibble of byte 14,
+        // 12-bit V from byte 13 + lower nibble of byte 14. Both zero = undefined.
+        let h_mm = (((dtd[14] as u16) & 0xF0) << 4) | (dtd[12] as u16);
+        let v_mm = (((dtd[14] as u16) & 0x0F) << 8) | (dtd[13] as u16);
+        if h_mm != 0 && v_mm != 0 && caps.preferred_image_size_mm.is_none() {
+            caps.preferred_image_size_mm = Some((h_mm, v_mm));
+        }
+
         let mode = VideoMode {
             width: hactive,
             height: vactive,
             refresh_rate,
+            interlaced,
         };
         if !caps.supported_modes.contains(&mode) {
             caps.supported_modes.push(mode);
@@ -918,22 +933,26 @@ mod tests {
         assert!(caps.supported_modes.contains(&VideoMode {
             width: 1024,
             height: 768,
-            refresh_rate: 85
+            refresh_rate: 85,
+            ..Default::default()
         }));
         assert!(caps.supported_modes.contains(&VideoMode {
             width: 1152,
             height: 864,
-            refresh_rate: 75
+            refresh_rate: 75,
+            ..Default::default()
         }));
         assert!(caps.supported_modes.contains(&VideoMode {
             width: 1280,
             height: 1024,
-            refresh_rate: 60
+            refresh_rate: 60,
+            ..Default::default()
         }));
         assert!(caps.supported_modes.contains(&VideoMode {
             width: 1600,
             height: 1200,
-            refresh_rate: 60
+            refresh_rate: 60,
+            ..Default::default()
         }));
         assert_eq!(caps.supported_modes.len(), 4);
     }
@@ -963,12 +982,14 @@ mod tests {
         assert!(caps.supported_modes.contains(&VideoMode {
             width: 1920,
             height: 1080,
-            refresh_rate: 60
+            refresh_rate: 60,
+            ..Default::default()
         }));
         assert!(caps.supported_modes.contains(&VideoMode {
             width: 1280,
             height: 720,
-            refresh_rate: 60
+            refresh_rate: 60,
+            ..Default::default()
         }));
     }
 
@@ -989,22 +1010,26 @@ mod tests {
         assert!(caps.supported_modes.contains(&VideoMode {
             width: 640,
             height: 480,
-            refresh_rate: 60
+            refresh_rate: 60,
+            ..Default::default()
         }));
         assert!(caps.supported_modes.contains(&VideoMode {
             width: 800,
             height: 600,
-            refresh_rate: 60
+            refresh_rate: 60,
+            ..Default::default()
         }));
         assert!(caps.supported_modes.contains(&VideoMode {
             width: 1024,
             height: 768,
-            refresh_rate: 60
+            refresh_rate: 60,
+            ..Default::default()
         }));
         assert!(caps.supported_modes.contains(&VideoMode {
             width: 1280,
             height: 1024,
-            refresh_rate: 75
+            refresh_rate: 75,
+            ..Default::default()
         }));
     }
 
@@ -1072,6 +1097,72 @@ mod tests {
     }
 
     #[test]
+    fn test_dtd_interlace_and_image_size() {
+        let mut base = [0u8; 128];
+
+        // DTD at 0x36: 1920x1080i @ 60Hz (interlaced) with image size 527x296 mm
+        // Pixel clock 7425 × 10kHz = 74.25 MHz (halved for interlace field rate)
+        base[0x36] = 0x29; // pixel clock LSB (0x1D11 >> 8 = ... actually let's just set blanking)
+        base[0x37] = 0x1D; // pixel clock = 0x1D29 = 7465
+                           // HActive=1920 (0x780), HBlank=280 (0x118)
+        base[0x38] = 0x80;
+        base[0x39] = 0x18;
+        base[0x3A] = 0x71;
+        // VActive=540 (0x21C) (field height for 1080i), VBlank=22 (0x016)
+        base[0x3B] = 0x1C;
+        base[0x3C] = 0x16;
+        base[0x3D] = 0x20;
+        // Sync/border bytes (arbitrary non-zero)
+        base[0x3E] = 0x00;
+        base[0x3F] = 0x00;
+        base[0x40] = 0x00;
+        base[0x41] = 0x00;
+        // Image size: H=527mm (0x20F), V=296mm (0x128)
+        // byte 12 = H LSB = 0x0F
+        // byte 13 = V LSB = 0x28
+        // byte 14 = (H MSN << 4) | V MSN = (0x2 << 4) | 0x1 = 0x21
+        base[0x42] = 0x0F; // H image size LSB
+        base[0x43] = 0x28; // V image size LSB
+        base[0x44] = 0x21; // H MSN=2, V MSN=1
+                           // Border
+        base[0x45] = 0x00;
+        base[0x46] = 0x00;
+        // Byte 17: bit 7 = interlaced
+        base[0x47] = 0x80;
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert!(caps.supported_modes[0].interlaced);
+        assert_eq!(caps.preferred_image_size_mm, Some((527, 296)));
+    }
+
+    #[test]
+    fn test_dtd_progressive_no_image_size() {
+        let mut base = [0u8; 128];
+
+        // DTD at 0x36: 1920x1080 @ ~60Hz, progressive, image size bytes zeroed
+        base[0x36] = 0x02;
+        base[0x37] = 0x3A;
+        base[0x38] = 0x80;
+        base[0x39] = 0x18;
+        base[0x3A] = 0x71;
+        base[0x3B] = 0x38;
+        base[0x3C] = 0x2D;
+        base[0x3D] = 0x40;
+        // bytes 12-14: all zero → no image size
+        // byte 17: 0 → progressive
+        base[0x47] = 0x00;
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+
+        assert!(!caps.supported_modes[0].interlaced);
+        assert_eq!(caps.preferred_image_size_mm, None);
+    }
+
+    #[test]
     fn test_cvt_3_byte_code_descriptor() {
         let mut base = [0u8; 128];
 
@@ -1103,12 +1194,14 @@ mod tests {
         assert!(caps.supported_modes.contains(&VideoMode {
             width: 1920,
             height: 1080,
-            refresh_rate: 60
+            refresh_rate: 60,
+            ..Default::default()
         }));
         assert!(caps.supported_modes.contains(&VideoMode {
             width: 1280,
             height: 720,
-            refresh_rate: 50
+            refresh_rate: 50,
+            ..Default::default()
         }));
         // 60 Hz RB (0x01 bit) deduplicates against preferred 60 Hz
         assert_eq!(

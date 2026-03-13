@@ -27,7 +27,7 @@ impl<T: Any + core::fmt::Debug + Send + Sync> ExtensionData for T {
     }
 }
 
-/// A display video mode expressed as resolution and refresh rate.
+/// A display video mode expressed as resolution, refresh rate, and scan type.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct VideoMode {
@@ -37,6 +37,8 @@ pub struct VideoMode {
     pub height: u16,
     /// Refresh rate in Hz.
     pub refresh_rate: u8,
+    /// `true` for interlaced modes; `false` for progressive (the common case).
+    pub interlaced: bool,
 }
 
 /// Consumer-facing display capability model derived from a parsed EDID.
@@ -109,6 +111,12 @@ pub struct DisplayCapabilities {
     pub max_h_rate_khz: Option<u16>,
     /// Maximum pixel clock in MHz.
     pub max_pixel_clock_mhz: Option<u16>,
+    /// Physical image area dimensions in millimetres `(width_mm, height_mm)`, decoded from
+    /// the first detailed timing descriptor that provides non-zero values (bytes 12–14).
+    ///
+    /// More precise than [`screen_size`][Self::screen_size] (which is in cm from the base
+    /// block header). `None` when all DTD image-size fields are zero.
+    pub preferred_image_size_mm: Option<(u16, u16)>,
     /// Video timing formula reported in the display range limits descriptor (`0xFD`), byte 10.
     pub timing_formula: Option<crate::model::timing::TimingFormula>,
     /// Video modes decoded from standard timing and detailed timing descriptors.
