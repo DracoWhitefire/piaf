@@ -110,6 +110,15 @@ fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilities) {
         let offset = 0x36 + (i * 18);
         let descriptor = &base[offset..offset + 18];
 
+        // Serial Number Descriptor: tag 0xFF
+        if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFF] {
+            let s = String::from_utf8_lossy(&descriptor[5..18]);
+            let trimmed = s.trim().to_string();
+            if !trimmed.is_empty() {
+                caps.serial_number_string = Some(trimmed);
+            }
+        }
+
         // Monitor Name Descriptor: tag 0xFC
         if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFC] {
             let name_bytes = &descriptor[5..18];
@@ -141,28 +150,32 @@ fn decode_established_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) 
     // Note: 1024x768@87 is interlaced in the EDID spec; stored as-is since VideoMode
     // has no interlace field.
     const TIMINGS: &[(usize, u8, u16, u16, u8)] = &[
-        (0x23, 0x80,  720,  400, 70),
-        (0x23, 0x40,  720,  400, 88),
-        (0x23, 0x20,  640,  480, 60),
-        (0x23, 0x10,  640,  480, 67),
-        (0x23, 0x08,  640,  480, 72),
-        (0x23, 0x04,  640,  480, 75),
-        (0x23, 0x02,  800,  600, 56),
-        (0x23, 0x01,  800,  600, 60),
-        (0x24, 0x80,  800,  600, 72),
-        (0x24, 0x40,  800,  600, 75),
-        (0x24, 0x20,  832,  624, 75),
-        (0x24, 0x10, 1024,  768, 87),
-        (0x24, 0x08, 1024,  768, 60),
-        (0x24, 0x04, 1024,  768, 70),
-        (0x24, 0x02, 1024,  768, 75),
+        (0x23, 0x80, 720, 400, 70),
+        (0x23, 0x40, 720, 400, 88),
+        (0x23, 0x20, 640, 480, 60),
+        (0x23, 0x10, 640, 480, 67),
+        (0x23, 0x08, 640, 480, 72),
+        (0x23, 0x04, 640, 480, 75),
+        (0x23, 0x02, 800, 600, 56),
+        (0x23, 0x01, 800, 600, 60),
+        (0x24, 0x80, 800, 600, 72),
+        (0x24, 0x40, 800, 600, 75),
+        (0x24, 0x20, 832, 624, 75),
+        (0x24, 0x10, 1024, 768, 87),
+        (0x24, 0x08, 1024, 768, 60),
+        (0x24, 0x04, 1024, 768, 70),
+        (0x24, 0x02, 1024, 768, 75),
         (0x24, 0x01, 1280, 1024, 75),
-        (0x25, 0x80, 1152,  870, 75), // Apple Macintosh II
+        (0x25, 0x80, 1152, 870, 75), // Apple Macintosh II
     ];
 
     for &(byte_off, mask, w, h, rate) in TIMINGS {
         if base[byte_off] & mask != 0 {
-            let mode = VideoMode { width: w, height: h, refresh_rate: rate };
+            let mode = VideoMode {
+                width: w,
+                height: h,
+                refresh_rate: rate,
+            };
             if !caps.supported_modes.contains(&mode) {
                 caps.supported_modes.push(mode);
             }
@@ -386,6 +399,25 @@ mod tests {
     }
 
     #[test]
+    fn test_serial_number_descriptor() {
+        let mut base = [0u8; 128];
+
+        // Serial number descriptor at 0x36: "SN12345678"
+        base[0x36..0x3A].copy_from_slice(&[0x00, 0x00, 0x00, 0xFF]);
+        base[0x3A] = 0x00; // reserved
+        base[0x3B..0x3F].copy_from_slice(b"SN12");
+        base[0x3F..0x43].copy_from_slice(b"3456");
+        base[0x43] = 0x0A; // newline terminator
+        for b in &mut base[0x44..0x48] {
+            *b = 0x20;
+        }
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(caps.serial_number_string, Some("SN123456".to_string()));
+    }
+
+    #[test]
     fn test_identification() {
         let mut base = [0u8; 128];
 
@@ -445,10 +477,26 @@ mod tests {
         BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
 
         assert_eq!(caps.supported_modes.len(), 4);
-        assert!(caps.supported_modes.contains(&VideoMode { width: 640, height: 480, refresh_rate: 60 }));
-        assert!(caps.supported_modes.contains(&VideoMode { width: 800, height: 600, refresh_rate: 60 }));
-        assert!(caps.supported_modes.contains(&VideoMode { width: 1024, height: 768, refresh_rate: 60 }));
-        assert!(caps.supported_modes.contains(&VideoMode { width: 1280, height: 1024, refresh_rate: 75 }));
+        assert!(caps.supported_modes.contains(&VideoMode {
+            width: 640,
+            height: 480,
+            refresh_rate: 60
+        }));
+        assert!(caps.supported_modes.contains(&VideoMode {
+            width: 800,
+            height: 600,
+            refresh_rate: 60
+        }));
+        assert!(caps.supported_modes.contains(&VideoMode {
+            width: 1024,
+            height: 768,
+            refresh_rate: 60
+        }));
+        assert!(caps.supported_modes.contains(&VideoMode {
+            width: 1280,
+            height: 1024,
+            refresh_rate: 75
+        }));
     }
 
     #[test]

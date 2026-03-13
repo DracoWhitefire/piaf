@@ -116,6 +116,9 @@ fn main() {
                             );
                             println!("  Product Code: {:?}", caps.product_code);
                             println!("  Serial:       {:?}", caps.serial_number);
+                            if let Some(s) = caps.serial_number_string.as_deref() {
+                                println!("  Serial string: {}", s);
+                            }
                             println!(
                                 "  Dimensions:   {:?}x{:?} cm",
                                 caps.width_cm, caps.height_cm

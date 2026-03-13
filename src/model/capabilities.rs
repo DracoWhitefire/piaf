@@ -60,6 +60,9 @@ pub struct DisplayCapabilities {
     pub product_code: Option<u16>,
     /// Manufacturer-assigned serial number, if encoded numerically in the base block.
     pub serial_number: Option<u32>,
+    /// Serial number string from the monitor serial number descriptor (`0xFF`), if present.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub serial_number_string: Option<String>,
     /// Human-readable display name from the monitor name descriptor, if present.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub display_name: Option<String>,
