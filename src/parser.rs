@@ -53,6 +53,13 @@ pub fn parse_edid<T: KnownExtensions>(bytes: &[u8], tags: &T) -> Result<ParsedEd
             return Err(EdidError::InvalidLength);
         }
 
+        if bytes.len() > total_required {
+            warnings.push(EdidWarning::SizeMismatch {
+                expected: total_required,
+                actual: bytes.len(),
+            });
+        }
+
         for i in 1..=extension_count {
             let start = i * 128;
             let mut ext_block = [0u8; 128];
@@ -182,6 +189,26 @@ mod tests {
         assert_eq!(parsed.warnings.len(), 1);
         assert_eq!(parsed.warnings[0], EdidWarning::UnknownExtension(0xEE));
     }
+    #[test]
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    fn test_parse_trailing_bytes_warns() {
+        // 256-byte buffer but extension_count = 0 → expected 128, actual 256
+        let mut bytes = [0u8; 256];
+        bytes[0..8].copy_from_slice(&EDID_HEADER);
+        bytes[127] = 6; // Correct checksum for header + zeros (no extensions)
+        let registry = ExtensionTagRegistry::new();
+        let result = parse_edid(&bytes, &registry);
+        assert!(result.is_ok());
+        let parsed = result.unwrap();
+        assert_eq!(
+            parsed.warnings,
+            vec![EdidWarning::SizeMismatch {
+                expected: 128,
+                actual: 256
+            }]
+        );
+    }
+
     #[test]
     #[cfg(any(feature = "alloc", feature = "std"))]
     fn test_parse_known_extension_displayid() {

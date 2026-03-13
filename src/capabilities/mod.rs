@@ -66,6 +66,7 @@ pub fn capabilities_from_edid(
             }
         }
 
+        caps.warnings.extend(edid.warnings.iter().cloned());
         caps.warnings.extend(warnings);
     }
 

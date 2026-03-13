@@ -2,30 +2,38 @@ use crate::model::capabilities::DisplayCapabilities;
 use crate::model::color::{
     AnalogColorType, Chromaticity, ColorBitDepth, DigitalColorEncoding, DisplayGamma,
 };
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::diagnostics::EdidWarning;
 use crate::model::edid::EdidVersion;
 use crate::model::features::DisplayFeatureFlags;
 use crate::model::input::{AnalogSyncLevel, VideoInputFlags, VideoInterface};
 use crate::model::manufacture::ManufactureDate;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::String;
+use crate::model::prelude::{String, Vec};
 use crate::model::screen::ScreenSize;
 
 /// Decodes fixed-position header fields: manufacturer, dates, version, product code,
 /// serial number, video input definition, and physical dimensions.
 #[cfg(any(feature = "alloc", feature = "std"))]
-pub(super) fn decode_header_fields(base: &[u8; 128], caps: &mut DisplayCapabilities) {
+pub(super) fn decode_header_fields(
+    base: &[u8; 128],
+    caps: &mut DisplayCapabilities,
+    warnings: &mut Vec<EdidWarning>,
+) {
     // Manufacturer ID (offsets 0x08-0x09)
     // 2 bytes, 3 characters, 5 bits per character (00001=A, ..., 11010=Z)
     let id_raw = ((base[0x08] as u16) << 8) | (base[0x09] as u16);
     let char1 = ((id_raw >> 10) & 0x1F) as u8;
     let char2 = ((id_raw >> 5) & 0x1F) as u8;
     let char3 = (id_raw & 0x1F) as u8;
-    if char1 > 0 && char2 > 0 && char3 > 0 {
+    if (1..=26).contains(&char1) && (1..=26).contains(&char2) && (1..=26).contains(&char3) {
         let mut mfg = String::new();
         mfg.push((char1 + b'A' - 1) as char);
         mfg.push((char2 + b'A' - 1) as char);
         mfg.push((char3 + b'A' - 1) as char);
         caps.manufacturer = Some(mfg);
+    } else {
+        warnings.push(EdidWarning::InvalidManufacturerId);
     }
 
     // Product code (offsets 0x0A-0x0B, little-endian)
@@ -93,6 +101,7 @@ mod tests {
     use crate::model::color::{
         AnalogColorType, Chromaticity, ColorBitDepth, DigitalColorEncoding, DisplayGamma,
     };
+    use crate::model::diagnostics::EdidWarning;
     use crate::model::edid::EdidVersion;
     use crate::model::extension::ExtensionHandler;
     use crate::model::features::DisplayFeatureFlags;
@@ -430,5 +439,32 @@ mod tests {
             })
         );
         assert_eq!(caps.display_name, Some("PIAF".to_string()));
+    }
+
+    #[test]
+    fn test_invalid_manufacturer_id_zero() {
+        // 0x0000 → all three 5-bit chars are 0 (invalid)
+        let mut base = [0u8; 128];
+        base[0x08] = 0x00;
+        base[0x09] = 0x00;
+        let mut warnings = Vec::new();
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut warnings);
+        assert_eq!(caps.manufacturer, None);
+        assert!(warnings.contains(&EdidWarning::InvalidManufacturerId));
+    }
+
+    #[test]
+    fn test_invalid_manufacturer_id_out_of_range() {
+        // char values > 26 are invalid. Pack (27, 1, 1):
+        // 0 11011 00001 00001 = 0x6C 0x21
+        let mut base = [0u8; 128];
+        base[0x08] = 0x6C;
+        base[0x09] = 0x21;
+        let mut warnings = Vec::new();
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut warnings);
+        assert_eq!(caps.manufacturer, None);
+        assert!(warnings.contains(&EdidWarning::InvalidManufacturerId));
     }
 }

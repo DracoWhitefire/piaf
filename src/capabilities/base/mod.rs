@@ -24,9 +24,9 @@ impl ExtensionHandler for BaseBlockHandler {
         &self,
         base: &[u8; 128],
         caps: &mut DisplayCapabilities,
-        _warnings: &mut Vec<EdidWarning>,
+        warnings: &mut Vec<EdidWarning>,
     ) {
-        header::decode_header_fields(base, caps);
+        header::decode_header_fields(base, caps, warnings);
         descriptors::decode_descriptors(base, caps);
         timings::decode_established_timings(base, caps);
         timings::decode_standard_timings(base, caps);
