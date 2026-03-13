@@ -3,7 +3,7 @@ use crate::model::capabilities::DisplayCapabilities;
 use crate::model::capabilities::VideoMode;
 use crate::model::color::ColorBitDepth;
 use crate::model::edid::EdidVersion;
-use crate::model::input::VideoInterface;
+use crate::model::input::{VideoInputFlags, VideoInterface};
 use crate::model::manufacture::ManufactureDate;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
@@ -11,30 +11,6 @@ use crate::model::diagnostics::EdidWarning;
 use crate::model::extension::ExtensionHandler;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{String, Vec};
-
-bitflags::bitflags! {
-    /// Boolean flags from EDID byte `0x14` (Video Input Definition).
-    ///
-    /// Bit 7 (`DIGITAL`) determines the input type. Bits 4–0 are only meaningful
-    /// for analog displays. The multi-bit fields in this byte (color bit depth,
-    /// video interface type, and analog sync level) are not represented here —
-    /// those require dedicated enum types.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct VideoInputFlags: u8 {
-        /// Digital input. When clear, the display uses an analog input interface.
-        const DIGITAL          = 0x80;
-        /// Blank-to-black setup (pedestal) expected (analog only).
-        const BLANK_TO_BLACK   = 0x10;
-        /// Separate sync signals are supported (analog only).
-        const SEPARATE_SYNC    = 0x08;
-        /// Composite sync on HSync is supported (analog only).
-        const COMPOSITE_SYNC   = 0x04;
-        /// Sync on green is supported (analog only).
-        const SYNC_ON_GREEN    = 0x02;
-        /// VSync pulse must be serrated when composite or sync-on-green is used (analog only).
-        const SERRATION        = 0x01;
-    }
-}
 
 /// Decodes the EDID base block into [`DisplayCapabilities`].
 ///
@@ -52,154 +28,165 @@ impl ExtensionHandler for BaseBlockHandler {
         caps: &mut DisplayCapabilities,
         _warnings: &mut Vec<EdidWarning>,
     ) {
-        // 1. Manufacturer ID (offsets 0x08-0x09)
-        // 2 bytes, 3 characters, 5 bits per character (00001=A, ..., 11010=Z)
-        let id_raw = ((base[0x08] as u16) << 8) | (base[0x09] as u16);
-        let char1 = ((id_raw >> 10) & 0x1F) as u8;
-        let char2 = ((id_raw >> 5) & 0x1F) as u8;
-        let char3 = (id_raw & 0x1F) as u8;
+        decode_header_fields(base, caps);
+        decode_descriptors(base, caps);
+        decode_standard_timings(base, caps);
+        decode_detailed_timings(base, caps);
+    }
+}
 
-        if char1 > 0 && char2 > 0 && char3 > 0 {
-            let mut mfg = String::new();
-            mfg.push((char1 + b'A' - 1) as char);
-            mfg.push((char2 + b'A' - 1) as char);
-            mfg.push((char3 + b'A' - 1) as char);
-            caps.manufacturer = Some(mfg);
+/// Decodes fixed-position header fields: manufacturer, dates, version, product code,
+/// serial number, video input definition, and physical dimensions.
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn decode_header_fields(base: &[u8; 128], caps: &mut DisplayCapabilities) {
+    // Manufacturer ID (offsets 0x08-0x09)
+    // 2 bytes, 3 characters, 5 bits per character (00001=A, ..., 11010=Z)
+    let id_raw = ((base[0x08] as u16) << 8) | (base[0x09] as u16);
+    let char1 = ((id_raw >> 10) & 0x1F) as u8;
+    let char2 = ((id_raw >> 5) & 0x1F) as u8;
+    let char3 = (id_raw & 0x1F) as u8;
+    if char1 > 0 && char2 > 0 && char3 > 0 {
+        let mut mfg = String::new();
+        mfg.push((char1 + b'A' - 1) as char);
+        mfg.push((char2 + b'A' - 1) as char);
+        mfg.push((char3 + b'A' - 1) as char);
+        caps.manufacturer = Some(mfg);
+    }
+
+    // Product code (offsets 0x0A-0x0B, little-endian)
+    let product_code = ((base[0x0B] as u16) << 8) | (base[0x0A] as u16);
+    if product_code != 0 {
+        caps.product_code = Some(product_code);
+    }
+
+    // Serial number (offsets 0x0C-0x0F, little-endian)
+    let serial = ((base[0x0F] as u32) << 24)
+        | ((base[0x0E] as u32) << 16)
+        | ((base[0x0D] as u32) << 8)
+        | (base[0x0C] as u32);
+    if serial != 0 {
+        caps.serial_number = Some(serial);
+    }
+
+    // Manufacture date (bytes 16-17)
+    caps.manufacture_date = Some(ManufactureDate::from_edid_bytes(base[16], base[17]));
+
+    // EDID version and revision (bytes 18-19)
+    caps.edid_version = Some(EdidVersion { version: base[18], revision: base[19] });
+
+    // Video input definition (byte 0x14)
+    let video_input = VideoInputFlags::from_bits_truncate(base[0x14]);
+    caps.digital = video_input.contains(VideoInputFlags::DIGITAL);
+    if caps.digital {
+        caps.color_bit_depth = ColorBitDepth::from_edid_bits(base[0x14] >> 4);
+        caps.video_interface = VideoInterface::from_edid_bits(base[0x14]);
+    }
+
+    // Physical dimensions (offsets 0x15-0x16, width and height in cm)
+    let width = base[0x15] as u16;
+    let height = base[0x16] as u16;
+    if width > 0 && height > 0 {
+        caps.width_cm = Some(width);
+        caps.height_cm = Some(height);
+    }
+}
+
+/// Decodes the four 18-byte monitor descriptor slots (offsets 0x36, 0x48, 0x5A, 0x6C).
+/// Handles monitor name (0xFC) and range limits (0xFD) descriptor types.
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilities) {
+    for i in 0..4 {
+        let offset = 0x36 + (i * 18);
+        let descriptor = &base[offset..offset + 18];
+
+        // Monitor Name Descriptor: tag 0xFC
+        if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFC] {
+            let name_bytes = &descriptor[5..18];
+            let name = String::from_utf8_lossy(name_bytes);
+            let trimmed = name.trim().to_string();
+            if !trimmed.is_empty() {
+                caps.display_name = Some(trimmed);
+            }
         }
 
-        // 2. Manufacture date (bytes 16-17)
-        caps.manufacture_date = Some(ManufactureDate::from_edid_bytes(base[16], base[17]));
+        // Monitor Range Limits: tag 0xFD
+        if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFD] {
+            caps.min_v_rate = Some(descriptor[5]);
+            caps.max_v_rate = Some(descriptor[6]);
+            caps.min_h_rate_khz = Some(descriptor[7]);
+            caps.max_h_rate_khz = Some(descriptor[8]);
+            caps.max_pixel_clock_mhz = Some((descriptor[9] as u16) * 10);
+        }
+    }
+}
 
-        // 3. EDID version and revision (bytes 18-19)
-        caps.edid_version = Some(EdidVersion { version: base[18], revision: base[19] });
+/// Decodes the eight standard timing descriptors (offsets 0x26–0x35, 2 bytes each).
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn decode_standard_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) {
+    for i in 0..8 {
+        let offset = 0x26 + (i * 2);
+        let b1 = base[offset];
+        let b2 = base[offset + 1];
 
-        // 4. Product Code (offsets 0x0A-0x0B, little-endian)
-        let product_code = ((base[0x0B] as u16) << 8) | (base[0x0A] as u16);
-        if product_code != 0 {
-            caps.product_code = Some(product_code);
+        if b1 == 0x01 && b2 == 0x01 || b1 == 0x00 {
+            continue; // Unused
         }
 
-        // 3. Serial Number (offsets 0x0C-0x0F, little-endian)
-        let serial = ((base[0x0F] as u32) << 24)
-            | ((base[0x0E] as u32) << 16)
-            | ((base[0x0D] as u32) << 8)
-            | (base[0x0C] as u32);
-        if serial != 0 {
-            caps.serial_number = Some(serial);
+        let w = (b1 as u16 + 31) * 8;
+        let ratio_bits = (b2 >> 6) & 0x03;
+        let refresh_rate = (b2 & 0x3F) + 60;
+
+        let h = match ratio_bits {
+            0x00 => (w * 10) / 16, // 16:10
+            0x01 => (w * 3) / 4,   // 4:3
+            0x02 => (w * 4) / 5,   // 5:4
+            0x03 => (w * 9) / 16,  // 16:9
+            _ => unreachable!(),
+        };
+
+        caps.supported_modes.push(VideoMode { width: w, height: h, refresh_rate });
+    }
+}
+
+/// Decodes the four detailed timing descriptor (DTD) slots (offsets 0x36, 0x48, 0x5A, 0x6C).
+/// Slots with a zero pixel clock are monitor descriptors and are skipped here.
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn decode_detailed_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) {
+    for i in 0..4 {
+        let offset = 0x36 + (i * 18);
+        let dtd = &base[offset..offset + 18];
+
+        if dtd[0] == 0x00 && dtd[1] == 0x00 {
+            continue;
         }
 
-        // 4. Video Input Definition (offset 0x14)
-        let video_input = VideoInputFlags::from_bits_truncate(base[0x14]);
-        caps.digital = video_input.contains(VideoInputFlags::DIGITAL);
-        if caps.digital {
-            caps.color_bit_depth = ColorBitDepth::from_edid_bits(base[0x14] >> 4);
-            caps.video_interface = VideoInterface::from_edid_bits(base[0x14]);
+        let pixel_clock = ((dtd[1] as u32) << 8) | (dtd[0] as u32);
+        if pixel_clock == 0 {
+            continue;
         }
 
-        // 5. Physical Dimensions (offsets 0x15-0x16, width and height in cm)
-        let width = base[0x15] as u16;
-        let height = base[0x16] as u16;
-        if width > 0 && height > 0 {
-            caps.width_cm = Some(width);
-            caps.height_cm = Some(height);
+        let hactive = (((dtd[4] as u16) & 0xF0) << 4) | (dtd[2] as u16);
+        let hblank  = (((dtd[4] as u16) & 0x0F) << 8) | (dtd[3] as u16);
+        let vactive = (((dtd[7] as u16) & 0xF0) << 4) | (dtd[5] as u16);
+        let vblank  = (((dtd[7] as u16) & 0x0F) << 8) | (dtd[6] as u16);
+
+        if hactive == 0 || vactive == 0 || hblank == 0 || vblank == 0 {
+            continue;
         }
 
-        // 6. 18-byte Descriptors (offsets 0x36, 0x48, 0x5A, 0x6C)
-        for i in 0..4 {
-            let offset = 0x36 + (i * 18);
-            let descriptor = &base[offset..offset + 18];
-
-            // Monitor Name Descriptor: Header 00 00 00 FC 00
-            if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFC] {
-                let name_bytes = &descriptor[5..18];
-                let name = String::from_utf8_lossy(name_bytes);
-                let trimmed = name.trim().to_string();
-                if !trimmed.is_empty() {
-                    caps.display_name = Some(trimmed);
-                }
-            }
-
-            // Monitor Range Limits: Header 00 00 00 FD 00
-            if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFD] {
-                caps.min_v_rate = Some(descriptor[5]);
-                caps.max_v_rate = Some(descriptor[6]);
-                caps.min_h_rate_khz = Some(descriptor[7]);
-                caps.max_h_rate_khz = Some(descriptor[8]);
-                caps.max_pixel_clock_mhz = Some((descriptor[9] as u16) * 10);
-            }
+        let total_pixels = (hactive + hblank) as u32 * (vactive + vblank) as u32;
+        if total_pixels == 0 {
+            continue;
         }
 
-        // 7. Standard Timings (offsets 0x26-0x35, 8 descriptors, 2 bytes each)
-        for i in 0..8 {
-            let offset = 0x26 + (i * 2);
-            let b1 = base[offset];
-            let b2 = base[offset + 1];
+        let rate = (pixel_clock * 10_000) / total_pixels;
+        let Some(refresh_rate) = u8::try_from(rate).ok() else {
+            continue;
+        };
 
-            if b1 == 0x01 && b2 == 0x01 || b1 == 0x00 {
-                continue; // Unused
-            }
-
-            let w = (b1 as u16 + 31) * 8;
-            let ratio_bits = (b2 >> 6) & 0x03;
-            let refresh_rate = (b2 & 0x3F) + 60;
-
-            let h = match ratio_bits {
-                0x00 => (w * 10) / 16, // 16:10
-                0x01 => (w * 3) / 4,   // 4:3
-                0x02 => (w * 4) / 5,   // 5:4
-                0x03 => (w * 9) / 16,  // 16:9
-                _ => unreachable!(),
-            };
-
-            caps.supported_modes.push(VideoMode {
-                width: w,
-                height: h,
-                refresh_rate,
-            });
-        }
-
-        // 8. Detailed Timing Descriptors (DTD) (offsets 0x36, 0x48, 0x5A, 0x6C)
-        for i in 0..4 {
-            let offset = 0x36 + (i * 18);
-            let dtd = &base[offset..offset + 18];
-
-            if dtd[0] == 0x00 && dtd[1] == 0x00 {
-                continue;
-            }
-
-            let pixel_clock = ((dtd[1] as u32) << 8) | (dtd[0] as u32);
-            if pixel_clock == 0 {
-                continue;
-            }
-
-            let hactive = (((dtd[4] as u16) & 0xF0) << 4) | (dtd[2] as u16);
-            let hblank = (((dtd[4] as u16) & 0x0F) << 8) | (dtd[3] as u16);
-            let vactive = (((dtd[7] as u16) & 0xF0) << 4) | (dtd[5] as u16);
-            let vblank = (((dtd[7] as u16) & 0x0F) << 8) | (dtd[6] as u16);
-
-            if hactive == 0 || vactive == 0 || hblank == 0 || vblank == 0 {
-                continue;
-            }
-
-            let total_pixels = (hactive + hblank) as u32 * (vactive + vblank) as u32;
-            if total_pixels == 0 {
-                continue;
-            }
-
-            let rate = (pixel_clock * 10_000) / total_pixels;
-            let Some(refresh_rate) = u8::try_from(rate).ok() else {
-                continue;
-            };
-
-            let mode = VideoMode {
-                width: hactive,
-                height: vactive,
-                refresh_rate,
-            };
-
-            if !caps.supported_modes.contains(&mode) {
-                caps.supported_modes.push(mode);
-            }
+        let mode = VideoMode { width: hactive, height: vactive, refresh_rate };
+        if !caps.supported_modes.contains(&mode) {
+            caps.supported_modes.push(mode);
         }
     }
 }

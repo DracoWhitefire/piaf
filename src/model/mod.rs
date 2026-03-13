@@ -25,7 +25,7 @@ pub use color::ColorBitDepth;
 
 /// Input interface model types.
 pub mod input;
-pub use input::VideoInterface;
+pub use input::{VideoInputFlags, VideoInterface};
 
 /// Manufacture date model type.
 pub mod manufacture;

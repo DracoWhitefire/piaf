@@ -30,7 +30,7 @@ pub use model::ExtensionHandler;
 pub use model::{
     ColorBitDepth, DisplayCapabilities, EdidError, EdidVersion, EdidWarning, ExtensionLibrary,
     ExtensionMetadata, ExtensionTagRegistry, KnownExtensions, ManufactureDate, ParsedEdid,
-    VideoInterface, VideoMode,
+    VideoInputFlags, VideoInterface, VideoMode,
 };
 
 /// EDID byte-level parser.
@@ -39,4 +39,4 @@ pub use parser::parse_edid;
 
 /// Capability extraction from a [`ParsedEdid`].
 pub mod capabilities;
-pub use capabilities::{capabilities_from_edid, Cea861Flags, VideoInputFlags};
+pub use capabilities::{capabilities_from_edid, Cea861Flags};

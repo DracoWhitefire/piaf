@@ -3,7 +3,6 @@ mod cea861;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use base::BaseBlockHandler;
-pub use base::VideoInputFlags;
 pub use cea861::Cea861Flags;
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use cea861::Cea861Handler;
