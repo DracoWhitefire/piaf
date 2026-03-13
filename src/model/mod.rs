@@ -38,6 +38,10 @@ pub use features::DisplayFeatureFlags;
 pub mod manufacture;
 pub use manufacture::ManufactureDate;
 
+/// Screen size and aspect ratio.
+pub mod screen;
+pub use screen::ScreenSize;
+
 /// Consumer-facing capability types.
 pub mod capabilities;
 #[cfg(feature = "std")]

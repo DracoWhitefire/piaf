@@ -48,8 +48,7 @@ pub struct DisplayCapabilities {
     pub digital_color_encoding: Option<DigitalColorEncoding>,
     pub analog_color_type: Option<AnalogColorType>,
     // Physical
-    pub width_cm: Option<u16>,
-    pub height_cm: Option<u16>,
+    pub screen_size: Option<ScreenSize>,  // Physical{width_cm,height_cm} | Landscape(u8) | Portrait(u8)
     // Timing
     pub min_v_rate: Option<u8>,
     pub max_v_rate: Option<u8>,

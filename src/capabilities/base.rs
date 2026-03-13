@@ -15,6 +15,7 @@ use crate::model::input::{AnalogSyncLevel, VideoInputFlags, VideoInterface};
 use crate::model::manufacture::ManufactureDate;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{String, Vec};
+use crate::model::screen::ScreenSize;
 
 /// Decodes the EDID base block into [`DisplayCapabilities`].
 ///
@@ -111,13 +112,8 @@ fn decode_header_fields(base: &[u8; 128], caps: &mut DisplayCapabilities) {
         caps.analog_sync_level = Some(AnalogSyncLevel::from_edid_bits(base[0x14]));
     }
 
-    // Physical dimensions (offsets 0x15-0x16, width and height in cm)
-    let width = base[0x15] as u16;
-    let height = base[0x16] as u16;
-    if width > 0 && height > 0 {
-        caps.width_cm = Some(width);
-        caps.height_cm = Some(height);
-    }
+    // Screen size or aspect ratio (bytes 0x15-0x16)
+    caps.screen_size = ScreenSize::from_edid_bytes(base[0x15], base[0x16]);
 }
 
 /// Decodes the four 18-byte monitor descriptor slots (offsets 0x36, 0x48, 0x5A, 0x6C).
@@ -338,6 +334,7 @@ mod tests {
     use crate::model::features::DisplayFeatureFlags;
     use crate::model::input::{AnalogSyncLevel, VideoInterface};
     use crate::model::manufacture::ManufactureDate;
+    use crate::model::screen::ScreenSize;
 
     #[test]
     fn test_gamma() {
@@ -408,6 +405,49 @@ mod tests {
             caps.manufacture_date,
             Some(ManufactureDate::ModelYear(2020))
         );
+    }
+
+    #[test]
+    fn test_screen_size() {
+        let mut base = [0u8; 128];
+
+        // Physical dimensions
+        base[0x15] = 60;
+        base[0x16] = 34;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(
+            caps.screen_size,
+            Some(ScreenSize::Physical {
+                width_cm: 60,
+                height_cm: 34
+            })
+        );
+
+        // Landscape aspect ratio: byte 0x16 = 0, byte 0x15 = 196 → (196+99)/100 = 2.95
+        base[0x15] = 196;
+        base[0x16] = 0;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(caps.screen_size, Some(ScreenSize::Landscape(196)));
+        let ratio = caps.screen_size.unwrap().landscape_ratio().unwrap();
+        assert!((ratio - 2.95).abs() < 0.001);
+
+        // Portrait aspect ratio: byte 0x15 = 0, byte 0x16 = 101 → 100/(101+99) = 0.5
+        base[0x15] = 0;
+        base[0x16] = 101;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(caps.screen_size, Some(ScreenSize::Portrait(101)));
+        let ratio = caps.screen_size.unwrap().portrait_ratio().unwrap();
+        assert!((ratio - 0.5).abs() < 0.001);
+
+        // Both zero → undefined
+        base[0x15] = 0;
+        base[0x16] = 0;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(caps.screen_size, None);
     }
 
     #[test]
@@ -714,8 +754,13 @@ mod tests {
         assert_eq!(caps.product_code, Some(0x1234));
         assert_eq!(caps.serial_number, Some(0x12345678));
         assert!(caps.digital);
-        assert_eq!(caps.width_cm, Some(51));
-        assert_eq!(caps.height_cm, Some(29));
+        assert_eq!(
+            caps.screen_size,
+            Some(ScreenSize::Physical {
+                width_cm: 51,
+                height_cm: 29
+            })
+        );
         assert_eq!(caps.display_name, Some("PIAF".to_string()));
     }
 

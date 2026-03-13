@@ -122,10 +122,21 @@ fn main() {
                             if let Some(s) = caps.serial_number_string.as_deref() {
                                 println!("  Serial string: {}", s);
                             }
-                            println!(
-                                "  Dimensions:   {:?}x{:?} cm",
-                                caps.width_cm, caps.height_cm
-                            );
+                            match caps.screen_size {
+                                Some(piaf::ScreenSize::Physical {
+                                    width_cm,
+                                    height_cm,
+                                }) => println!("  Dimensions:   {}x{} cm", width_cm, height_cm),
+                                Some(piaf::ScreenSize::Landscape(v)) => println!(
+                                    "  Aspect ratio: {:.2}:1 (landscape)",
+                                    (v as f32 + 99.0) / 100.0
+                                ),
+                                Some(piaf::ScreenSize::Portrait(v)) => println!(
+                                    "  Aspect ratio: 1:{:.2} (portrait)",
+                                    (v as f32 + 99.0) / 100.0
+                                ),
+                                None => {}
+                            }
                             println!(
                                 "  Input type:   {}",
                                 if caps.digital { "Digital" } else { "Analog" }

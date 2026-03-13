@@ -47,7 +47,7 @@ impl AnalogSyncLevel {
             0b00 => Self::V700_300,
             0b01 => Self::V714_286,
             0b10 => Self::V1000_400,
-            _    => Self::V700_0,
+            _ => Self::V700_0,
         }
     }
 }

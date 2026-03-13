@@ -1,7 +1,7 @@
 use piaf::{
     capabilities_from_edid, parse_edid, AnalogColorType, ChromaticityPoint, ColorBitDepth,
     DigitalColorEncoding, DisplayFeatureFlags, DisplayGamma, EdidVersion, ExtensionLibrary,
-    ExtensionTagRegistry, ManufactureDate, VideoInterface,
+    ExtensionTagRegistry, ManufactureDate, ScreenSize, VideoInterface,
 };
 
 fn load(path: &str) -> Vec<u8> {
@@ -85,8 +85,13 @@ fn lg_ultragear_identification() {
             y_raw: 337
         }
     );
-    assert_eq!(caps.width_cm, Some(60));
-    assert_eq!(caps.height_cm, Some(34));
+    assert_eq!(
+        caps.screen_size,
+        Some(ScreenSize::Physical {
+            width_cm: 60,
+            height_cm: 34
+        })
+    );
 }
 
 #[test]
@@ -200,8 +205,13 @@ fn auo_edp_identification() {
             y_raw: 337
         }
     );
-    assert_eq!(caps.width_cm, Some(38));
-    assert_eq!(caps.height_cm, Some(22));
+    assert_eq!(
+        caps.screen_size,
+        Some(ScreenSize::Physical {
+            width_cm: 38,
+            height_cm: 22
+        })
+    );
 }
 
 #[test]

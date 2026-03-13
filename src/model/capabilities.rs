@@ -96,10 +96,9 @@ pub struct DisplayCapabilities {
     /// Analog sync and video white levels, decoded from byte `0x14` bits 6–5.
     /// Only populated for analog displays.
     pub analog_sync_level: Option<crate::model::input::AnalogSyncLevel>,
-    /// Physical width of the display in centimetres.
-    pub width_cm: Option<u16>,
-    /// Physical height of the display in centimetres.
-    pub height_cm: Option<u16>,
+    /// Physical screen dimensions or aspect ratio, decoded from bytes `0x15`–`0x16`.
+    /// `None` when both bytes are zero (undefined).
+    pub screen_size: Option<crate::model::screen::ScreenSize>,
     /// Minimum supported vertical refresh rate in Hz.
     pub min_v_rate: Option<u8>,
     /// Maximum supported vertical refresh rate in Hz.
