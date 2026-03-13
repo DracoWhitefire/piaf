@@ -6,6 +6,28 @@ use crate::model::extension::ExtensionHandler;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::Vec;
 
+bitflags::bitflags! {
+    /// Capability flags from byte 3 of a CEA-861 extension block.
+    ///
+    /// | Bit | Mask   | Meaning                  |
+    /// |-----|--------|--------------------------|
+    /// | 7   | `0x80` | Underscan support        |
+    /// | 6   | `0x40` | Basic audio support      |
+    /// | 5   | `0x20` | YCbCr 4:4:4 support      |
+    /// | 4   | `0x10` | YCbCr 4:2:0 support      |
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct Cea861Flags: u8 {
+        /// The display supports underscan.
+        const UNDERSCAN   = 0x80;
+        /// The display supports basic audio.
+        const BASIC_AUDIO = 0x40;
+        /// The display supports YCbCr 4:4:4 color encoding.
+        const YCBCR_444   = 0x20;
+        /// The display supports YCbCr 4:2:0 color encoding.
+        const YCBCR_422   = 0x10;
+    }
+}
+
 /// Processes a CEA-861 extension block (tag `0x02`).
 ///
 /// Currently extracts the basic audio support flag (byte 3, bit 6).
@@ -21,14 +43,11 @@ impl ExtensionHandler for Cea861Handler {
         caps: &mut DisplayCapabilities,
         _warnings: &mut Vec<EdidWarning>,
     ) {
-        // CEA-861 Extension Block
-        // Offset 2: Offset of DTDs
-        // Bit 6 of byte 3: 1=Supports basic audio
-        if (ext[3] & 0x40) != 0 {
+        let flags = Cea861Flags::from_bits_truncate(ext[3]);
+
+        if flags.contains(Cea861Flags::BASIC_AUDIO) {
             caps.has_audio = true;
         }
-
-        // We could also parse Video Data Blocks (VICs) here to get more modes
     }
 }
 
@@ -41,9 +60,7 @@ mod tests {
     #[test]
     fn test_audio_flag() {
         let mut ext = [0u8; 128];
-
-        // Byte 3, bit 6 set = basic audio supported
-        ext[3] = 0x40;
+        ext[3] = Cea861Flags::BASIC_AUDIO.bits();
 
         let mut caps = DisplayCapabilities::default();
         Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
@@ -59,5 +76,14 @@ mod tests {
         Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
 
         assert!(!caps.has_audio);
+    }
+
+    #[test]
+    fn test_flags_parsing() {
+        let flags = Cea861Flags::from_bits_truncate(0xF0);
+        assert!(flags.contains(Cea861Flags::UNDERSCAN));
+        assert!(flags.contains(Cea861Flags::BASIC_AUDIO));
+        assert!(flags.contains(Cea861Flags::YCBCR_444));
+        assert!(flags.contains(Cea861Flags::YCBCR_422));
     }
 }
