@@ -81,23 +81,27 @@ impl Default for ExtensionTagRegistry {
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl ExtensionTagRegistry {
+    /// Creates an empty registry.
     pub fn new() -> Self {
         Self {
             known_tags: Vec::new(),
         }
     }
 
+    /// Adds `tag` to the set of known tags. Duplicate registrations are silently ignored.
     pub fn register(&mut self, tag: u8) {
         if !self.known_tags.contains(&tag) {
             self.known_tags.push(tag);
         }
     }
 
+    /// Returns `true` if `tag` has been registered.
     pub fn is_known(&self, tag: u8) -> bool {
         self.known_tags.contains(&tag)
     }
 }
 
+/// A fixed-capacity set of known extension tag bytes (`no_std` build, capacity 16).
 #[cfg(not(any(feature = "alloc", feature = "std")))]
 pub struct ExtensionTagRegistry {
     tags: [u8; 16],
@@ -113,6 +117,7 @@ impl Default for ExtensionTagRegistry {
 
 #[cfg(not(any(feature = "alloc", feature = "std")))]
 impl ExtensionTagRegistry {
+    /// Creates an empty registry.
     pub fn new() -> Self {
         Self {
             tags: [0u8; 16],
@@ -120,6 +125,8 @@ impl ExtensionTagRegistry {
         }
     }
 
+    /// Adds `tag` to the set of known tags.
+    /// Duplicate registrations and overflow (capacity 16) are silently ignored.
     pub fn register(&mut self, tag: u8) {
         if self.len < 16 && !self.is_known(tag) {
             self.tags[self.len] = tag;
@@ -127,6 +134,7 @@ impl ExtensionTagRegistry {
         }
     }
 
+    /// Returns `true` if `tag` has been registered.
     pub fn is_known(&self, tag: u8) -> bool {
         self.tags[..self.len].contains(&tag)
     }
@@ -138,9 +146,18 @@ impl KnownExtensions for ExtensionTagRegistry {
     }
 }
 
+/// A registry of extension block handlers and base block handlers.
+///
+/// Pass to [`parse_edid`][crate::parse_edid] (it implements [`KnownExtensions`]) and to
+/// [`capabilities_from_edid`][crate::capabilities_from_edid] to drive capability extraction.
+///
+/// Use [`ExtensionLibrary::with_standard_handlers`][crate::capabilities::ExtensionLibrary::with_standard_handlers]
+/// to get a library pre-loaded with the built-in base block and CEA-861 handlers.
 pub struct ExtensionLibrary {
+    /// Handlers run against the base block, in registration order.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub base_handlers: Vec<Box<dyn ExtensionHandler>>,
+    /// Registered extension block types with optional handlers.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub extensions: Vec<ExtensionMetadata>,
 }
@@ -152,6 +169,7 @@ impl Default for ExtensionLibrary {
 }
 
 impl ExtensionLibrary {
+    /// Creates an empty library with no handlers or registered extensions.
     pub fn new() -> Self {
         Self {
             #[cfg(any(feature = "alloc", feature = "std"))]
