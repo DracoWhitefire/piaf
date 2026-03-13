@@ -3,6 +3,7 @@ use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::prelude::{String, Vec};
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct VideoMode {
     pub width: u16,
@@ -10,6 +11,7 @@ pub struct VideoMode {
     pub refresh_rate: u8,
 }
 
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DisplayCapabilities {
     #[cfg(any(feature = "alloc", feature = "std"))]
