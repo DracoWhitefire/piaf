@@ -15,6 +15,7 @@ bitflags::bitflags! {
     /// | 6   | `0x40` | Basic audio support      |
     /// | 5   | `0x20` | YCbCr 4:4:4 support      |
     /// | 4   | `0x10` | YCbCr 4:2:0 support      |
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct Cea861Flags: u8 {
         /// The display supports underscan.
