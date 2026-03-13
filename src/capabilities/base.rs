@@ -128,18 +128,17 @@ impl ExtensionHandler for BaseBlockHandler {
             let vactive = (((dtd[7] as u16) & 0xF0) << 4) | (dtd[5] as u16);
             let vblank = (((dtd[7] as u16) & 0x0F) << 8) | (dtd[6] as u16);
 
-            let refresh_rate = if hactive > 0 && vactive > 0 && hblank > 0 && vblank > 0 {
-                let total_pixels = (hactive + hblank) as u32 * (vactive + vblank) as u32;
-                if total_pixels > 0 {
-                    let rate = (pixel_clock * 10_000) / total_pixels;
-                    let Some(r) = u8::try_from(rate).ok() else { continue };
-                    r
-                } else {
-                    60
-                }
-            } else {
-                60
-            };
+            if hactive == 0 || vactive == 0 || hblank == 0 || vblank == 0 {
+                continue;
+            }
+
+            let total_pixels = (hactive + hblank) as u32 * (vactive + vblank) as u32;
+            if total_pixels == 0 {
+                continue;
+            }
+
+            let rate = (pixel_clock * 10_000) / total_pixels;
+            let Some(refresh_rate) = u8::try_from(rate).ok() else { continue };
 
             let mode = VideoMode {
                 width: hactive,
