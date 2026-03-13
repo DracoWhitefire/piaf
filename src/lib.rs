@@ -28,8 +28,8 @@ pub use model::ExtensionData;
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use model::ExtensionHandler;
 pub use model::{
-    DisplayCapabilities, EdidError, EdidWarning, ExtensionLibrary, ExtensionMetadata,
-    ExtensionTagRegistry, KnownExtensions, ParsedEdid, VideoMode,
+    ColorBitDepth, DisplayCapabilities, EdidError, EdidWarning, ExtensionLibrary,
+    ExtensionMetadata, ExtensionTagRegistry, KnownExtensions, ParsedEdid, VideoMode,
 };
 
 /// EDID byte-level parser.

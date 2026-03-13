@@ -61,6 +61,9 @@ pub struct DisplayCapabilities {
     pub display_name: Option<String>,
     /// `true` if the display uses a digital input interface.
     pub digital: bool,
+    /// Color bit depth per primary channel, decoded from byte `0x14` bits 6–4.
+    /// `None` for analog displays or when the field is undefined or reserved.
+    pub color_bit_depth: Option<crate::model::color::ColorBitDepth>,
     /// Physical width of the display in centimetres.
     pub width_cm: Option<u16>,
     /// Physical height of the display in centimetres.

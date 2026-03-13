@@ -19,6 +19,10 @@ pub use diagnostics::{EdidError, EdidWarning};
 pub mod edid;
 pub use edid::ParsedEdid;
 
+/// Color-related model types.
+pub mod color;
+pub use color::ColorBitDepth;
+
 /// Consumer-facing capability types.
 pub mod capabilities;
 #[cfg(feature = "std")]
