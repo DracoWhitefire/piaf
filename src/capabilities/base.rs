@@ -31,6 +31,7 @@ impl ExtensionHandler for BaseBlockHandler {
     ) {
         decode_header_fields(base, caps);
         decode_descriptors(base, caps);
+        decode_established_timings(base, caps);
         decode_standard_timings(base, caps);
         decode_detailed_timings(base, caps);
     }
@@ -130,6 +131,45 @@ fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilities) {
     }
 }
 
+/// Decodes the established timings bitmap (bytes 0x23–0x25, 17 predefined modes).
+///
+/// Each bit maps to a fixed resolution and refresh rate. Byte 0x25 bits 6–0 are
+/// manufacturer-specific and are not decoded here.
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn decode_established_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) {
+    // (byte offset, bit mask, width, height, refresh_rate)
+    // Note: 1024x768@87 is interlaced in the EDID spec; stored as-is since VideoMode
+    // has no interlace field.
+    const TIMINGS: &[(usize, u8, u16, u16, u8)] = &[
+        (0x23, 0x80,  720,  400, 70),
+        (0x23, 0x40,  720,  400, 88),
+        (0x23, 0x20,  640,  480, 60),
+        (0x23, 0x10,  640,  480, 67),
+        (0x23, 0x08,  640,  480, 72),
+        (0x23, 0x04,  640,  480, 75),
+        (0x23, 0x02,  800,  600, 56),
+        (0x23, 0x01,  800,  600, 60),
+        (0x24, 0x80,  800,  600, 72),
+        (0x24, 0x40,  800,  600, 75),
+        (0x24, 0x20,  832,  624, 75),
+        (0x24, 0x10, 1024,  768, 87),
+        (0x24, 0x08, 1024,  768, 60),
+        (0x24, 0x04, 1024,  768, 70),
+        (0x24, 0x02, 1024,  768, 75),
+        (0x24, 0x01, 1280, 1024, 75),
+        (0x25, 0x80, 1152,  870, 75), // Apple Macintosh II
+    ];
+
+    for &(byte_off, mask, w, h, rate) in TIMINGS {
+        if base[byte_off] & mask != 0 {
+            let mode = VideoMode { width: w, height: h, refresh_rate: rate };
+            if !caps.supported_modes.contains(&mode) {
+                caps.supported_modes.push(mode);
+            }
+        }
+    }
+}
+
 /// Decodes the eight standard timing descriptors (offsets 0x26–0x35, 2 bytes each).
 #[cfg(any(feature = "alloc", feature = "std"))]
 fn decode_standard_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) {
@@ -213,7 +253,7 @@ fn decode_detailed_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) {
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod tests {
     use super::*;
-    use crate::model::capabilities::DisplayCapabilities;
+    use crate::model::capabilities::{DisplayCapabilities, VideoMode};
     use crate::model::color::{ColorBitDepth, DisplayGamma};
     use crate::model::edid::EdidVersion;
     use crate::model::features::DisplayFeatureFlags;
@@ -389,6 +429,26 @@ mod tests {
         assert_eq!(caps.width_cm, Some(51));
         assert_eq!(caps.height_cm, Some(29));
         assert_eq!(caps.display_name, Some("PIAF".to_string()));
+    }
+
+    #[test]
+    fn test_established_timings() {
+        let mut base = [0u8; 128];
+
+        // Set 640x480@60, 800x600@60, 1024x768@60, 1280x1024@75
+        base[0x23] = 0x20; // 640x480@60
+        base[0x23] |= 0x01; // 800x600@60
+        base[0x24] = 0x08; // 1024x768@60
+        base[0x24] |= 0x01; // 1280x1024@75
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+
+        assert_eq!(caps.supported_modes.len(), 4);
+        assert!(caps.supported_modes.contains(&VideoMode { width: 640, height: 480, refresh_rate: 60 }));
+        assert!(caps.supported_modes.contains(&VideoMode { width: 800, height: 600, refresh_rate: 60 }));
+        assert!(caps.supported_modes.contains(&VideoMode { width: 1024, height: 768, refresh_rate: 60 }));
+        assert!(caps.supported_modes.contains(&VideoMode { width: 1280, height: 1024, refresh_rate: 75 }));
     }
 
     #[test]
