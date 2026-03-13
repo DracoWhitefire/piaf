@@ -31,7 +31,7 @@ pub use model::{
     AnalogColorType, Chromaticity, ChromaticityPoint, ColorBitDepth, DigitalColorEncoding,
     DisplayCapabilities, DisplayFeatureFlags, DisplayGamma, EdidError, EdidVersion, EdidWarning,
     ExtensionLibrary, ExtensionMetadata, ExtensionTagRegistry, KnownExtensions, ManufactureDate,
-    ParsedEdid, VideoInputFlags, VideoInterface, VideoMode,
+    ParsedEdid, VideoInputFlags, VideoInterface, VideoMode, WhitePoint,
 };
 
 /// EDID byte-level parser.

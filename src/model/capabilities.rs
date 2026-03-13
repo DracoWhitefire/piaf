@@ -69,6 +69,9 @@ pub struct DisplayCapabilities {
     /// Unspecified ASCII text strings from `0xFE` descriptors, in slot order.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub unspecified_text: Vec<String>,
+    /// Additional white points from the `0xFB` descriptor, if present.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub white_points: Vec<crate::model::color::WhitePoint>,
     /// `true` if the display uses a digital input interface.
     pub digital: bool,
     /// Color bit depth per primary channel, decoded from byte `0x14` bits 6–4.

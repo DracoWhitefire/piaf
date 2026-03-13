@@ -64,6 +64,22 @@ impl Chromaticity {
     }
 }
 
+/// An additional white point entry from a `0xFB` descriptor.
+///
+/// Displays that support multiple white points (e.g. for HDR or wide-gamut modes)
+/// encode supplementary white points here, beyond the primary white point in the
+/// chromaticity block.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WhitePoint {
+    /// White point index number (1–255), assigned by the manufacturer.
+    pub index: u8,
+    /// CIE xy chromaticity of this white point.
+    pub chromaticity: ChromaticityPoint,
+    /// Gamma for this white point. `None` if unspecified (`0xFF`).
+    pub gamma: Option<DisplayGamma>,
+}
+
 /// Display gamma, decoded from EDID base block byte `0x17`.
 ///
 /// Gamma is encoded as `(value * 100) - 100`, so a stored byte of `120` represents

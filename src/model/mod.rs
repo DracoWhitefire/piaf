@@ -23,7 +23,7 @@ pub use edid::{EdidVersion, ParsedEdid};
 pub mod color;
 pub use color::{
     AnalogColorType, Chromaticity, ChromaticityPoint, ColorBitDepth, DigitalColorEncoding,
-    DisplayGamma,
+    DisplayGamma, WhitePoint,
 };
 
 /// Input interface model types.

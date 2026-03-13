@@ -2,7 +2,8 @@ use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::VideoMode;
 use crate::model::color::{
-    AnalogColorType, Chromaticity, ColorBitDepth, DigitalColorEncoding, DisplayGamma,
+    AnalogColorType, Chromaticity, ChromaticityPoint, ColorBitDepth, DigitalColorEncoding,
+    DisplayGamma, WhitePoint,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
@@ -125,12 +126,34 @@ fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilities) {
         let offset = 0x36 + (i * 18);
         let descriptor = &base[offset..offset + 18];
 
+        // Additional White Point Descriptor: tag 0xFB
+        // Contains up to two white point entries at byte offsets 5 and 12.
+        // Each entry: index (1), lsb (1), x_msb (1), y_msb (1), gamma (1). Index 0 = unused.
+        if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFB] {
+            for entry_off in [5usize, 12usize] {
+                let index = descriptor[entry_off];
+                if index == 0 {
+                    continue;
+                }
+                let lsb = descriptor[entry_off + 1];
+                let x_raw = ((descriptor[entry_off + 2] as u16) << 2) | ((lsb >> 2) & 0x03) as u16;
+                let y_raw = ((descriptor[entry_off + 3] as u16) << 2) | (lsb & 0x03) as u16;
+                caps.white_points.push(WhitePoint {
+                    index,
+                    chromaticity: ChromaticityPoint { x_raw, y_raw },
+                    gamma: DisplayGamma::from_edid_byte(descriptor[entry_off + 4]),
+                });
+            }
+        }
+
         // Additional Standard Timing Descriptor: tag 0xFA
         // Bytes 5-16 contain up to 6 standard timing entries (2 bytes each).
         if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFA] {
             for j in 0..6 {
                 let base_off = 5 + (j * 2);
-                if let Some(mode) = decode_standard_timing_entry(descriptor[base_off], descriptor[base_off + 1]) {
+                if let Some(mode) =
+                    decode_standard_timing_entry(descriptor[base_off], descriptor[base_off + 1])
+                {
                     if !caps.supported_modes.contains(&mode) {
                         caps.supported_modes.push(mode);
                     }
@@ -233,9 +256,13 @@ fn decode_standard_timing_entry(b1: u8, b2: u8) -> Option<VideoMode> {
         0x00 => (w * 10) / 16, // 16:10
         0x01 => (w * 3) / 4,   // 4:3
         0x02 => (w * 4) / 5,   // 5:4
-        _    => (w * 9) / 16,  // 16:9
+        _ => (w * 9) / 16,     // 16:9
     };
-    Some(VideoMode { width: w, height: h, refresh_rate: (b2 & 0x3F) + 60 })
+    Some(VideoMode {
+        width: w,
+        height: h,
+        refresh_rate: (b2 & 0x3F) + 60,
+    })
 }
 
 /// Decodes the eight standard timing descriptors (offsets 0x26–0x35, 2 bytes each).
@@ -302,7 +329,8 @@ mod tests {
     use super::*;
     use crate::model::capabilities::{DisplayCapabilities, VideoMode};
     use crate::model::color::{
-        AnalogColorType, Chromaticity, ColorBitDepth, DigitalColorEncoding, DisplayGamma,
+        AnalogColorType, Chromaticity, ChromaticityPoint, ColorBitDepth, DigitalColorEncoding,
+        DisplayGamma, WhitePoint,
     };
     use crate::model::edid::EdidVersion;
     use crate::model::features::DisplayFeatureFlags;
@@ -510,6 +538,55 @@ mod tests {
     }
 
     #[test]
+    fn test_additional_white_point() {
+        let mut base = [0u8; 128];
+
+        // 0xFB descriptor at 0x36: two white point entries
+        base[0x36..0x3A].copy_from_slice(&[0x00, 0x00, 0x00, 0xFB]);
+        base[0x3A] = 0x00; // reserved
+
+        // Entry 1 at offset 5 (0x3B): index=1, lsb=0x05 (x[1:0]=1, y[1:0]=1), x_msb=80, y_msb=84, gamma=120
+        base[0x3B] = 1; // index
+        base[0x3C] = 0x05; // lsb: bits 3-2 = 01 (x), bits 1-0 = 01 (y)
+        base[0x3D] = 80; // x MSB → x_raw = 80*4+1 = 321
+        base[0x3E] = 84; // y MSB → y_raw = 84*4+1 = 337
+        base[0x3F] = 120; // gamma = 2.20
+
+        // Entry 2 at offset 12 (0x42): index=2, unused gamma (0xFF)
+        base[0x42] = 2;
+        base[0x43] = 0x00;
+        base[0x44] = 96; // x_raw = 384
+        base[0x45] = 32; // y_raw = 128
+        base[0x46] = 0xFF; // gamma undefined
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+
+        assert_eq!(caps.white_points.len(), 2);
+        assert_eq!(caps.white_points[0].index, 1);
+        assert_eq!(
+            caps.white_points[0].chromaticity,
+            ChromaticityPoint {
+                x_raw: 321,
+                y_raw: 337
+            }
+        );
+        assert_eq!(
+            caps.white_points[0].gamma,
+            DisplayGamma::from_edid_byte(120)
+        );
+        assert_eq!(caps.white_points[1].index, 2);
+        assert_eq!(
+            caps.white_points[1].chromaticity,
+            ChromaticityPoint {
+                x_raw: 384,
+                y_raw: 128
+            }
+        );
+        assert_eq!(caps.white_points[1].gamma, None);
+    }
+
+    #[test]
     fn test_unspecified_text_descriptor() {
         let mut base = [0u8; 128];
 
@@ -518,13 +595,17 @@ mod tests {
         base[0x3A] = 0x00;
         base[0x3B..0x3F].copy_from_slice(b"ABCD");
         base[0x3F] = 0x0A;
-        for b in &mut base[0x40..0x48] { *b = 0x20; }
+        for b in &mut base[0x40..0x48] {
+            *b = 0x20;
+        }
 
         base[0x48..0x4C].copy_from_slice(&[0x00, 0x00, 0x00, 0xFE]);
         base[0x4C] = 0x00;
         base[0x4D..0x51].copy_from_slice(b"EFGH");
         base[0x51] = 0x0A;
-        for b in &mut base[0x52..0x5A] { *b = 0x20; }
+        for b in &mut base[0x52..0x5A] {
+            *b = 0x20;
+        }
 
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
@@ -606,7 +687,7 @@ mod tests {
         // 0xFA descriptor at 0x36 with two valid entries and four unused (0x01 0x01)
         base[0x36..0x3A].copy_from_slice(&[0x00, 0x00, 0x00, 0xFA]);
         base[0x3A] = 0x00; // reserved
-        // 1920x1080@60: b1 = 1920/8 - 31 = 209, b2 = 16:9 (3<<6) | 0
+                           // 1920x1080@60: b1 = 1920/8 - 31 = 209, b2 = 16:9 (3<<6) | 0
         base[0x3B] = 209;
         base[0x3C] = 0xC0;
         // 1280x720@60: b1 = 1280/8 - 31 = 129, b2 = 16:9 (3<<6) | 0
@@ -621,8 +702,16 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
 
-        assert!(caps.supported_modes.contains(&VideoMode { width: 1920, height: 1080, refresh_rate: 60 }));
-        assert!(caps.supported_modes.contains(&VideoMode { width: 1280, height: 720, refresh_rate: 60 }));
+        assert!(caps.supported_modes.contains(&VideoMode {
+            width: 1920,
+            height: 1080,
+            refresh_rate: 60
+        }));
+        assert!(caps.supported_modes.contains(&VideoMode {
+            width: 1280,
+            height: 720,
+            refresh_rate: 60
+        }));
     }
 
     #[test]
