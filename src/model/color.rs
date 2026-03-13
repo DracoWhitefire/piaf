@@ -1,3 +1,69 @@
+/// A single CIE xy chromaticity coordinate pair, decoded from the EDID base block.
+///
+/// Values are stored as raw 10-bit integers. Use [`x`][Self::x] and [`y`][Self::y]
+/// to obtain the normalised `f32` coordinates in the range `[0.0, 1.0)`.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ChromaticityPoint {
+    /// Raw 10-bit x value.
+    pub x_raw: u16,
+    /// Raw 10-bit y value.
+    pub y_raw: u16,
+}
+
+impl ChromaticityPoint {
+    /// CIE x coordinate, normalised to `[0.0, 1.0)`.
+    pub fn x(&self) -> f32 {
+        self.x_raw as f32 / 1024.0
+    }
+
+    /// CIE y coordinate, normalised to `[0.0, 1.0)`.
+    pub fn y(&self) -> f32 {
+        self.y_raw as f32 / 1024.0
+    }
+}
+
+/// CIE xy chromaticity coordinates for a display's color primaries and white point,
+/// decoded from EDID base block bytes `0x19`–`0x22`.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Chromaticity {
+    /// Red primary chromaticity.
+    pub red: ChromaticityPoint,
+    /// Green primary chromaticity.
+    pub green: ChromaticityPoint,
+    /// Blue primary chromaticity.
+    pub blue: ChromaticityPoint,
+    /// White point chromaticity.
+    pub white: ChromaticityPoint,
+}
+
+impl Chromaticity {
+    pub(crate) fn from_edid_bytes(base: &[u8; 128]) -> Self {
+        let lsb0 = base[0x19];
+        let lsb1 = base[0x1A];
+
+        Self {
+            red: ChromaticityPoint {
+                x_raw: ((base[0x1B] as u16) << 2) | ((lsb0 >> 6) & 0x03) as u16,
+                y_raw: ((base[0x1C] as u16) << 2) | ((lsb0 >> 4) & 0x03) as u16,
+            },
+            green: ChromaticityPoint {
+                x_raw: ((base[0x1D] as u16) << 2) | ((lsb0 >> 2) & 0x03) as u16,
+                y_raw: ((base[0x1E] as u16) << 2) | ((lsb0 >> 0) & 0x03) as u16,
+            },
+            blue: ChromaticityPoint {
+                x_raw: ((base[0x1F] as u16) << 2) | ((lsb1 >> 6) & 0x03) as u16,
+                y_raw: ((base[0x20] as u16) << 2) | ((lsb1 >> 4) & 0x03) as u16,
+            },
+            white: ChromaticityPoint {
+                x_raw: ((base[0x21] as u16) << 2) | ((lsb1 >> 2) & 0x03) as u16,
+                y_raw: ((base[0x22] as u16) << 2) | ((lsb1 >> 0) & 0x03) as u16,
+            },
+        }
+    }
+}
+
 /// Display gamma, decoded from EDID base block byte `0x17`.
 ///
 /// Gamma is encoded as `(value * 100) - 100`, so a stored byte of `120` represents
