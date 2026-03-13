@@ -3,16 +3,18 @@
 PIAF is organized as a small library with clear internal boundaries between byte-level parsing and higher-level capability modeling.
 
 ## Core pipeline
-```mermaid
- flowchart LR 
-A[Input Bytes] --> B[Block Validation] 
-B --> C[Structured Parse] 
-C --> D[ParsedEdid] 
-D --> E[Normalization] 
-E --> F[DisplayCapabilities] 
-C --> G[Warnings]
-B --> G
 
+```mermaid
+flowchart LR
+    A[Input Bytes] --> B[Block Validation]
+    K[KnownExtensions] --> B
+    B --> C[Structured Parse]
+    C --> D[ParsedEdid]
+    C --> G[Parse Warnings]
+    D --> E[Extension Handlers]
+    L[ExtensionLibrary] --> E
+    E --> F[DisplayCapabilities]
+    E --> H[Handler Warnings]
 ```
 
 ## Layers
@@ -42,14 +44,15 @@ This representation is distinct from the end-user capability model.
 
 ### Normalization
 
-The normalization layer converts parsed fields into a simpler, more stable `DisplayCapabilities` structure.
+The normalization layer converts parsed fields into a simpler, more stable `DisplayCapabilities` structure via a set of pluggable `ExtensionHandler` implementations.
 
 This layer is where PIAF can:
 
 - combine related low-level fields,
-- choose consumer-friendly defaults,
 - represent partial knowledge explicitly,
 - attach warnings for suspicious or inconsistent input.
+
+Normalization does not invent data. If a field cannot be reliably determined, it is left absent rather than filled with a default.
 
 ### Diagnostics
 
@@ -58,7 +61,7 @@ Diagnostics should distinguish between:
 - **hard errors**, which prevent useful parsing,
 - **warnings**, which indicate malformed, unsupported, or suspicious but non-fatal data.
 
-This distinction is important because real display data is often imperfect.
+This distinction is important because real display data is often imperfect. Warnings are collected from both the parser and the extension handlers and surfaced on the output structures.
 
 ## Design principles
 
@@ -66,6 +69,7 @@ This distinction is important because real display data is often imperfect.
 - Keep capability modeling stable and ergonomic
 - Avoid coupling transport, parsing, and policy logic
 - Prefer explicit types over loosely structured maps or tuples
+- Never invent data — absent information is represented as `None`, not as a guess
 
 ## Technical constraints
 
