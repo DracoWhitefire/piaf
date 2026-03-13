@@ -100,15 +100,17 @@ pub struct DisplayCapabilities {
     /// `None` when both bytes are zero (undefined).
     pub screen_size: Option<crate::model::screen::ScreenSize>,
     /// Minimum supported vertical refresh rate in Hz.
-    pub min_v_rate: Option<u8>,
+    pub min_v_rate: Option<u16>,
     /// Maximum supported vertical refresh rate in Hz.
-    pub max_v_rate: Option<u8>,
+    pub max_v_rate: Option<u16>,
     /// Minimum supported horizontal scan rate in kHz.
-    pub min_h_rate_khz: Option<u8>,
+    pub min_h_rate_khz: Option<u16>,
     /// Maximum supported horizontal scan rate in kHz.
-    pub max_h_rate_khz: Option<u8>,
+    pub max_h_rate_khz: Option<u16>,
     /// Maximum pixel clock in MHz.
     pub max_pixel_clock_mhz: Option<u16>,
+    /// Video timing formula reported in the display range limits descriptor (`0xFD`), byte 10.
+    pub timing_formula: Option<crate::model::timing::TimingFormula>,
     /// Video modes decoded from standard timing and detailed timing descriptors.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub supported_modes: Vec<VideoMode>,

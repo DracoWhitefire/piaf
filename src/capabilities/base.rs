@@ -16,6 +16,7 @@ use crate::model::manufacture::ManufactureDate;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{String, Vec};
 use crate::model::screen::ScreenSize;
+use crate::model::timing::TimingFormula;
 
 /// Decodes the EDID base block into [`DisplayCapabilities`].
 ///
@@ -311,12 +312,22 @@ fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilities) {
         }
 
         // Monitor Range Limits: tag 0xFD
+        // Byte 4 holds rate offset flags — bits 1:0 = vert offsets, bits 3:2 = horiz offsets.
+        // When a "max + 255" bit is set, add 255 to the encoded byte value for that field.
+        // When a "min + 255" bit is set, add 255 to the encoded byte value for that field.
         if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFD] {
-            caps.min_v_rate = Some(descriptor[5]);
-            caps.max_v_rate = Some(descriptor[6]);
-            caps.min_h_rate_khz = Some(descriptor[7]);
-            caps.max_h_rate_khz = Some(descriptor[8]);
+            let offsets = descriptor[4];
+            let min_v_off: u16 = if offsets & 0x01 != 0 { 255 } else { 0 };
+            let max_v_off: u16 = if offsets & 0x02 != 0 { 255 } else { 0 };
+            let min_h_off: u16 = if offsets & 0x04 != 0 { 255 } else { 0 };
+            let max_h_off: u16 = if offsets & 0x08 != 0 { 255 } else { 0 };
+
+            caps.min_v_rate = Some(descriptor[5] as u16 + min_v_off);
+            caps.max_v_rate = Some(descriptor[6] as u16 + max_v_off);
+            caps.min_h_rate_khz = Some(descriptor[7] as u16 + min_h_off);
+            caps.max_h_rate_khz = Some(descriptor[8] as u16 + max_h_off);
             caps.max_pixel_clock_mhz = Some((descriptor[9] as u16) * 10);
+            caps.timing_formula = TimingFormula::from_descriptor_bytes(descriptor);
         }
     }
 }
@@ -1106,6 +1117,67 @@ mod tests {
                 .filter(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 60)
                 .count(),
             1
+        );
+    }
+
+    #[test]
+    fn test_range_limits_offset_flags() {
+        use crate::model::timing::TimingFormula;
+
+        let mut base = [0u8; 128];
+        // 0xFD descriptor at 0x36
+        // Byte 4 = 0x0B = 0b00001011: max_v+255, min_v+255, max_h+255, min_h not offset
+        base[0x36..0x3B].copy_from_slice(&[0x00, 0x00, 0x00, 0xFD, 0x0B]);
+        base[0x3B] = 10;  // min_v stored = 10 → 10 + 255 = 265 Hz
+        base[0x3C] = 20;  // max_v stored = 20 → 20 + 255 = 275 Hz
+        base[0x3D] = 30;  // min_h stored = 30 → no offset = 30 kHz
+        base[0x3E] = 40;  // max_h stored = 40 → 40 + 255 = 295 kHz
+        base[0x3F] = 60;  // max pixel clock = 600 MHz
+        base[0x40] = 0x01; // byte 10: RangeLimitsOnly
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+
+        assert_eq!(caps.min_v_rate, Some(265));
+        assert_eq!(caps.max_v_rate, Some(275));
+        assert_eq!(caps.min_h_rate_khz, Some(30));
+        assert_eq!(caps.max_h_rate_khz, Some(295));
+        assert_eq!(caps.max_pixel_clock_mhz, Some(600));
+        assert_eq!(caps.timing_formula, Some(TimingFormula::RangeLimitsOnly));
+    }
+
+    #[test]
+    fn test_range_limits_secondary_gtf() {
+        use crate::model::timing::{GtfSecondaryParams, TimingFormula};
+
+        let mut base = [0u8; 128];
+        base[0x36..0x3B].copy_from_slice(&[0x00, 0x00, 0x00, 0xFD, 0x00]);
+        base[0x3B] = 48;  // VMin
+        base[0x3C] = 120; // VMax
+        base[0x3D] = 30;  // HMin
+        base[0x3E] = 230; // HMax
+        base[0x3F] = 60;  // max pixel clock = 600 MHz
+        base[0x40] = 0x02; // byte 10: SecondaryGtf
+        base[0x41] = 0x00; // byte 11: reserved
+        base[0x42] = 55;   // byte 12: start_freq = 55 * 2 = 110 kHz
+        base[0x43] = 68;   // byte 13: C = 68 / 2 = 34
+        base[0x44] = 0x58; // byte 14: M LSB (600 = 0x0258)
+        base[0x45] = 0x02; // byte 15: M MSB
+        base[0x46] = 128;  // byte 16: K = 128
+        base[0x47] = 40;   // byte 17: J = 40 / 2 = 20
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+
+        assert_eq!(
+            caps.timing_formula,
+            Some(TimingFormula::SecondaryGtf(GtfSecondaryParams {
+                start_freq_khz: 110,
+                c: 34,
+                m: 600,
+                k: 128,
+                j: 20,
+            }))
         );
     }
 }

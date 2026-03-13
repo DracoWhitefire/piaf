@@ -42,6 +42,10 @@ pub use manufacture::ManufactureDate;
 pub mod screen;
 pub use screen::ScreenSize;
 
+/// Video timing formula types.
+pub mod timing;
+pub use timing::{GtfSecondaryParams, TimingFormula};
+
 /// Consumer-facing capability types.
 pub mod capabilities;
 #[cfg(feature = "std")]
