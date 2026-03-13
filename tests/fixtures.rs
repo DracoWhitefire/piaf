@@ -1,6 +1,6 @@
 use piaf::{
-    capabilities_from_edid, parse_edid, ColorBitDepth, DisplayGamma, EdidVersion, ExtensionLibrary,
-    ExtensionTagRegistry, ManufactureDate, VideoInterface,
+    capabilities_from_edid, parse_edid, ColorBitDepth, DisplayFeatureFlags, DisplayGamma,
+    EdidVersion, ExtensionLibrary, ExtensionTagRegistry, ManufactureDate, VideoInterface,
 };
 
 fn load(path: &str) -> Vec<u8> {
@@ -45,6 +45,13 @@ fn lg_ultragear_identification() {
     assert!(caps.digital);
     assert_eq!(caps.color_bit_depth, None); // undefined in base block
     assert_eq!(caps.video_interface, None); // undefined in base block
+    // 0xEA = DPMS_STANDBY | DPMS_SUSPEND | DPMS_ACTIVE_OFF | PREFERRED_TIMING
+    let features = caps.display_features.unwrap();
+    assert!(features.contains(DisplayFeatureFlags::DPMS_STANDBY));
+    assert!(features.contains(DisplayFeatureFlags::DPMS_SUSPEND));
+    assert!(features.contains(DisplayFeatureFlags::DPMS_ACTIVE_OFF));
+    assert!(features.contains(DisplayFeatureFlags::PREFERRED_TIMING));
+    assert!(!features.contains(DisplayFeatureFlags::CONTINUOUS_TIMINGS));
     assert_eq!(caps.width_cm, Some(60));
     assert_eq!(caps.height_cm, Some(34));
 }
@@ -120,6 +127,11 @@ fn auo_edp_identification() {
     assert!(caps.digital);
     assert_eq!(caps.color_bit_depth, Some(ColorBitDepth::Depth8));
     assert_eq!(caps.video_interface, Some(VideoInterface::DisplayPort));
+    // 0x03 = PREFERRED_TIMING | CONTINUOUS_TIMINGS
+    let features = caps.display_features.unwrap();
+    assert!(features.contains(DisplayFeatureFlags::PREFERRED_TIMING));
+    assert!(features.contains(DisplayFeatureFlags::CONTINUOUS_TIMINGS));
+    assert!(!features.contains(DisplayFeatureFlags::DPMS_STANDBY));
     assert_eq!(caps.width_cm, Some(38));
     assert_eq!(caps.height_cm, Some(22));
 }

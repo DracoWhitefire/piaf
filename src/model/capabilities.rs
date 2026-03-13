@@ -70,6 +70,8 @@ pub struct DisplayCapabilities {
     pub color_bit_depth: Option<crate::model::color::ColorBitDepth>,
     /// Display gamma from byte `0x17`. `None` if the display did not specify a gamma value.
     pub gamma: Option<crate::model::color::DisplayGamma>,
+    /// Display feature support flags from byte `0x18`.
+    pub display_features: Option<crate::model::features::DisplayFeatureFlags>,
     /// Video interface type, decoded from byte `0x14` bits 3–0.
     /// `None` for analog displays or when the field is undefined or reserved.
     pub video_interface: Option<crate::model::input::VideoInterface>,

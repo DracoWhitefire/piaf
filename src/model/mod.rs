@@ -27,6 +27,10 @@ pub use color::{ColorBitDepth, DisplayGamma};
 pub mod input;
 pub use input::{VideoInputFlags, VideoInterface};
 
+/// Display feature flags.
+pub mod features;
+pub use features::DisplayFeatureFlags;
+
 /// Manufacture date model type.
 pub mod manufacture;
 pub use manufacture::ManufactureDate;

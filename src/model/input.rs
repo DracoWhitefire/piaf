@@ -5,6 +5,7 @@ bitflags::bitflags! {
     /// for analog displays. The multi-bit fields in this byte (color bit depth,
     /// video interface type, and analog sync level) are not represented here —
     /// those require dedicated enum types.
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct VideoInputFlags: u8 {
         /// Digital input. When clear, the display uses an analog input interface.

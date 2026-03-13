@@ -133,6 +133,9 @@ fn main() {
                             if let Some(iface) = caps.video_interface {
                                 println!("  Interface:    {:?}", iface);
                             }
+                            if let Some(f) = caps.display_features {
+                                println!("  Features:     {:?}", f);
+                            }
                             println!(
                                 "  Audio support: {}",
                                 if caps.has_audio { "Yes" } else { "No" }

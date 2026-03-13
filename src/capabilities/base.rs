@@ -5,6 +5,7 @@ use crate::model::color::{ColorBitDepth, DisplayGamma};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 use crate::model::edid::EdidVersion;
+use crate::model::features::DisplayFeatureFlags;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::extension::ExtensionHandler;
 use crate::model::input::{VideoInputFlags, VideoInterface};
@@ -79,6 +80,9 @@ fn decode_header_fields(base: &[u8; 128], caps: &mut DisplayCapabilities) {
 
     // Display gamma (byte 0x17); 0xFF means undefined
     caps.gamma = DisplayGamma::from_edid_byte(base[0x17]);
+
+    // Display feature support (byte 0x18); bits 4-3 (color type enum) excluded
+    caps.display_features = Some(DisplayFeatureFlags::from_bits_truncate(base[0x18]));
 
     // Video input definition (byte 0x14)
     let video_input = VideoInputFlags::from_bits_truncate(base[0x14]);
@@ -212,6 +216,7 @@ mod tests {
     use crate::model::capabilities::DisplayCapabilities;
     use crate::model::color::{ColorBitDepth, DisplayGamma};
     use crate::model::edid::EdidVersion;
+    use crate::model::features::DisplayFeatureFlags;
     use crate::model::input::VideoInterface;
     use crate::model::manufacture::ManufactureDate;
 
@@ -312,6 +317,32 @@ mod tests {
         assert!(!caps.digital);
         assert_eq!(caps.color_bit_depth, None);
         assert_eq!(caps.video_interface, None);
+    }
+
+    #[test]
+    fn test_display_features() {
+        let mut base = [0u8; 128];
+
+        // DPMS standby + suspend + active-off + preferred timing = 0xE2
+        base[0x18] = 0xE2;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        let flags = caps.display_features.unwrap();
+        assert!(flags.contains(DisplayFeatureFlags::DPMS_STANDBY));
+        assert!(flags.contains(DisplayFeatureFlags::DPMS_SUSPEND));
+        assert!(flags.contains(DisplayFeatureFlags::DPMS_ACTIVE_OFF));
+        assert!(flags.contains(DisplayFeatureFlags::PREFERRED_TIMING));
+        assert!(!flags.contains(DisplayFeatureFlags::SRGB));
+        assert!(!flags.contains(DisplayFeatureFlags::CONTINUOUS_TIMINGS));
+
+        // sRGB + preferred timing + continuous timings = 0x07
+        base[0x18] = 0x07;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        let flags = caps.display_features.unwrap();
+        assert!(flags.contains(DisplayFeatureFlags::SRGB));
+        assert!(flags.contains(DisplayFeatureFlags::PREFERRED_TIMING));
+        assert!(flags.contains(DisplayFeatureFlags::CONTINUOUS_TIMINGS));
     }
 
     #[test]
