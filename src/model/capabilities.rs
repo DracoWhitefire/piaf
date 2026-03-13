@@ -71,6 +71,9 @@ pub struct DisplayCapabilities {
     /// Color bit depth per primary channel, decoded from byte `0x14` bits 6–4.
     /// `None` for analog displays or when the field is undefined or reserved.
     pub color_bit_depth: Option<crate::model::color::ColorBitDepth>,
+    /// CIE xy chromaticity coordinates for the color primaries and white point,
+    /// decoded from bytes `0x19`–`0x22`.
+    pub chromaticity: crate::model::color::Chromaticity,
     /// Display gamma from byte `0x17`. `None` if the display did not specify a gamma value.
     pub gamma: Option<crate::model::color::DisplayGamma>,
     /// Display feature support flags from byte `0x18`.
