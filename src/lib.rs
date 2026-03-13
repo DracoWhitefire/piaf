@@ -8,6 +8,8 @@ pub use model::{
     DisplayCapabilities, EdidError, EdidWarning, ExtensionLibrary, ExtensionMetadata,
     ExtensionTagRegistry, ParsedEdid, VideoMode,
 };
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use model::ExtensionHandler;
 #[cfg(feature = "std")]
 pub use model::ExtensionData;
 

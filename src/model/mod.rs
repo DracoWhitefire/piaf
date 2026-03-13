@@ -3,6 +3,8 @@ pub mod prelude;
 pub use prelude::prelude::{String, Vec, Box};
 
 pub mod extension;
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use extension::ExtensionHandler;
 pub use extension::{ExtensionLibrary, ExtensionMetadata, ExtensionTagRegistry};
 
 pub mod diagnostics;
