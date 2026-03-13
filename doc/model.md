@@ -38,23 +38,30 @@ pub struct DisplayCapabilities {
     pub serial_number: Option<u32>,
     pub serial_number_string: Option<String>,
     pub display_name: Option<String>,
+    pub unspecified_text: Vec<String>,
     // Input
     pub digital: bool,
     pub color_bit_depth: Option<ColorBitDepth>,
     pub video_interface: Option<VideoInterface>,
+    pub analog_sync_level: Option<AnalogSyncLevel>,
     // Color
+    pub chromaticity: Chromaticity,
     pub gamma: Option<DisplayGamma>,
     pub display_features: Option<DisplayFeatureFlags>,
     pub digital_color_encoding: Option<DigitalColorEncoding>,
     pub analog_color_type: Option<AnalogColorType>,
+    pub color_management: Option<ColorManagementData>,
+    pub white_points: Vec<WhitePoint>,
     // Physical
-    pub screen_size: Option<ScreenSize>,  // Physical{width_cm,height_cm} | Landscape(u8) | Portrait(u8)
+    pub screen_size: Option<ScreenSize>,
+    pub preferred_image_size_mm: Option<(u16, u16)>,
     // Timing
-    pub min_v_rate: Option<u8>,
-    pub max_v_rate: Option<u8>,
-    pub min_h_rate_khz: Option<u8>,
-    pub max_h_rate_khz: Option<u8>,
+    pub min_v_rate: Option<u16>,
+    pub max_v_rate: Option<u16>,
+    pub min_h_rate_khz: Option<u16>,
+    pub max_h_rate_khz: Option<u16>,
     pub max_pixel_clock_mhz: Option<u16>,
+    pub timing_formula: Option<TimingFormula>,
     pub supported_modes: Vec<VideoMode>,
     // Extensions
     pub has_audio: bool,
@@ -62,6 +69,10 @@ pub struct DisplayCapabilities {
     pub extension_data: HashMap<u8, Arc<dyn ExtensionData>>,
 }
 ```
+
+Rate fields (`min_v_rate`, `max_v_rate`, `min_h_rate_khz`, `max_h_rate_khz`) are `u16`
+rather than `u8` because the `0xFD` range limits descriptor can add a 255-unit offset to
+extend beyond the 8-bit range.
 
 ## Why separate them
 
@@ -89,16 +100,26 @@ pub enum EdidError {
 }
 
 pub enum EdidWarning {
+    /// Extension block tag not in the registered set.
     UnknownExtension(u8),
+    /// An 18-byte descriptor slot could not be decoded.
     DescriptorParseFailed,
+    /// Manufacturer ID bytes outside the valid PNP range (1–26 per 5-bit field).
+    /// `DisplayCapabilities::manufacturer` is left as `None`.
+    InvalidManufacturerId,
+    /// Byte slice length differs from `(1 + extension_count) × 128`.
+    /// Extra bytes are ignored; too few is a hard `EdidError::InvalidLength`.
+    SizeMismatch { expected: usize, actual: usize },
 }
 ```
 
 This separation allows callers to decide how strict they want to be without losing useful
-diagnostic detail. Warnings are collected from both the parser (into `ParsedEdid::warnings`)
-and from extension handlers (into `DisplayCapabilities::warnings`).
+diagnostic detail. Warnings from the parser (including `UnknownExtension` and `SizeMismatch`)
+are propagated into `DisplayCapabilities::warnings` alongside handler warnings, so consumers
+have a single place to inspect all diagnostics.
 
 ## Planned additions
 
-- Structured audio capabilities beyond the `has_audio` flag (CEA-861 Short Audio Descriptors)
-- YCbCr color encoding details from CEA-861 (Short Video Descriptors)
+- CEA-861: Short Video Descriptors (SVDs), Short Audio Descriptors (SADs), speaker allocation, and remaining data blocks
+- DisplayID: fragment reassembly and full logical block parsing
+- Derived-value helpers as a separate module (not on `DisplayCapabilities`)
