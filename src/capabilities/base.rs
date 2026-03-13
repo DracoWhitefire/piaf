@@ -1,7 +1,7 @@
 use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::VideoMode;
-use crate::model::color::{AnalogColorType, ColorBitDepth, DigitalColorEncoding, DisplayGamma};
+use crate::model::color::{AnalogColorType, Chromaticity, ColorBitDepth, DigitalColorEncoding, DisplayGamma};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 use crate::model::edid::EdidVersion;
@@ -78,6 +78,9 @@ fn decode_header_fields(base: &[u8; 128], caps: &mut DisplayCapabilities) {
         version: base[18],
         revision: base[19],
     });
+
+    // Chromaticity coordinates (bytes 0x19-0x22)
+    caps.chromaticity = Chromaticity::from_edid_bytes(base);
 
     // Display gamma (byte 0x17); 0xFF means undefined
     caps.gamma = DisplayGamma::from_edid_byte(base[0x17]);
@@ -277,7 +280,7 @@ fn decode_detailed_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) {
 mod tests {
     use super::*;
     use crate::model::capabilities::{DisplayCapabilities, VideoMode};
-    use crate::model::color::{AnalogColorType, ColorBitDepth, DigitalColorEncoding, DisplayGamma};
+    use crate::model::color::{AnalogColorType, Chromaticity, ColorBitDepth, DigitalColorEncoding, DisplayGamma};
     use crate::model::edid::EdidVersion;
     use crate::model::features::DisplayFeatureFlags;
     use crate::model::input::VideoInterface;
@@ -380,6 +383,41 @@ mod tests {
         assert!(!caps.digital);
         assert_eq!(caps.color_bit_depth, None);
         assert_eq!(caps.video_interface, None);
+    }
+
+    #[test]
+    fn test_chromaticity() {
+        let mut base = [0u8; 128];
+
+        // Encode R=(0.640, 0.330), G=(0.300, 0.600), B=(0.150, 0.060), W=(0.3127, 0.3290)
+        // as 10-bit raw values: multiply by 1024 and round
+        // R: x=655 (0x28F), y=338 (0x152)
+        // G: x=307 (0x133), y=614 (0x266)
+        // B: x=154 (0x09A), y=61  (0x03D)
+        // W: x=320 (0x140), y=337 (0x151)
+        base[0x1B] = (655u16 >> 2) as u8; // R x MSB
+        base[0x1C] = (338u16 >> 2) as u8; // R y MSB
+        base[0x1D] = (307u16 >> 2) as u8; // G x MSB
+        base[0x1E] = (614u16 >> 2) as u8; // G y MSB
+        base[0x1F] = (154u16 >> 2) as u8; // B x MSB
+        base[0x20] = (61u16  >> 2) as u8; // B y MSB
+        base[0x21] = (320u16 >> 2) as u8; // W x MSB
+        base[0x22] = (337u16 >> 2) as u8; // W y MSB
+        // LSB byte 0x19: Rx[1:0] | Ry[1:0] | Gx[1:0] | Gy[1:0]
+        base[0x19] = (((655u16 & 3) << 6) | ((338u16 & 3) << 4) | ((307u16 & 3) << 2) | (614u16 & 3)) as u8;
+        // LSB byte 0x1A: Bx[1:0] | By[1:0] | Wx[1:0] | Wy[1:0]
+        base[0x1A] = (((154u16 & 3) << 6) | ((61u16  & 3) << 4) | ((320u16 & 3) << 2) | (337u16 & 3)) as u8;
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+
+        assert_eq!(caps.chromaticity, Chromaticity::from_edid_bytes(&base));
+        assert_eq!(caps.chromaticity.red.x_raw, 655);
+        assert_eq!(caps.chromaticity.red.y_raw, 338);
+        assert_eq!(caps.chromaticity.green.x_raw, 307);
+        assert_eq!(caps.chromaticity.white.x_raw, 320);
+        assert!((caps.chromaticity.red.x() - 0.640).abs() < 0.002);
+        assert!((caps.chromaticity.white.x() - 0.3125).abs() < 0.002);
     }
 
     #[test]
