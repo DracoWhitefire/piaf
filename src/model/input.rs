@@ -23,6 +23,35 @@ bitflags::bitflags! {
     }
 }
 
+/// Video white and sync levels for an analog display, decoded from EDID base block
+/// byte `0x14` bits 6–5.
+///
+/// Specifies the signal voltage levels used for video white and sync, relative to blank.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnalogSyncLevel {
+    /// 0.700 V video / 0.300 V sync / 1.000 V total (most common).
+    V700_300,
+    /// 0.714 V video / 0.286 V sync / 1.000 V total (EGA/CGA-compatible).
+    V714_286,
+    /// 1.000 V video / 0.400 V sync / 1.400 V total.
+    V1000_400,
+    /// 0.700 V video / 0.000 V sync / 0.700 V total.
+    V700_0,
+}
+
+impl AnalogSyncLevel {
+    /// Decodes bits 6–5 of EDID byte `0x14` for an analog display.
+    pub(crate) fn from_edid_bits(bits: u8) -> Self {
+        match (bits >> 5) & 0x03 {
+            0b00 => Self::V700_300,
+            0b01 => Self::V714_286,
+            0b10 => Self::V1000_400,
+            _    => Self::V700_0,
+        }
+    }
+}
+
 /// Video interface type, decoded from EDID base block byte `0x14` bits 3–0.
 ///
 /// Only valid for digital input displays. `None` is used for the undefined (0x0)

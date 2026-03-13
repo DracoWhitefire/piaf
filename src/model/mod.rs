@@ -28,7 +28,7 @@ pub use color::{
 
 /// Input interface model types.
 pub mod input;
-pub use input::{VideoInputFlags, VideoInterface};
+pub use input::{AnalogSyncLevel, VideoInputFlags, VideoInterface};
 
 /// Display feature flags.
 pub mod features;

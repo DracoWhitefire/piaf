@@ -130,6 +130,9 @@ fn main() {
                                 "  Input type:   {}",
                                 if caps.digital { "Digital" } else { "Analog" }
                             );
+                            if let Some(level) = caps.analog_sync_level {
+                                println!("  Sync level:   {:?}", level);
+                            }
                             if let Some(depth) = caps.color_bit_depth {
                                 println!("  Color depth:  {} bpc", depth.bits_per_primary());
                             }

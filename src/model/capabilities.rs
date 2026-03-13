@@ -93,6 +93,9 @@ pub struct DisplayCapabilities {
     /// Video interface type, decoded from byte `0x14` bits 3–0.
     /// `None` for analog displays or when the field is undefined or reserved.
     pub video_interface: Option<crate::model::input::VideoInterface>,
+    /// Analog sync and video white levels, decoded from byte `0x14` bits 6–5.
+    /// Only populated for analog displays.
+    pub analog_sync_level: Option<crate::model::input::AnalogSyncLevel>,
     /// Physical width of the display in centimetres.
     pub width_cm: Option<u16>,
     /// Physical height of the display in centimetres.

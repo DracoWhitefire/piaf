@@ -11,7 +11,7 @@ use crate::model::edid::EdidVersion;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::extension::ExtensionHandler;
 use crate::model::features::DisplayFeatureFlags;
-use crate::model::input::{VideoInputFlags, VideoInterface};
+use crate::model::input::{AnalogSyncLevel, VideoInputFlags, VideoInterface};
 use crate::model::manufacture::ManufactureDate;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{String, Vec};
@@ -107,6 +107,8 @@ fn decode_header_fields(base: &[u8; 128], caps: &mut DisplayCapabilities) {
     if caps.digital {
         caps.color_bit_depth = ColorBitDepth::from_edid_bits(base[0x14] >> 4);
         caps.video_interface = VideoInterface::from_edid_bits(base[0x14]);
+    } else {
+        caps.analog_sync_level = Some(AnalogSyncLevel::from_edid_bits(base[0x14]));
     }
 
     // Physical dimensions (offsets 0x15-0x16, width and height in cm)
@@ -334,7 +336,7 @@ mod tests {
     };
     use crate::model::edid::EdidVersion;
     use crate::model::features::DisplayFeatureFlags;
-    use crate::model::input::VideoInterface;
+    use crate::model::input::{AnalogSyncLevel, VideoInterface};
     use crate::model::manufacture::ManufactureDate;
 
     #[test]
@@ -406,6 +408,43 @@ mod tests {
             caps.manufacture_date,
             Some(ManufactureDate::ModelYear(2020))
         );
+    }
+
+    #[test]
+    fn test_analog_sync_level() {
+        let mut base = [0u8; 128];
+
+        // Analog (bit 7 = 0), bits 6-5 = 0b00 → V700_300
+        base[0x14] = 0x00;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(caps.analog_sync_level, Some(AnalogSyncLevel::V700_300));
+        assert_eq!(caps.color_bit_depth, None);
+        assert_eq!(caps.video_interface, None);
+
+        // Analog, bits 6-5 = 0b01 → V714_286
+        base[0x14] = 0x20;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(caps.analog_sync_level, Some(AnalogSyncLevel::V714_286));
+
+        // Analog, bits 6-5 = 0b10 → V1000_400
+        base[0x14] = 0x40;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(caps.analog_sync_level, Some(AnalogSyncLevel::V1000_400));
+
+        // Analog, bits 6-5 = 0b11 → V700_0
+        base[0x14] = 0x60;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(caps.analog_sync_level, Some(AnalogSyncLevel::V700_0));
+
+        // Digital — sync level not populated
+        base[0x14] = 0x80;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(caps.analog_sync_level, None);
     }
 
     #[test]
