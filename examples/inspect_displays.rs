@@ -139,6 +139,12 @@ fn main() {
                             if let Some(f) = caps.display_features {
                                 println!("  Features:     {:?}", f);
                             }
+                            if let Some(enc) = caps.digital_color_encoding {
+                                println!("  Color enc:    {:?}", enc);
+                            }
+                            if let Some(ct) = caps.analog_color_type {
+                                println!("  Color type:   {:?}", ct);
+                            }
                             println!(
                                 "  Audio support: {}",
                                 if caps.has_audio { "Yes" } else { "No" }
