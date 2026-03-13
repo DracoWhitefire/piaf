@@ -66,6 +66,9 @@ pub struct DisplayCapabilities {
     /// Human-readable display name from the monitor name descriptor, if present.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub display_name: Option<String>,
+    /// Unspecified ASCII text strings from `0xFE` descriptors, in slot order.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub unspecified_text: Vec<String>,
     /// `true` if the display uses a digital input interface.
     pub digital: bool,
     /// Color bit depth per primary channel, decoded from byte `0x14` bits 6–4.

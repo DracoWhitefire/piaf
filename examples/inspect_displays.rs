@@ -114,6 +114,9 @@ fn main() {
                                 "  Display Name: {:?}",
                                 caps.display_name.as_deref().unwrap_or("Unknown")
                             );
+                            for text in &caps.unspecified_text {
+                                println!("  Info:         {}", text);
+                            }
                             println!("  Product Code: {:?}", caps.product_code);
                             println!("  Serial:       {:?}", caps.serial_number);
                             if let Some(s) = caps.serial_number_string.as_deref() {

@@ -147,6 +147,15 @@ fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilities) {
             }
         }
 
+        // Unspecified ASCII Text Descriptor: tag 0xFE
+        if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFE] {
+            let s = String::from_utf8_lossy(&descriptor[5..18]);
+            let trimmed = s.trim().to_string();
+            if !trimmed.is_empty() {
+                caps.unspecified_text.push(trimmed);
+            }
+        }
+
         // Monitor Name Descriptor: tag 0xFC
         if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFC] {
             let name_bytes = &descriptor[5..18];
@@ -498,6 +507,31 @@ mod tests {
         assert!(flags.contains(DisplayFeatureFlags::SRGB));
         assert!(flags.contains(DisplayFeatureFlags::PREFERRED_TIMING));
         assert!(flags.contains(DisplayFeatureFlags::CONTINUOUS_TIMINGS));
+    }
+
+    #[test]
+    fn test_unspecified_text_descriptor() {
+        let mut base = [0u8; 128];
+
+        // Two 0xFE descriptors in slots 0 and 1
+        base[0x36..0x3A].copy_from_slice(&[0x00, 0x00, 0x00, 0xFE]);
+        base[0x3A] = 0x00;
+        base[0x3B..0x3F].copy_from_slice(b"ABCD");
+        base[0x3F] = 0x0A;
+        for b in &mut base[0x40..0x48] { *b = 0x20; }
+
+        base[0x48..0x4C].copy_from_slice(&[0x00, 0x00, 0x00, 0xFE]);
+        base[0x4C] = 0x00;
+        base[0x4D..0x51].copy_from_slice(b"EFGH");
+        base[0x51] = 0x0A;
+        for b in &mut base[0x52..0x5A] { *b = 0x20; }
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+
+        assert_eq!(caps.unspecified_text.len(), 2);
+        assert_eq!(caps.unspecified_text[0], "ABCD");
+        assert_eq!(caps.unspecified_text[1], "EFGH");
     }
 
     #[test]
