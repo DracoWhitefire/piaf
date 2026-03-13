@@ -1,5 +1,6 @@
 //! Data model types for parsed EDID data and display capabilities.
 
+/// Re-exports of `alloc`/`std` collection types used across the crate.
 pub mod prelude;
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use prelude::{Box, String, Vec};

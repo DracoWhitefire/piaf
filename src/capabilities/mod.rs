@@ -17,6 +17,11 @@ use crate::model::ParsedEdid;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl ExtensionLibrary {
+    /// Creates a library pre-loaded with the built-in [`BaseBlockHandler`] and [`Cea861Handler`].
+    ///
+    /// This is the recommended starting point for most consumers. Additional handlers can be
+    /// added after construction via [`add_base_handler`][ExtensionLibrary::add_base_handler]
+    /// and [`register`][ExtensionLibrary::register].
     pub fn with_standard_handlers() -> Self {
         let mut lib = Self::with_standard_extensions();
         lib.add_base_handler(BaseBlockHandler);
@@ -27,6 +32,11 @@ impl ExtensionLibrary {
     }
 }
 
+/// Derives [`DisplayCapabilities`] from a [`ParsedEdid`] by running all registered handlers.
+///
+/// Base handlers are called first (in registration order), then extension block handlers are
+/// called for each extension block whose tag matches a registered entry in `library`.
+/// Warnings from all handlers are collected into [`DisplayCapabilities::warnings`].
 pub fn capabilities_from_edid(
     edid: &ParsedEdid,
     library: &ExtensionLibrary,

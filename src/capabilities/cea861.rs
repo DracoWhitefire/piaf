@@ -6,6 +6,9 @@ use crate::model::extension::ExtensionHandler;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::Vec;
 
+/// Processes a CEA-861 extension block (tag `0x02`).
+///
+/// Currently extracts the basic audio support flag (byte 3, bit 6).
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[derive(Debug)]
 pub struct Cea861Handler;

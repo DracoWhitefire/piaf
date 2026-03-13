@@ -8,6 +8,10 @@ use crate::model::extension::ExtensionHandler;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{String, Vec};
 
+/// Decodes the EDID base block into [`DisplayCapabilities`].
+///
+/// Extracts manufacturer ID, product code, serial number, input type, physical dimensions,
+/// monitor name and range limit descriptors, standard timings, and detailed timing descriptors.
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[derive(Debug)]
 pub struct BaseBlockHandler;

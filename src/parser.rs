@@ -6,8 +6,21 @@ use crate::model::ParsedEdid;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::Vec;
 
+/// The fixed 8-byte magic header at offset 0 of every valid EDID block.
 pub const EDID_HEADER: [u8; 8] = [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00];
 
+/// Validates and decodes a raw EDID byte slice into a [`ParsedEdid`].
+///
+/// Performs length validation, header verification, and checksum verification for the base block
+/// and all declared extension blocks. Extension blocks with tags not known to `tags` are stored
+/// but generate an [`EdidWarning::UnknownExtension`] warning.
+///
+/// Pass an [`ExtensionLibrary`][crate::ExtensionLibrary] or an [`ExtensionTagRegistry`][crate::ExtensionTagRegistry]
+/// as `tags`; both implement [`KnownExtensions`].
+///
+/// # Errors
+///
+/// Returns [`EdidError`] if the byte slice fails any structural check.
 pub fn parse_edid<T: KnownExtensions>(bytes: &[u8], tags: &T) -> Result<ParsedEdid, EdidError> {
     let _ = tags; // Suppress unused warning in no_alloc
     if bytes.len() < 128 {

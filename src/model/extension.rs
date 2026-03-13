@@ -151,8 +151,8 @@ impl KnownExtensions for ExtensionTagRegistry {
 /// Pass to [`parse_edid`][crate::parse_edid] (it implements [`KnownExtensions`]) and to
 /// [`capabilities_from_edid`][crate::capabilities_from_edid] to drive capability extraction.
 ///
-/// Use [`ExtensionLibrary::with_standard_handlers`][crate::capabilities::ExtensionLibrary::with_standard_handlers]
-/// to get a library pre-loaded with the built-in base block and CEA-861 handlers.
+/// Use `ExtensionLibrary::with_standard_handlers` (available when the `std` or `alloc` feature
+/// is enabled) to get a library pre-loaded with the built-in base block and CEA-861 handlers.
 pub struct ExtensionLibrary {
     /// Handlers run against the base block, in registration order.
     #[cfg(any(feature = "alloc", feature = "std"))]
@@ -179,11 +179,18 @@ impl ExtensionLibrary {
         }
     }
 
+    /// Appends a handler that will be run against the base block during capability extraction.
+    ///
+    /// Handlers are called in registration order. Multiple base handlers may be registered.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub fn add_base_handler<H: ExtensionHandler + 'static>(&mut self, handler: H) {
         self.base_handlers.push(Box::new(handler));
     }
 
+    /// Creates a library with CEA-861 (`0x02`) and DisplayID (`0x70`) registered as known
+    /// tags but without any handlers attached. Handlers can be added with [`register`][Self::register].
+    ///
+    /// Prefer `ExtensionLibrary::with_standard_handlers` unless you need to customise the handlers.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub fn with_standard_extensions() -> Self {
         let mut lib = Self::new();
@@ -200,6 +207,7 @@ impl ExtensionLibrary {
         lib
     }
 
+    /// Registers an extension block type. Duplicate tags (same `metadata.tag`) are ignored.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub fn register(&mut self, metadata: ExtensionMetadata) {
         if !self.extensions.iter().any(|ext| ext.tag == metadata.tag) {
@@ -207,6 +215,10 @@ impl ExtensionLibrary {
         }
     }
 
+    /// Returns an [`ExtensionTagRegistry`] containing all tags registered in this library.
+    ///
+    /// Useful when you need a [`KnownExtensions`] value without handing ownership of the
+    /// full library to the parser.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub fn export_tags(&self) -> ExtensionTagRegistry {
         let mut known_tags = Vec::new();
@@ -216,6 +228,7 @@ impl ExtensionLibrary {
         ExtensionTagRegistry { known_tags }
     }
 
+    /// Returns an empty [`ExtensionTagRegistry`] (`no_std` build — tag export not supported).
     #[cfg(not(any(feature = "alloc", feature = "std")))]
     pub fn export_tags(&self) -> ExtensionTagRegistry {
         ExtensionTagRegistry::new()
