@@ -1128,11 +1128,11 @@ mod tests {
         // 0xFD descriptor at 0x36
         // Byte 4 = 0x0B = 0b00001011: max_v+255, min_v+255, max_h+255, min_h not offset
         base[0x36..0x3B].copy_from_slice(&[0x00, 0x00, 0x00, 0xFD, 0x0B]);
-        base[0x3B] = 10;  // min_v stored = 10 → 10 + 255 = 265 Hz
-        base[0x3C] = 20;  // max_v stored = 20 → 20 + 255 = 275 Hz
-        base[0x3D] = 30;  // min_h stored = 30 → no offset = 30 kHz
-        base[0x3E] = 40;  // max_h stored = 40 → 40 + 255 = 295 kHz
-        base[0x3F] = 60;  // max pixel clock = 600 MHz
+        base[0x3B] = 10; // min_v stored = 10 → 10 + 255 = 265 Hz
+        base[0x3C] = 20; // max_v stored = 20 → 20 + 255 = 275 Hz
+        base[0x3D] = 30; // min_h stored = 30 → no offset = 30 kHz
+        base[0x3E] = 40; // max_h stored = 40 → 40 + 255 = 295 kHz
+        base[0x3F] = 60; // max pixel clock = 600 MHz
         base[0x40] = 0x01; // byte 10: RangeLimitsOnly
 
         let mut caps = DisplayCapabilities::default();
@@ -1152,19 +1152,19 @@ mod tests {
 
         let mut base = [0u8; 128];
         base[0x36..0x3B].copy_from_slice(&[0x00, 0x00, 0x00, 0xFD, 0x00]);
-        base[0x3B] = 48;  // VMin
+        base[0x3B] = 48; // VMin
         base[0x3C] = 120; // VMax
-        base[0x3D] = 30;  // HMin
+        base[0x3D] = 30; // HMin
         base[0x3E] = 230; // HMax
-        base[0x3F] = 60;  // max pixel clock = 600 MHz
+        base[0x3F] = 60; // max pixel clock = 600 MHz
         base[0x40] = 0x02; // byte 10: SecondaryGtf
         base[0x41] = 0x00; // byte 11: reserved
-        base[0x42] = 55;   // byte 12: start_freq = 55 * 2 = 110 kHz
-        base[0x43] = 68;   // byte 13: C = 68 / 2 = 34
+        base[0x42] = 55; // byte 12: start_freq = 55 * 2 = 110 kHz
+        base[0x43] = 68; // byte 13: C = 68 / 2 = 34
         base[0x44] = 0x58; // byte 14: M LSB (600 = 0x0258)
         base[0x45] = 0x02; // byte 15: M MSB
-        base[0x46] = 128;  // byte 16: K = 128
-        base[0x47] = 40;   // byte 17: J = 40 / 2 = 20
+        base[0x46] = 128; // byte 16: K = 128
+        base[0x47] = 40; // byte 17: J = 40 / 2 = 20
 
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
@@ -1177,6 +1177,61 @@ mod tests {
                 m: 600,
                 k: 128,
                 j: 20,
+            }))
+        );
+    }
+
+    #[test]
+    fn test_range_limits_cvt() {
+        use crate::model::timing::{
+            CvtAspectRatio, CvtAspectRatios, CvtScaling, CvtSupportParams, TimingFormula,
+        };
+
+        let mut base = [0u8; 128];
+        base[0x36..0x3B].copy_from_slice(&[0x00, 0x00, 0x00, 0xFD, 0x00]);
+        base[0x3B] = 48; // VMin
+        base[0x3C] = 120; // VMax
+        base[0x3D] = 30; // HMin
+        base[0x3E] = 230; // HMax
+        base[0x3F] = 60; // max pixel clock = 600 MHz
+        base[0x40] = 0x04; // byte 10: CVT
+
+        // byte 11: version 1.1
+        base[0x41] = 0x11;
+        // byte 12: pixel_clock_adjust = 4 (bits 7-2 = 0b000001_00 = 0x04),
+        //          max_h_active_pixels MSBs = 0b01 → 1 × 256 = 256 contribution
+        // bits 7-2 = 0b000001 → 0x04; bits 1-0 = 0b01 → byte value = 0x05
+        base[0x42] = (4 << 2) | 0x01; // = 0x11
+                                      // byte 13: max_h_active_pixels LSB = 0x80 = 128 → total = 128 + 256 = 384 → × 8 = 3072
+        base[0x43] = 0x80;
+        // byte 14: supported aspect ratios — 4:3, 16:9, 16:10
+        base[0x44] = CvtAspectRatios::R4_3.bits()
+            | CvtAspectRatios::R16_9.bits()
+            | CvtAspectRatios::R16_10.bits();
+        // byte 15: preferred = 16:9 (0b001 << 5 = 0x20), standard blanking (0x08), no reduced
+        base[0x45] = 0x20 | 0x08;
+        // byte 16: scaling — horizontal stretch + vertical shrink
+        base[0x46] = CvtScaling::HORIZONTAL_STRETCH.bits() | CvtScaling::VERTICAL_SHRINK.bits();
+        // byte 17: preferred vertical rate = 60 Hz
+        base[0x47] = 60;
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+
+        assert_eq!(
+            caps.timing_formula,
+            Some(TimingFormula::Cvt(CvtSupportParams {
+                version: 0x11,
+                pixel_clock_adjust: 4,
+                max_h_active_pixels: Some(3072),
+                supported_aspect_ratios: CvtAspectRatios::R4_3
+                    | CvtAspectRatios::R16_9
+                    | CvtAspectRatios::R16_10,
+                preferred_aspect_ratio: Some(CvtAspectRatio::R16_9),
+                standard_blanking: true,
+                reduced_blanking: false,
+                scaling: CvtScaling::HORIZONTAL_STRETCH | CvtScaling::VERTICAL_SHRINK,
+                preferred_v_rate: Some(60),
             }))
         );
     }

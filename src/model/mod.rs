@@ -44,7 +44,10 @@ pub use screen::ScreenSize;
 
 /// Video timing formula types.
 pub mod timing;
-pub use timing::{GtfSecondaryParams, TimingFormula};
+pub use timing::{
+    CvtAspectRatio, CvtAspectRatios, CvtScaling, CvtSupportParams, GtfSecondaryParams,
+    TimingFormula,
+};
 
 /// Consumer-facing capability types.
 pub mod capabilities;
