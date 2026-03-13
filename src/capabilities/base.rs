@@ -132,7 +132,8 @@ impl ExtensionHandler for BaseBlockHandler {
                 let total_pixels = (hactive + hblank) as u32 * (vactive + vblank) as u32;
                 if total_pixels > 0 {
                     let rate = (pixel_clock * 10_000) / total_pixels;
-                    rate as u8
+                    let Some(r) = u8::try_from(rate).ok() else { continue };
+                    r
                 } else {
                     60
                 }
