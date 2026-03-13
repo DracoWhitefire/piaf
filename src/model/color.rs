@@ -1,3 +1,31 @@
+/// Display gamma, decoded from EDID base block byte `0x17`.
+///
+/// Gamma is encoded as `(value * 100) - 100`, so a stored byte of `120` represents
+/// gamma 2.20. A byte value of `0xFF` means gamma is undefined; use `None` on
+/// [`DisplayCapabilities`][crate::DisplayCapabilities] in that case.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DisplayGamma(u8);
+
+impl DisplayGamma {
+    /// Decodes EDID byte `0x17` into a `DisplayGamma`.
+    ///
+    /// Returns `None` if the byte is `0xFF` (gamma not specified).
+    pub fn from_edid_byte(byte: u8) -> Option<Self> {
+        if byte == 0xFF { None } else { Some(Self(byte)) }
+    }
+
+    /// Returns the raw encoded byte.
+    pub fn raw(&self) -> u8 {
+        self.0
+    }
+
+    /// Returns the gamma value as a floating-point number (e.g. `2.20`).
+    pub fn value(&self) -> f32 {
+        (self.0 as f32 + 100.0) / 100.0
+    }
+}
+
 /// Color bit depth per primary color channel, decoded from EDID base block byte `0x14` bits 6–4.
 ///
 /// Only valid for digital input displays. `None` is used for the undefined (0b000) and

@@ -21,7 +21,7 @@ pub use edid::{EdidVersion, ParsedEdid};
 
 /// Color-related model types.
 pub mod color;
-pub use color::ColorBitDepth;
+pub use color::{ColorBitDepth, DisplayGamma};
 
 /// Input interface model types.
 pub mod input;

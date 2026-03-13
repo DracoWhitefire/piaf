@@ -1,7 +1,7 @@
 use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::VideoMode;
-use crate::model::color::ColorBitDepth;
+use crate::model::color::{ColorBitDepth, DisplayGamma};
 use crate::model::edid::EdidVersion;
 use crate::model::input::{VideoInputFlags, VideoInterface};
 use crate::model::manufacture::ManufactureDate;
@@ -73,6 +73,9 @@ fn decode_header_fields(base: &[u8; 128], caps: &mut DisplayCapabilities) {
 
     // EDID version and revision (bytes 18-19)
     caps.edid_version = Some(EdidVersion { version: base[18], revision: base[19] });
+
+    // Display gamma (byte 0x17); 0xFF means undefined
+    caps.gamma = DisplayGamma::from_edid_byte(base[0x17]);
 
     // Video input definition (byte 0x14)
     let video_input = VideoInputFlags::from_bits_truncate(base[0x14]);
@@ -196,10 +199,26 @@ fn decode_detailed_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) {
 mod tests {
     use super::*;
     use crate::model::capabilities::DisplayCapabilities;
-    use crate::model::color::ColorBitDepth;
+    use crate::model::color::{ColorBitDepth, DisplayGamma};
     use crate::model::edid::EdidVersion;
     use crate::model::input::VideoInterface;
     use crate::model::manufacture::ManufactureDate;
+
+    #[test]
+    fn test_gamma() {
+        let mut base = [0u8; 128];
+
+        base[0x17] = 120; // (120 + 100) / 100 = 2.20
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(caps.gamma, Some(DisplayGamma::from_edid_byte(120).unwrap()));
+        assert!((caps.gamma.unwrap().value() - 2.20).abs() < 0.001);
+
+        base[0x17] = 0xFF; // undefined
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(caps.gamma, None);
+    }
 
     #[test]
     fn test_edid_version() {
