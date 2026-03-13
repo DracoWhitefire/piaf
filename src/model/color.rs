@@ -30,6 +30,62 @@ impl DisplayGamma {
     }
 }
 
+/// Supported color encoding formats for a digital display, decoded from EDID base block
+/// byte `0x18` bits 4–3.
+///
+/// Defined for EDID 1.4+ digital inputs. On EDID 1.3 displays this field has a different
+/// meaning and is not decoded here.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DigitalColorEncoding {
+    /// Only RGB 4:4:4 is supported.
+    Rgb444,
+    /// RGB 4:4:4 and YCbCr 4:4:4 are supported.
+    Rgb444YCbCr444,
+    /// RGB 4:4:4 and YCbCr 4:2:2 are supported.
+    Rgb444YCbCr422,
+    /// RGB 4:4:4, YCbCr 4:4:4, and YCbCr 4:2:2 are supported.
+    Rgb444YCbCr444YCbCr422,
+}
+
+impl DigitalColorEncoding {
+    /// Decodes bits 4–3 of EDID byte `0x18` for a digital display.
+    pub(crate) fn from_edid_bits(bits: u8) -> Self {
+        match (bits >> 3) & 0x03 {
+            0b00 => Self::Rgb444,
+            0b01 => Self::Rgb444YCbCr444,
+            0b10 => Self::Rgb444YCbCr422,
+            _    => Self::Rgb444YCbCr444YCbCr422,
+        }
+    }
+}
+
+/// Display color type for an analog display, decoded from EDID base block byte `0x18` bits 4–3.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnalogColorType {
+    /// Monochrome or grayscale display.
+    Monochrome,
+    /// RGB color display.
+    Rgb,
+    /// Non-RGB multicolor display.
+    NonRgb,
+}
+
+impl AnalogColorType {
+    /// Decodes bits 4–3 of EDID byte `0x18` for an analog display.
+    ///
+    /// Returns `None` for the undefined value (`0b11`).
+    pub(crate) fn from_edid_bits(bits: u8) -> Option<Self> {
+        match (bits >> 3) & 0x03 {
+            0b00 => Some(Self::Monochrome),
+            0b01 => Some(Self::Rgb),
+            0b10 => Some(Self::NonRgb),
+            _    => None,
+        }
+    }
+}
+
 /// Color bit depth per primary color channel, decoded from EDID base block byte `0x14` bits 6–4.
 ///
 /// Only valid for digital input displays. `None` is used for the undefined (0b000) and
