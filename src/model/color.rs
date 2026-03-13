@@ -12,7 +12,11 @@ impl DisplayGamma {
     ///
     /// Returns `None` if the byte is `0xFF` (gamma not specified).
     pub fn from_edid_byte(byte: u8) -> Option<Self> {
-        if byte == 0xFF { None } else { Some(Self(byte)) }
+        if byte == 0xFF {
+            None
+        } else {
+            Some(Self(byte))
+        }
     }
 
     /// Returns the raw encoded byte.
@@ -66,8 +70,8 @@ impl ColorBitDepth {
     /// Returns the number of bits per primary color channel.
     pub fn bits_per_primary(&self) -> u8 {
         match self {
-            Self::Depth6  =>  6,
-            Self::Depth8  =>  8,
+            Self::Depth6 => 6,
+            Self::Depth8 => 8,
             Self::Depth10 => 10,
             Self::Depth12 => 12,
             Self::Depth14 => 14,

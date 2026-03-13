@@ -29,7 +29,10 @@ impl ManufactureDate {
         match week_byte {
             0xFF => Self::ModelYear(year),
             0x00 => Self::Manufactured { week: None, year },
-            w    => Self::Manufactured { week: Some(w), year },
+            w => Self::Manufactured {
+                week: Some(w),
+                year,
+            },
         }
     }
 }

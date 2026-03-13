@@ -1,6 +1,6 @@
 use piaf::{
-    capabilities_from_edid, parse_edid, ColorBitDepth, DisplayGamma, EdidVersion,
-    ExtensionLibrary, ExtensionTagRegistry, ManufactureDate, VideoInterface,
+    capabilities_from_edid, parse_edid, ColorBitDepth, DisplayGamma, EdidVersion, ExtensionLibrary,
+    ExtensionTagRegistry, ManufactureDate, VideoInterface,
 };
 
 fn load(path: &str) -> Vec<u8> {
@@ -27,8 +27,20 @@ fn lg_ultragear_identification() {
 
     assert_eq!(caps.manufacturer.as_deref(), Some("GSM"));
     assert_eq!(caps.display_name.as_deref(), Some("LG ULTRAGEAR"));
-    assert_eq!(caps.manufacture_date, Some(ManufactureDate::Manufactured { week: Some(3), year: 2021 }));
-    assert_eq!(caps.edid_version, Some(EdidVersion { version: 1, revision: 3 }));
+    assert_eq!(
+        caps.manufacture_date,
+        Some(ManufactureDate::Manufactured {
+            week: Some(3),
+            year: 2021
+        })
+    );
+    assert_eq!(
+        caps.edid_version,
+        Some(EdidVersion {
+            version: 1,
+            revision: 3
+        })
+    );
     assert_eq!(caps.gamma, DisplayGamma::from_edid_byte(0x78));
     assert!(caps.digital);
     assert_eq!(caps.color_bit_depth, None); // undefined in base block
@@ -90,8 +102,20 @@ fn auo_edp_identification() {
     let caps = capabilities_from_edid(&parsed, &library);
 
     assert_eq!(caps.manufacturer.as_deref(), Some("AUO"));
-    assert_eq!(caps.manufacture_date, Some(ManufactureDate::Manufactured { week: Some(3), year: 2020 }));
-    assert_eq!(caps.edid_version, Some(EdidVersion { version: 1, revision: 4 }));
+    assert_eq!(
+        caps.manufacture_date,
+        Some(ManufactureDate::Manufactured {
+            week: Some(3),
+            year: 2020
+        })
+    );
+    assert_eq!(
+        caps.edid_version,
+        Some(EdidVersion {
+            version: 1,
+            revision: 4
+        })
+    );
     assert_eq!(caps.gamma, DisplayGamma::from_edid_byte(0x78));
     assert!(caps.digital);
     assert_eq!(caps.color_bit_depth, Some(ColorBitDepth::Depth8));

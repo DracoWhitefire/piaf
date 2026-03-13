@@ -1,6 +1,6 @@
 use piaf::{
-    capabilities_from_edid, parse_edid, Cea861Flags, DisplayCapabilities,
-    EdidWarning, ExtensionHandler, ExtensionLibrary,
+    capabilities_from_edid, parse_edid, Cea861Flags, DisplayCapabilities, EdidWarning,
+    ExtensionHandler, ExtensionLibrary,
 };
 use std::fs;
 use std::path::Path;
@@ -98,12 +98,16 @@ fn main() {
                                 caps.manufacturer.as_deref().unwrap_or("Unknown")
                             );
                             match caps.manufacture_date {
-                                Some(piaf::ManufactureDate::Manufactured { week: Some(w), year }) =>
-                                    println!("  Manufactured: week {}, {}", w, year),
-                                Some(piaf::ManufactureDate::Manufactured { week: None, year }) =>
-                                    println!("  Manufactured: {}", year),
-                                Some(piaf::ManufactureDate::ModelYear(year)) =>
-                                    println!("  Model year:   {}", year),
+                                Some(piaf::ManufactureDate::Manufactured {
+                                    week: Some(w),
+                                    year,
+                                }) => println!("  Manufactured: week {}, {}", w, year),
+                                Some(piaf::ManufactureDate::Manufactured { week: None, year }) => {
+                                    println!("  Manufactured: {}", year)
+                                }
+                                Some(piaf::ManufactureDate::ModelYear(year)) => {
+                                    println!("  Model year:   {}", year)
+                                }
                                 None => {}
                             }
                             println!(
