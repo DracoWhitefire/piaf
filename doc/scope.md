@@ -45,7 +45,10 @@ PIAF should evolve in small, independent steps:
 2. ✅ expose a structured intermediate model,
 3. ✅ normalize into `DisplayCapabilities`,
 4. ✅ open the extension system for modular consumer use,
-5. 🔲 improve robustness with fixture-based testing,
-6. 🔲 extend support conservatively.
+5. ✅ full EDID base block decoding,
+6. ✅ improve robustness and diagnostics (invalid IDs, size mismatches, fixture tests),
+7. 🔲 full CEA-861 implementation (SVDs, SADs, speaker allocation, and remaining data blocks),
+8. 🔲 DisplayID implementation (fragment reassembly, logical block parsing),
+9. 🔲 derived-value helpers as a separate module.
 
 All development must maintain `no_std` compatibility for core modules. Optional features such as `serde` support and diagnostic pretty-printing can be enabled via crate features.
