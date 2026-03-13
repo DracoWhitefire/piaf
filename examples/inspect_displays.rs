@@ -1,6 +1,6 @@
 use piaf::{
-    capabilities_from_edid, parse_edid, DisplayCapabilities, EdidWarning, ExtensionHandler,
-    ExtensionLibrary,
+    capabilities_from_edid, parse_edid, Cea861Flags, DisplayCapabilities,
+    EdidWarning, ExtensionHandler, ExtensionLibrary,
 };
 use std::fs;
 use std::path::Path;
@@ -32,8 +32,8 @@ impl ExtensionHandler for CeaDetailsHandler {
         caps: &mut DisplayCapabilities,
         _warnings: &mut Vec<EdidWarning>,
     ) {
-        // Bit 6 of byte 3: basic audio support
-        if (ext[3] & 0x40) != 0 {
+        let flags = Cea861Flags::from_bits_truncate(ext[3]);
+        if flags.contains(Cea861Flags::BASIC_AUDIO) {
             caps.has_audio = true;
         }
 
@@ -108,6 +108,9 @@ fn main() {
                                 "  Input type:   {}",
                                 if caps.digital { "Digital" } else { "Analog" }
                             );
+                            if let Some(depth) = caps.color_bit_depth {
+                                println!("  Color depth:  {} bpc", depth.bits_per_primary());
+                            }
                             println!(
                                 "  Audio support: {}",
                                 if caps.has_audio { "Yes" } else { "No" }
