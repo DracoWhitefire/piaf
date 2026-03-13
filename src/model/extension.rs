@@ -68,22 +68,24 @@ impl ExtensionTagRegistry {
 
 pub struct ExtensionLibrary {
     #[cfg(any(feature = "alloc", feature = "std"))]
-    pub base_handler: Option<Box<dyn ExtensionHandler>>,
+    pub base_handlers: Vec<Box<dyn ExtensionHandler>>,
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub extensions: Vec<ExtensionMetadata>,
 }
 
 impl ExtensionLibrary {
     pub fn new() -> Self {
-        #[cfg(any(feature = "alloc", feature = "std"))]
-        let extensions = Vec::new();
-
         Self {
             #[cfg(any(feature = "alloc", feature = "std"))]
-            base_handler: None,
+            base_handlers: Vec::new(),
             #[cfg(any(feature = "alloc", feature = "std"))]
-            extensions,
+            extensions: Vec::new(),
         }
+    }
+
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub fn add_base_handler<H: ExtensionHandler + 'static>(&mut self, handler: H) {
+        self.base_handlers.push(Box::new(handler));
     }
 
     #[cfg(any(feature = "alloc", feature = "std"))]

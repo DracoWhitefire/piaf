@@ -19,7 +19,7 @@ use crate::model::extension::ExtensionLibrary;
 impl ExtensionLibrary {
     pub fn with_standard_handlers() -> Self {
         let mut lib = Self::with_standard_extensions();
-        lib.base_handler = Some(Box::new(BaseBlockHandler));
+        lib.add_base_handler(BaseBlockHandler);
         if let Some(cea) = lib.extensions.iter_mut().find(|e| e.tag == 0x02) {
             cea.handler = Some(Box::new(Cea861Handler));
         }
@@ -35,8 +35,8 @@ pub fn capabilities_from_edid(edid: &ParsedEdid, library: &ExtensionLibrary) -> 
 
     #[cfg(any(feature = "alloc", feature = "std"))]
     {
-        // 1. Process Base Block via Base Handler (if present)
-        if let Some(handler) = &library.base_handler {
+        // 1. Process Base Block through all registered base handlers, in order
+        for handler in &library.base_handlers {
             handler.process(&edid.base_block, &mut caps);
         }
 
