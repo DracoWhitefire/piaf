@@ -53,6 +53,7 @@ fn main() {
                             println!("  Serial:       {:?}", caps.serial_number);
                             println!("  Dimensions:   {:?}x{:?} cm", caps.width_cm, caps.height_cm);
                             println!("  Input type:   {}", if caps.digital { "Digital" } else { "Analog" });
+                            println!("  Audio support: {}", if caps.has_audio { "Yes" } else { "No" });
 
                             if let (Some(min_v), Some(max_v)) = (caps.min_v_rate, caps.max_v_rate) {
                                 println!("  V-Range:      {} - {} Hz", min_v, max_v);
