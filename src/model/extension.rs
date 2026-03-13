@@ -41,37 +41,49 @@ pub trait KnownExtensions {
     fn is_known(&self, tag: u8) -> bool;
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 pub struct ExtensionTagRegistry {
-    #[cfg(any(feature = "alloc", feature = "std"))]
     pub known_tags: Vec<u8>,
 }
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 impl ExtensionTagRegistry {
     pub fn new() -> Self {
-        #[cfg(any(feature = "alloc", feature = "std"))]
-        let known_tags = Vec::new();
-
-        Self {
-            #[cfg(any(feature = "alloc", feature = "std"))]
-            known_tags,
-        }
+        Self { known_tags: Vec::new() }
     }
 
-    #[cfg(any(feature = "alloc", feature = "std"))]
     pub fn register(&mut self, tag: u8) {
         if !self.known_tags.contains(&tag) {
             self.known_tags.push(tag);
         }
     }
 
-    #[cfg(any(feature = "alloc", feature = "std"))]
     pub fn is_known(&self, tag: u8) -> bool {
         self.known_tags.contains(&tag)
     }
+}
 
-    #[cfg(not(any(feature = "alloc", feature = "std")))]
+#[cfg(not(any(feature = "alloc", feature = "std")))]
+pub struct ExtensionTagRegistry {
+    tags: [u8; 16],
+    len: usize,
+}
+
+#[cfg(not(any(feature = "alloc", feature = "std")))]
+impl ExtensionTagRegistry {
+    pub fn new() -> Self {
+        Self { tags: [0u8; 16], len: 0 }
+    }
+
+    pub fn register(&mut self, tag: u8) {
+        if self.len < 16 && !self.is_known(tag) {
+            self.tags[self.len] = tag;
+            self.len += 1;
+        }
+    }
+
     pub fn is_known(&self, tag: u8) -> bool {
-        tag == 0x02 || tag == 0x70
+        self.tags[..self.len].contains(&tag)
     }
 }
 
