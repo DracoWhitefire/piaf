@@ -123,6 +123,9 @@ fn main() {
                             if let Some(depth) = caps.color_bit_depth {
                                 println!("  Color depth:  {} bpc", depth.bits_per_primary());
                             }
+                            if let Some(gamma) = caps.gamma {
+                                println!("  Gamma:        {:.2}", gamma.value());
+                            }
                             if let Some(iface) = caps.video_interface {
                                 println!("  Interface:    {:?}", iface);
                             }
