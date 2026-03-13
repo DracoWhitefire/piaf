@@ -6,15 +6,20 @@ Binary parsers benefit from a testing approach that combines small deterministic
 
 ### Unit tests
 
-Unit tests should cover narrow pieces of logic such as:
+Unit tests cover narrow pieces of logic and live next to the code they test. Handler tests
+call `process` directly on a handcrafted `[u8; 128]`, without going through the parser or
+building an `ExtensionLibrary`. Parser tests construct minimal valid EDID byte arrays and
+assert on specific error and warning conditions.
 
-- block size checks,
-- header validation,
-- checksum handling,
-- identifier decoding,
-- descriptor extraction.
+This keeps failures localized: a failing test in `base.rs` can only mean `BaseBlockHandler`
+is broken.
 
-These tests should be small and explicit.
+### Integration tests
+
+A single integration test in `capabilities/mod.rs` verifies that the full pipeline wires
+together correctly — that `with_standard_handlers()` registers the handlers and that
+`capabilities_from_edid` invokes them. It does not duplicate the field-level assertions
+that belong in handler unit tests.
 
 ### Fixture tests
 
@@ -34,11 +39,6 @@ testdata/
  ├── invalid/
  └── edge/
 ```
-### Normalization tests
-
-Normalization tests should verify that parsed structures are translated into stable capability data correctly.
-
-These tests are especially important because normalization introduces policy decisions that go beyond raw parsing.
 
 ### Fuzzing
 
