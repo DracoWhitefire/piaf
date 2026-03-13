@@ -45,9 +45,11 @@ impl core::fmt::Debug for ExtensionMetadata {
     }
 }
 
+/// Minimal registration entry for an EDID extension tag (`no_std` build).
 #[cfg(not(any(feature = "alloc", feature = "std")))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExtensionMetadata {
+    /// The tag byte that identifies this extension block format.
     pub tag: u8,
 }
 
@@ -55,11 +57,18 @@ pub struct ExtensionMetadata {
 /// Implemented for both [`ExtensionTagRegistry`] and [`ExtensionLibrary`], so either
 /// can be passed directly to [`parse_edid`][crate::parse_edid].
 pub trait KnownExtensions {
+    /// Returns `true` if `tag` identifies a known extension block type.
     fn is_known(&self, tag: u8) -> bool;
 }
 
+/// A lightweight set of known extension tag bytes.
+///
+/// Use this when you need to pass a tag list to [`parse_edid`][crate::parse_edid] without
+/// setting up a full [`ExtensionLibrary`]. If you are using `ExtensionLibrary`, you can pass it
+/// directly to `parse_edid` instead — it implements [`KnownExtensions`] too.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub struct ExtensionTagRegistry {
+    /// The registered tag bytes.
     pub known_tags: Vec<u8>,
 }
 
