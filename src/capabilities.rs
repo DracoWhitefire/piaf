@@ -167,6 +167,24 @@ pub fn capabilities_from_edid(edid: &ParsedEdid) -> DisplayCapabilities {
         }
     }
 
+    // 9. Process Extensions (CEA-861, etc.)
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    {
+        for ext in &edid.extensions {
+            let tag = ext[0];
+            if tag == 0x02 {
+                // CEA-861 Extension Block
+                // Offset 2: Offset of DTDs
+                // Bit 7 of byte 3: 1=Supports basic audio
+                if (ext[3] & 0x40) != 0 {
+                    caps.has_audio = true;
+                }
+                
+                // We could also parse Video Data Blocks (VICs) here to get more modes
+            }
+        }
+    }
+
     caps
 }
 

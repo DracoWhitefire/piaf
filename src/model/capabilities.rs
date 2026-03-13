@@ -28,6 +28,7 @@ pub struct DisplayCapabilities {
     pub max_pixel_clock_mhz: Option<u16>,
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub supported_modes: Vec<VideoMode>,
+    pub has_audio: bool,
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub warnings: Vec<EdidWarning>,
 }
