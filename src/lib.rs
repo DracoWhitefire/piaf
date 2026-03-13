@@ -17,6 +17,14 @@
 //! println!("{:?}", caps.display_name);
 //! ```
 #![cfg_attr(not(feature = "std"), no_std)]
+// In a bare no_std build (no alloc, no std) the handler layer is absent, so the
+// pub(crate) decode functions on model types appear unused. They are intentionally
+// kept available for consumers who want to call them directly without the handler
+// pipeline, so we suppress the warning rather than gating the items away.
+#![cfg_attr(
+    not(any(feature = "alloc", feature = "std")),
+    allow(dead_code, unused_imports)
+)]
 
 #[cfg(all(feature = "alloc", not(feature = "std")))]
 extern crate alloc;
