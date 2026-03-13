@@ -11,7 +11,7 @@ impl ExtensionHandler for Cea861Handler {
     fn process(&self, ext: &[u8; 128], caps: &mut DisplayCapabilities) {
         // CEA-861 Extension Block
         // Offset 2: Offset of DTDs
-        // Bit 7 of byte 3: 1=Supports basic audio
+        // Bit 6 of byte 3: 1=Supports basic audio
         if (ext[3] & 0x40) != 0 {
             caps.has_audio = true;
         }
