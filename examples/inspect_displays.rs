@@ -11,6 +11,9 @@ fn main() {
         return;
     }
 
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    let library = ExtensionLibrary::with_standard_handlers();
+    #[cfg(not(any(feature = "alloc", feature = "std")))]
     let library = ExtensionLibrary::new();
     let registry = library.export_tags();
     let mut found = 0;
@@ -45,10 +48,13 @@ fn main() {
 
                     match parse_edid(&bytes, &registry) {
                         Ok(parsed) => {
-                            let caps = capabilities_from_edid(&parsed);
+                            let caps = capabilities_from_edid(&parsed, &library);
                             
-                            println!("  Manufacturer: {:?}", caps.manufacturer.as_deref().unwrap_or("Unknown"));
-                            println!("  Display Name: {:?}", caps.display_name.as_deref().unwrap_or("Unknown"));
+                            #[cfg(any(feature = "alloc", feature = "std"))]
+                            {
+                                println!("  Manufacturer: {:?}", caps.manufacturer.as_deref().unwrap_or("Unknown"));
+                                println!("  Display Name: {:?}", caps.display_name.as_deref().unwrap_or("Unknown"));
+                            }
                             println!("  Product Code: {:?}", caps.product_code);
                             println!("  Serial:       {:?}", caps.serial_number);
                             println!("  Dimensions:   {:?}x{:?} cm", caps.width_cm, caps.height_cm);
@@ -65,25 +71,28 @@ fn main() {
                                 println!("  Max Clock:    {} MHz", clock);
                             }
                             
-                            if !caps.warnings.is_empty() {
-                                println!("  Warnings ({}):", caps.warnings.len());
-                                for warning in &caps.warnings {
-                                    println!("    - {:?}", warning);
+                            #[cfg(any(feature = "alloc", feature = "std"))]
+                            {
+                                if !caps.warnings.is_empty() {
+                                    println!("  Warnings ({}):", caps.warnings.len());
+                                    for warning in &caps.warnings {
+                                        println!("    - {:?}", warning);
+                                    }
                                 }
-                            }
-                            
-                            if !caps.supported_modes.is_empty() {
-                                println!("  Supported Modes ({}):", caps.supported_modes.len());
-                                for mode in caps.supported_modes.iter().take(5) {
-                                    println!("    - {}x{}@{}Hz", mode.width, mode.height, mode.refresh_rate);
+                                
+                                if !caps.supported_modes.is_empty() {
+                                    println!("  Supported Modes ({}):", caps.supported_modes.len());
+                                    for mode in caps.supported_modes.iter().take(5) {
+                                        println!("    - {}x{}@{}Hz", mode.width, mode.height, mode.refresh_rate);
+                                    }
+                                    if caps.supported_modes.len() > 5 {
+                                        println!("    ... and {} more", caps.supported_modes.len() - 5);
+                                    }
                                 }
-                                if caps.supported_modes.len() > 5 {
-                                    println!("    ... and {} more", caps.supported_modes.len() - 5);
-                                }
-                            }
 
-                            if !parsed.warnings.is_empty() {
-                                println!("  Warnings: {:?}", parsed.warnings);
+                                if !parsed.warnings.is_empty() {
+                                    println!("  Warnings: {:?}", parsed.warnings);
+                                }
                             }
                         }
                         Err(e) => {

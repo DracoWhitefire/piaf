@@ -1,11 +1,35 @@
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::prelude::{String, Vec};
+use crate::model::prelude::prelude::{String, Vec, Box};
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::capabilities::DisplayCapabilities;
 
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub trait ExtensionHandler: core::fmt::Debug {
+    fn process(&self, block: &[u8; 128], caps: &mut DisplayCapabilities);
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub struct ExtensionMetadata {
+    pub tag: u8,
+    pub display_name: String,
+    pub handler: Option<Box<dyn ExtensionHandler>>,
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+impl core::fmt::Debug for ExtensionMetadata {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ExtensionMetadata")
+            .field("tag", &self.tag)
+            .field("display_name", &self.display_name)
+            .field("has_handler", &self.handler.is_some())
+            .finish()
+    }
+}
+
+#[cfg(not(any(feature = "alloc", feature = "std")))]
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExtensionMetadata {
     pub tag: u8,
-    #[cfg(any(feature = "alloc", feature = "std"))]
-    pub display_name: String,
 }
 
 pub struct ExtensionTagRegistry {
@@ -50,23 +74,28 @@ pub struct ExtensionLibrary {
 impl ExtensionLibrary {
     pub fn new() -> Self {
         #[cfg(any(feature = "alloc", feature = "std"))]
-        let mut extensions = Vec::new();
-        #[cfg(any(feature = "alloc", feature = "std"))]
-        {
-            extensions.push(ExtensionMetadata {
-                tag: 0x02,
-                display_name: String::from("CEA-861"),
-            });
-            extensions.push(ExtensionMetadata {
-                tag: 0x70,
-                display_name: String::from("DisplayID"),
-            });
-        }
+        let extensions = Vec::new();
 
         Self {
             #[cfg(any(feature = "alloc", feature = "std"))]
             extensions,
         }
+    }
+
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub fn with_standard_extensions() -> Self {
+        let mut lib = Self::new();
+        lib.register(ExtensionMetadata {
+            tag: 0x02,
+            display_name: String::from("CEA-861"),
+            handler: None, // Will be set by caller or library user
+        });
+        lib.register(ExtensionMetadata {
+            tag: 0x70,
+            display_name: String::from("DisplayID"),
+            handler: None,
+        });
+        lib
     }
 
     #[cfg(any(feature = "alloc", feature = "std"))]
@@ -83,5 +112,10 @@ impl ExtensionLibrary {
             known_tags.push(ext.tag);
         }
         ExtensionTagRegistry { known_tags }
+    }
+
+    #[cfg(not(any(feature = "alloc", feature = "std")))]
+    pub fn export_tags(&self) -> ExtensionTagRegistry {
+        ExtensionTagRegistry::new()
     }
 }

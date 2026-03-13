@@ -177,7 +177,7 @@ mod tests {
         bytes[128] = 0x70;
         bytes[255] = 256u16.wrapping_sub(0x70) as u8;
 
-        let registry = crate::model::extension::ExtensionLibrary::new().export_tags();
+        let registry = crate::model::extension::ExtensionLibrary::with_standard_extensions().export_tags();
         let result = parse_edid(&bytes, &registry);
         assert!(result.is_ok());
         let parsed = result.unwrap();

@@ -3,11 +3,47 @@ use crate::model::capabilities::DisplayCapabilities;
 use crate::model::capabilities::VideoMode;
 use crate::model::ParsedEdid;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::prelude::String;
+use crate::model::prelude::prelude::{String, Box};
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::extension::{ExtensionHandler, ExtensionLibrary};
+#[cfg(not(any(feature = "alloc", feature = "std")))]
+use crate::model::extension::ExtensionLibrary;
 
-pub fn capabilities_from_edid(edid: &ParsedEdid) -> DisplayCapabilities {
+#[cfg(any(feature = "alloc", feature = "std"))]
+#[derive(Debug)]
+pub struct Cea861Handler;
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+impl ExtensionHandler for Cea861Handler {
+    fn process(&self, ext: &[u8; 128], caps: &mut DisplayCapabilities) {
+        // CEA-861 Extension Block
+        // Offset 2: Offset of DTDs
+        // Bit 7 of byte 3: 1=Supports basic audio
+        if (ext[3] & 0x40) != 0 {
+            caps.has_audio = true;
+        }
+        
+        // We could also parse Video Data Blocks (VICs) here to get more modes
+    }
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+impl ExtensionLibrary {
+    pub fn with_standard_handlers() -> Self {
+        let mut lib = Self::with_standard_extensions();
+        if let Some(cea) = lib.extensions.iter_mut().find(|e| e.tag == 0x02) {
+            cea.handler = Some(Box::new(Cea861Handler));
+        }
+        lib
+    }
+}
+
+pub fn capabilities_from_edid(edid: &ParsedEdid, library: &ExtensionLibrary) -> DisplayCapabilities {
     let mut caps = DisplayCapabilities::default();
     let base = &edid.base_block;
+
+    #[cfg(not(any(feature = "alloc", feature = "std")))]
+    let _ = library;
 
     // 1. Manufacturer ID (offsets 0x08-0x09)
     // 2 bytes, 3 characters, 5 bits per character (00001=A, ..., 11010=Z)
@@ -167,20 +203,14 @@ pub fn capabilities_from_edid(edid: &ParsedEdid) -> DisplayCapabilities {
         }
     }
 
-    // 9. Process Extensions (CEA-861, etc.)
     #[cfg(any(feature = "alloc", feature = "std"))]
     {
         for ext in &edid.extensions {
             let tag = ext[0];
-            if tag == 0x02 {
-                // CEA-861 Extension Block
-                // Offset 2: Offset of DTDs
-                // Bit 7 of byte 3: 1=Supports basic audio
-                if (ext[3] & 0x40) != 0 {
-                    caps.has_audio = true;
+            if let Some(metadata) = library.extensions.iter().find(|e| e.tag == tag) {
+                if let Some(handler) = &metadata.handler {
+                    handler.process(ext, &mut caps);
                 }
-                
-                // We could also parse Video Data Blocks (VICs) here to get more modes
             }
         }
     }
@@ -240,7 +270,8 @@ mod tests {
 
         let registry = ExtensionTagRegistry::new();
         let parsed = parse_edid(&bytes, &registry).unwrap();
-        let caps = capabilities_from_edid(&parsed);
+        let library = ExtensionLibrary::new();
+        let caps = capabilities_from_edid(&parsed, &library);
 
         #[cfg(any(feature = "alloc", feature = "std"))]
         assert_eq!(caps.manufacturer, Some("SAM".to_string()));
@@ -283,7 +314,8 @@ mod tests {
 
         let registry = ExtensionTagRegistry::new();
         let parsed = parse_edid(&bytes, &registry).unwrap();
-        let caps = capabilities_from_edid(&parsed);
+        let library = ExtensionLibrary::new();
+        let caps = capabilities_from_edid(&parsed, &library);
 
         assert_eq!(caps.supported_modes.len(), 2);
 
@@ -347,7 +379,8 @@ mod tests {
 
         let registry = ExtensionTagRegistry::new();
         let parsed = parse_edid(&bytes, &registry).unwrap();
-        let caps = capabilities_from_edid(&parsed);
+        let library = ExtensionLibrary::new();
+        let caps = capabilities_from_edid(&parsed, &library);
 
         assert_eq!(caps.supported_modes.len(), 1);
         assert_eq!(caps.supported_modes[0].width, 1920);
