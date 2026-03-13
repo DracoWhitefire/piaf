@@ -8,6 +8,30 @@ use crate::model::extension::ExtensionHandler;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{String, Vec};
 
+bitflags::bitflags! {
+    /// Boolean flags from EDID byte `0x14` (Video Input Definition).
+    ///
+    /// Bit 7 (`DIGITAL`) determines the input type. Bits 4–0 are only meaningful
+    /// for analog displays. The multi-bit fields in this byte (color bit depth,
+    /// video interface type, and analog sync level) are not represented here —
+    /// those require dedicated enum types.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct VideoInputFlags: u8 {
+        /// Digital input. When clear, the display uses an analog input interface.
+        const DIGITAL          = 0x80;
+        /// Blank-to-black setup (pedestal) expected (analog only).
+        const BLANK_TO_BLACK   = 0x10;
+        /// Separate sync signals are supported (analog only).
+        const SEPARATE_SYNC    = 0x08;
+        /// Composite sync on HSync is supported (analog only).
+        const COMPOSITE_SYNC   = 0x04;
+        /// Sync on green is supported (analog only).
+        const SYNC_ON_GREEN    = 0x02;
+        /// VSync pulse must be serrated when composite or sync-on-green is used (analog only).
+        const SERRATION        = 0x01;
+    }
+}
+
 /// Decodes the EDID base block into [`DisplayCapabilities`].
 ///
 /// Extracts manufacturer ID, product code, serial number, input type, physical dimensions,
@@ -55,8 +79,8 @@ impl ExtensionHandler for BaseBlockHandler {
         }
 
         // 4. Video Input Definition (offset 0x14)
-        // Bit 7: 1=Digital, 0=Analog
-        caps.digital = (base[0x14] & 0x80) != 0;
+        let video_input = VideoInputFlags::from_bits_truncate(base[0x14]);
+        caps.digital = video_input.contains(VideoInputFlags::DIGITAL);
 
         // 5. Physical Dimensions (offsets 0x15-0x16, width and height in cm)
         let width = base[0x15] as u16;

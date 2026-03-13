@@ -38,4 +38,4 @@ pub use parser::parse_edid;
 
 /// Capability extraction from a [`ParsedEdid`].
 pub mod capabilities;
-pub use capabilities::{capabilities_from_edid, Cea861Flags};
+pub use capabilities::{capabilities_from_edid, Cea861Flags, VideoInputFlags};
