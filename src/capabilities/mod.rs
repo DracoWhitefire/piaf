@@ -5,6 +5,8 @@ mod cea861;
 pub use base::BaseBlockHandler;
 pub use cea861::Cea861Flags;
 #[cfg(any(feature = "alloc", feature = "std"))]
+pub use cea861::Cea861Capabilities;
+#[cfg(any(feature = "alloc", feature = "std"))]
 pub use cea861::Cea861Handler;
 
 use crate::model::capabilities::DisplayCapabilities;

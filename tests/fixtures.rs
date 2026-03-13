@@ -3,6 +3,7 @@ use piaf::{
     DisplayFeatureFlags, DisplayGamma, EdidVersion, ExtensionLibrary, ExtensionTagRegistry,
     ManufactureDate, ScreenSize, VideoInterface,
 };
+use piaf::{Cea861Capabilities, Cea861Flags};
 
 fn load(path: &str) -> Vec<u8> {
     std::fs::read(path).unwrap_or_else(|e| panic!("Failed to read fixture {path}: {e}"))
@@ -115,7 +116,8 @@ fn lg_ultragear_has_audio() {
     let parsed = parse_edid(&bytes, &library).unwrap();
     let caps = capabilities_from_edid(&parsed, &library);
 
-    assert!(caps.has_audio);
+    let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
+    assert!(cea.flags.contains(Cea861Flags::BASIC_AUDIO));
 }
 
 #[test]
@@ -240,5 +242,6 @@ fn caps_have_no_audio(bytes: &[u8]) -> bool {
     let library = ExtensionLibrary::with_standard_handlers();
     let parsed = parse_edid(bytes, &library).unwrap();
     let caps = capabilities_from_edid(&parsed, &library);
-    !caps.has_audio
+    caps.get_extension_data::<Cea861Capabilities>(0x02)
+        .map_or(true, |cea| !cea.flags.contains(Cea861Flags::BASIC_AUDIO))
 }

@@ -1,6 +1,6 @@
 use piaf::{
-    capabilities_from_edid, parse_edid, Cea861Flags, DisplayCapabilities, EdidWarning,
-    ExtensionHandler, ExtensionLibrary,
+    capabilities_from_edid, parse_edid, Cea861Capabilities, Cea861Flags, DisplayCapabilities,
+    EdidWarning, ExtensionHandler, ExtensionLibrary,
 };
 use std::fs;
 use std::path::Path;
@@ -8,9 +8,8 @@ use std::path::Path;
 // ---------------------------------------------------------------------------
 // Custom extension data example
 //
-// This handler supersedes the built-in Cea861Handler for tag 0x02. It sets
-// the standard `has_audio` capability flag as usual, but also stores typed
-// extension data that consumers can retrieve via `caps.get_extension_data`.
+// This handler supersedes the built-in Cea861Handler for tag 0x02. It stores
+// typed extension data that consumers can retrieve via `caps.get_extension_data`.
 //
 // Any type that is Debug + Send + Sync can be stored — no manual trait impl
 // required beyond #[derive(Debug)].
@@ -32,14 +31,13 @@ impl ExtensionHandler for CeaDetailsHandler {
         caps: &mut DisplayCapabilities,
         _warnings: &mut Vec<EdidWarning>,
     ) {
+        // Store the standard CEA-861 capabilities under tag 0x02
         let flags = Cea861Flags::from_bits_truncate(ext[3]);
-        if flags.contains(Cea861Flags::BASIC_AUDIO) {
-            caps.has_audio = true;
-        }
+        caps.set_extension_data(0x02, Cea861Capabilities { flags });
 
-        // Store additional typed data alongside standard capability fields
+        // Store additional typed data under a custom key
         caps.set_extension_data(
-            0x02,
+            0xF2,
             CeaDetails {
                 version: ext[1],
                 dtd_offset: ext[2],
@@ -169,10 +167,12 @@ fn main() {
                             if let Some(ct) = caps.analog_color_type {
                                 println!("  Color type:   {:?}", ct);
                             }
-                            println!(
-                                "  Audio support: {}",
-                                if caps.has_audio { "Yes" } else { "No" }
-                            );
+                            if let Some(cea) = caps.get_extension_data::<Cea861Capabilities>(0x02) {
+                                println!(
+                                    "  Audio support: {}",
+                                    if cea.flags.contains(Cea861Flags::BASIC_AUDIO) { "Yes" } else { "No" }
+                                );
+                            }
 
                             if let (Some(min_v), Some(max_v)) = (caps.min_v_rate, caps.max_v_rate) {
                                 println!("  V-Range:      {} - {} Hz", min_v, max_v);
@@ -186,8 +186,8 @@ fn main() {
                                 println!("  Max Clock:    {} MHz", clock);
                             }
 
-                            // Read back typed extension data stored by CeaDetailsHandler
-                            if let Some(cea) = caps.get_extension_data::<CeaDetails>(0x02) {
+                            // Read back additional typed data stored by CeaDetailsHandler
+                            if let Some(cea) = caps.get_extension_data::<CeaDetails>(0xF2) {
                                 println!("  CEA Version:   {}", cea.version);
                                 println!("  CEA DTD Offset: {}", cea.dtd_offset);
                             }

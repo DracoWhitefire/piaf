@@ -29,9 +29,19 @@ bitflags::bitflags! {
     }
 }
 
-/// Processes a CEA-861 extension block (tag `0x02`).
+/// Decoded capabilities from a CEA-861 extension block.
 ///
-/// Currently extracts the basic audio support flag (byte 3, bit 6).
+/// Stored in [`DisplayCapabilities::extension_data`] under tag `0x02` by [`Cea861Handler`].
+/// Retrieve it with `caps.get_extension_data::<Cea861Capabilities>(0x02)`.
+#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Cea861Capabilities {
+    /// Capability flags from byte 3 of the CEA-861 header.
+    pub flags: Cea861Flags,
+}
+
+/// Processes a CEA-861 extension block (tag `0x02`).
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[derive(Debug)]
 pub struct Cea861Handler;
@@ -45,10 +55,7 @@ impl ExtensionHandler for Cea861Handler {
         _warnings: &mut Vec<EdidWarning>,
     ) {
         let flags = Cea861Flags::from_bits_truncate(ext[3]);
-
-        if flags.contains(Cea861Flags::BASIC_AUDIO) {
-            caps.has_audio = true;
-        }
+        caps.set_extension_data(0x02, Cea861Capabilities { flags });
     }
 }
 
@@ -66,7 +73,8 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
 
-        assert!(caps.has_audio);
+        let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
+        assert!(cea.flags.contains(Cea861Flags::BASIC_AUDIO));
     }
 
     #[test]
@@ -76,7 +84,8 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
 
-        assert!(!caps.has_audio);
+        let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
+        assert!(!cea.flags.contains(Cea861Flags::BASIC_AUDIO));
     }
 
     #[test]

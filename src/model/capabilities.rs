@@ -227,9 +227,11 @@ impl DisplayCapabilities {
     pub fn get_extension_data<T: Any>(&self, tag: u8) -> Option<&T> {
         self.extension_data
             .iter()
-            .find(|(t, _)| *t == tag)?
-            .1
-            .as_any()
-            .downcast_ref::<T>()
+            .find(|(t, _)| *t == tag)
+            // `**data` deref-chains through `&` then through Arc's Deref to reach
+            // `dyn ExtensionData`, forcing vtable dispatch for `as_any()`.
+            // Calling `.as_any()` on `&Arc<dyn ExtensionData>` would hit the blanket
+            // `ExtensionData` impl for Arc itself and return the wrong TypeId.
+            .and_then(|(_, data)| (**data).as_any().downcast_ref::<T>())
     }
 }
