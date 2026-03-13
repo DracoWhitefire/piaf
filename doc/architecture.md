@@ -71,6 +71,16 @@ This distinction is important because real display data is often imperfect. Warn
 - Prefer explicit types over loosely structured maps or tuples
 - Never invent data — absent information is represented as `None`, not as a guess
 
+### DisplayCapabilities is a data struct, not a decision layer
+
+`DisplayCapabilities` holds decoded values from the EDID — nothing more. Methods that
+compute derived results (preferred mode, bandwidth checks, HDR detection, DPI, mode
+filtering) do not belong on the struct.
+
+Helpers of this kind are acceptable in the library, but they live in separate modules as
+free functions that accept `&DisplayCapabilities` as input. This keeps the data model clean
+and avoids encoding policy or heuristics into what is fundamentally a decoded representation.
+
 ## Technical constraints
 
 - **`no_std` compatibility**: The core library avoids the Rust standard library to remain usable in firmware, bootloaders, and embedded systems. `alloc` may be used where dynamic allocation is required (e.g., for extension block storage).
