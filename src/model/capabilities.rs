@@ -75,6 +75,12 @@ pub struct DisplayCapabilities {
     pub gamma: Option<crate::model::color::DisplayGamma>,
     /// Display feature support flags from byte `0x18`.
     pub display_features: Option<crate::model::features::DisplayFeatureFlags>,
+    /// Supported color encoding formats, decoded from byte `0x18` bits 4–3.
+    /// Only populated for EDID 1.4+ digital displays.
+    pub digital_color_encoding: Option<crate::model::color::DigitalColorEncoding>,
+    /// Color type, decoded from byte `0x18` bits 4–3.
+    /// Only populated for analog displays; `None` for the undefined value (`0b11`).
+    pub analog_color_type: Option<crate::model::color::AnalogColorType>,
     /// Video interface type, decoded from byte `0x14` bits 3–0.
     /// `None` for analog displays or when the field is undefined or reserved.
     pub video_interface: Option<crate::model::input::VideoInterface>,

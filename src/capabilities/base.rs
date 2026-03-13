@@ -1,7 +1,7 @@
 use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::VideoMode;
-use crate::model::color::{ColorBitDepth, DisplayGamma};
+use crate::model::color::{AnalogColorType, ColorBitDepth, DigitalColorEncoding, DisplayGamma};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 use crate::model::edid::EdidVersion;
@@ -82,8 +82,18 @@ fn decode_header_fields(base: &[u8; 128], caps: &mut DisplayCapabilities) {
     // Display gamma (byte 0x17); 0xFF means undefined
     caps.gamma = DisplayGamma::from_edid_byte(base[0x17]);
 
-    // Display feature support (byte 0x18); bits 4-3 (color type enum) excluded
+    // Display feature support (byte 0x18)
     caps.display_features = Some(DisplayFeatureFlags::from_bits_truncate(base[0x18]));
+
+    // Color type / encoding (byte 0x18 bits 4–3); meaning differs by input type and EDID version.
+    // Digital encoding is only defined for EDID 1.4+; analog color type applies to any version.
+    let is_digital = base[0x14] & 0x80 != 0;
+    let edid_revision = base[19];
+    if is_digital && edid_revision >= 4 {
+        caps.digital_color_encoding = Some(DigitalColorEncoding::from_edid_bits(base[0x18]));
+    } else if !is_digital {
+        caps.analog_color_type = AnalogColorType::from_edid_bits(base[0x18]);
+    }
 
     // Video input definition (byte 0x14)
     let video_input = VideoInputFlags::from_bits_truncate(base[0x14]);
@@ -267,7 +277,7 @@ fn decode_detailed_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) {
 mod tests {
     use super::*;
     use crate::model::capabilities::{DisplayCapabilities, VideoMode};
-    use crate::model::color::{ColorBitDepth, DisplayGamma};
+    use crate::model::color::{AnalogColorType, ColorBitDepth, DigitalColorEncoding, DisplayGamma};
     use crate::model::edid::EdidVersion;
     use crate::model::features::DisplayFeatureFlags;
     use crate::model::input::VideoInterface;
@@ -370,6 +380,44 @@ mod tests {
         assert!(!caps.digital);
         assert_eq!(caps.color_bit_depth, None);
         assert_eq!(caps.video_interface, None);
+    }
+
+    #[test]
+    fn test_color_type() {
+        let mut base = [0u8; 128];
+
+        // Digital, EDID 1.4 (revision = 4), bits 4-3 = 0b11 → Rgb444YCbCr444YCbCr422
+        base[0x14] = 0x80; // digital
+        base[19] = 4; // revision 4
+        base[0x18] = 0x18; // bits 4-3 = 0b11
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(
+            caps.digital_color_encoding,
+            Some(DigitalColorEncoding::Rgb444YCbCr444YCbCr422)
+        );
+        assert_eq!(caps.analog_color_type, None);
+
+        // Digital, EDID 1.3 — encoding field not decoded
+        base[19] = 3;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(caps.digital_color_encoding, None);
+        assert_eq!(caps.analog_color_type, None);
+
+        // Analog, bits 4-3 = 0b01 → Rgb
+        base[0x14] = 0x00; // analog
+        base[0x18] = 0x08; // bits 4-3 = 0b01
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(caps.digital_color_encoding, None);
+        assert_eq!(caps.analog_color_type, Some(AnalogColorType::Rgb));
+
+        // Analog, bits 4-3 = 0b11 → undefined (None)
+        base[0x18] = 0x18;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(caps.analog_color_type, None);
     }
 
     #[test]

@@ -55,7 +55,7 @@ impl DigitalColorEncoding {
             0b00 => Self::Rgb444,
             0b01 => Self::Rgb444YCbCr444,
             0b10 => Self::Rgb444YCbCr422,
-            _    => Self::Rgb444YCbCr444YCbCr422,
+            _ => Self::Rgb444YCbCr444YCbCr422,
         }
     }
 }
@@ -81,7 +81,7 @@ impl AnalogColorType {
             0b00 => Some(Self::Monochrome),
             0b01 => Some(Self::Rgb),
             0b10 => Some(Self::NonRgb),
-            _    => None,
+            _ => None,
         }
     }
 }

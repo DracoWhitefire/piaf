@@ -1,6 +1,7 @@
 use piaf::{
-    capabilities_from_edid, parse_edid, ColorBitDepth, DisplayFeatureFlags, DisplayGamma,
-    EdidVersion, ExtensionLibrary, ExtensionTagRegistry, ManufactureDate, VideoInterface,
+    capabilities_from_edid, parse_edid, AnalogColorType, ColorBitDepth, DigitalColorEncoding,
+    DisplayFeatureFlags, DisplayGamma, EdidVersion, ExtensionLibrary, ExtensionTagRegistry,
+    ManufactureDate, VideoInterface,
 };
 
 fn load(path: &str) -> Vec<u8> {
@@ -53,6 +54,8 @@ fn lg_ultragear_identification() {
     assert!(features.contains(DisplayFeatureFlags::DPMS_ACTIVE_OFF));
     assert!(features.contains(DisplayFeatureFlags::PREFERRED_TIMING));
     assert!(!features.contains(DisplayFeatureFlags::CONTINUOUS_TIMINGS));
+    // EDID 1.3 digital — color encoding field not decoded
+    assert_eq!(caps.digital_color_encoding, None);
     assert_eq!(caps.width_cm, Some(60));
     assert_eq!(caps.height_cm, Some(34));
 }
@@ -133,6 +136,12 @@ fn auo_edp_identification() {
     assert!(features.contains(DisplayFeatureFlags::PREFERRED_TIMING));
     assert!(features.contains(DisplayFeatureFlags::CONTINUOUS_TIMINGS));
     assert!(!features.contains(DisplayFeatureFlags::DPMS_STANDBY));
+    // EDID 1.4 digital, byte 0x18 bits 4-3 = 0b00 → Rgb444
+    assert_eq!(
+        caps.digital_color_encoding,
+        Some(DigitalColorEncoding::Rgb444)
+    );
+    assert_eq!(caps.analog_color_type, None);
     assert_eq!(caps.width_cm, Some(38));
     assert_eq!(caps.height_cm, Some(22));
 }
