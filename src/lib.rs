@@ -6,7 +6,7 @@ extern crate alloc;
 pub mod model;
 pub use model::{
     DisplayCapabilities, EdidError, EdidWarning, ExtensionLibrary, ExtensionMetadata,
-    ExtensionTagRegistry, ParsedEdid, VideoMode,
+    ExtensionTagRegistry, KnownExtensions, ParsedEdid, VideoMode,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use model::ExtensionHandler;

@@ -56,7 +56,6 @@ fn main() {
         cea.handler = Some(Box::new(CeaDetailsHandler));
     }
 
-    let registry = library.export_tags();
     let mut found = 0;
 
     if let Ok(entries) = fs::read_dir(drm_path) {
@@ -81,7 +80,7 @@ fn main() {
                     println!("EDID file: {}", edid_path.display());
                     println!("Data size: {} bytes", bytes.len());
 
-                    match parse_edid(&bytes, &registry) {
+                    match parse_edid(&bytes, &library) {
                         Ok(parsed) => {
                             let caps = capabilities_from_edid(&parsed, &library);
 

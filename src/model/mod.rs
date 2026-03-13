@@ -5,7 +5,7 @@ pub use prelude::prelude::{String, Vec, Box};
 pub mod extension;
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use extension::ExtensionHandler;
-pub use extension::{ExtensionLibrary, ExtensionMetadata, ExtensionTagRegistry};
+pub use extension::{ExtensionLibrary, ExtensionMetadata, ExtensionTagRegistry, KnownExtensions};
 
 pub mod diagnostics;
 pub use diagnostics::{EdidError, EdidWarning};

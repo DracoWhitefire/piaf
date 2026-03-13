@@ -1,15 +1,15 @@
 use crate::model::diagnostics::EdidError;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
-use crate::model::extension::ExtensionTagRegistry;
+use crate::model::extension::KnownExtensions;
 use crate::model::ParsedEdid;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::Vec;
 
 pub const EDID_HEADER: [u8; 8] = [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00];
 
-pub fn parse_edid(bytes: &[u8], registry: &ExtensionTagRegistry) -> Result<ParsedEdid, EdidError> {
-    let _ = registry; // Suppress unused warning in no_alloc
+pub fn parse_edid<T: KnownExtensions>(bytes: &[u8], tags: &T) -> Result<ParsedEdid, EdidError> {
+    let _ = tags; // Suppress unused warning in no_alloc
     if bytes.len() < 128 {
         return Err(EdidError::InvalidLength);
     }
@@ -51,7 +51,7 @@ pub fn parse_edid(bytes: &[u8], registry: &ExtensionTagRegistry) -> Result<Parse
             }
 
             let tag = ext_block[0];
-            if !registry.is_known(tag) {
+            if !tags.is_known(tag) {
                 warnings.push(EdidWarning::UnknownExtension(tag));
             }
 
@@ -71,6 +71,7 @@ pub fn parse_edid(bytes: &[u8], registry: &ExtensionTagRegistry) -> Result<Parse
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::extension::ExtensionTagRegistry;
 
     #[test]
     fn test_parse_invalid_length() {

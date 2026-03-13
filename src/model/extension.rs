@@ -34,6 +34,13 @@ pub struct ExtensionMetadata {
     pub tag: u8,
 }
 
+/// Implemented by types that can tell the parser which extension tags are known.
+/// Implemented for both [`ExtensionTagRegistry`] and [`ExtensionLibrary`], so either
+/// can be passed directly to [`parse_edid`][crate::parse_edid].
+pub trait KnownExtensions {
+    fn is_known(&self, tag: u8) -> bool;
+}
+
 pub struct ExtensionTagRegistry {
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub known_tags: Vec<u8>,
@@ -65,6 +72,12 @@ impl ExtensionTagRegistry {
     #[cfg(not(any(feature = "alloc", feature = "std")))]
     pub fn is_known(&self, tag: u8) -> bool {
         tag == 0x02 || tag == 0x70
+    }
+}
+
+impl KnownExtensions for ExtensionTagRegistry {
+    fn is_known(&self, tag: u8) -> bool {
+        ExtensionTagRegistry::is_known(self, tag)
     }
 }
 
@@ -125,5 +138,12 @@ impl ExtensionLibrary {
     #[cfg(not(any(feature = "alloc", feature = "std")))]
     pub fn export_tags(&self) -> ExtensionTagRegistry {
         ExtensionTagRegistry::new()
+    }
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+impl KnownExtensions for ExtensionLibrary {
+    fn is_known(&self, tag: u8) -> bool {
+        self.extensions.iter().any(|e| e.tag == tag)
     }
 }
