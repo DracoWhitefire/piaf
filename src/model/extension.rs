@@ -204,6 +204,11 @@ impl ExtensionLibrary {
             display_name: String::from("DisplayID"),
             handler: None,
         });
+        lib.register(ExtensionMetadata {
+            tag: 0xF0,
+            display_name: String::from("Block Map"),
+            handler: None, // Contents not needed; blocks are discovered sequentially
+        });
         lib
     }
 
