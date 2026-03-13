@@ -3,6 +3,7 @@ use crate::model::capabilities::DisplayCapabilities;
 use crate::model::capabilities::VideoMode;
 use crate::model::color::ColorBitDepth;
 use crate::model::input::VideoInterface;
+use crate::model::manufacture::ManufactureDate;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -65,7 +66,10 @@ impl ExtensionHandler for BaseBlockHandler {
             caps.manufacturer = Some(mfg);
         }
 
-        // 2. Product Code (offsets 0x0A-0x0B, little-endian)
+        // 2. Manufacture date (bytes 16-17)
+        caps.manufacture_date = Some(ManufactureDate::from_edid_bytes(base[16], base[17]));
+
+        // 3. Product Code (offsets 0x0A-0x0B, little-endian)
         let product_code = ((base[0x0B] as u16) << 8) | (base[0x0A] as u16);
         if product_code != 0 {
             caps.product_code = Some(product_code);
@@ -203,6 +207,31 @@ mod tests {
     use crate::model::capabilities::DisplayCapabilities;
     use crate::model::color::ColorBitDepth;
     use crate::model::input::VideoInterface;
+    use crate::model::manufacture::ManufactureDate;
+
+    #[test]
+    fn test_manufacture_date() {
+        let mut base = [0u8; 128];
+
+        // Week + year
+        base[16] = 12;
+        base[17] = 30; // 1990 + 30 = 2020
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(caps.manufacture_date, Some(ManufactureDate::Manufactured { week: Some(12), year: 2020 }));
+
+        // Week unspecified
+        base[16] = 0x00;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(caps.manufacture_date, Some(ManufactureDate::Manufactured { week: None, year: 2020 }));
+
+        // Model year
+        base[16] = 0xFF;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(caps.manufacture_date, Some(ManufactureDate::ModelYear(2020)));
+    }
 
     #[test]
     fn test_color_bit_depth_and_video_interface() {

@@ -52,6 +52,8 @@ pub struct DisplayCapabilities {
     /// Three-character PNP manufacturer ID (e.g. `"GSM"` for LG, `"SAM"` for Samsung).
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub manufacturer: Option<String>,
+    /// Manufacture date or model year, decoded from bytes 16–17.
+    pub manufacture_date: Option<crate::model::manufacture::ManufactureDate>,
     /// Manufacturer-assigned product code.
     pub product_code: Option<u16>,
     /// Manufacturer-assigned serial number, if encoded numerically in the base block.

@@ -27,6 +27,10 @@ pub use color::ColorBitDepth;
 pub mod input;
 pub use input::VideoInterface;
 
+/// Manufacture date model type.
+pub mod manufacture;
+pub use manufacture::ManufactureDate;
+
 /// Consumer-facing capability types.
 pub mod capabilities;
 #[cfg(feature = "std")]
