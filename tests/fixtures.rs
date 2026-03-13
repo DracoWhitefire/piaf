@@ -1,6 +1,6 @@
 use piaf::{
-    capabilities_from_edid, parse_edid, ColorBitDepth, ExtensionLibrary, ExtensionTagRegistry,
-    ManufactureDate, VideoInterface,
+    capabilities_from_edid, parse_edid, ColorBitDepth, EdidVersion, ExtensionLibrary,
+    ExtensionTagRegistry, ManufactureDate, VideoInterface,
 };
 
 fn load(path: &str) -> Vec<u8> {
@@ -28,6 +28,7 @@ fn lg_ultragear_identification() {
     assert_eq!(caps.manufacturer.as_deref(), Some("GSM"));
     assert_eq!(caps.display_name.as_deref(), Some("LG ULTRAGEAR"));
     assert_eq!(caps.manufacture_date, Some(ManufactureDate::Manufactured { week: Some(3), year: 2021 }));
+    assert_eq!(caps.edid_version, Some(EdidVersion { version: 1, revision: 3 }));
     assert!(caps.digital);
     assert_eq!(caps.color_bit_depth, None); // undefined in base block
     assert_eq!(caps.video_interface, None); // undefined in base block
@@ -89,6 +90,7 @@ fn auo_edp_identification() {
 
     assert_eq!(caps.manufacturer.as_deref(), Some("AUO"));
     assert_eq!(caps.manufacture_date, Some(ManufactureDate::Manufactured { week: Some(3), year: 2020 }));
+    assert_eq!(caps.edid_version, Some(EdidVersion { version: 1, revision: 4 }));
     assert!(caps.digital);
     assert_eq!(caps.color_bit_depth, Some(ColorBitDepth::Depth8));
     assert_eq!(caps.video_interface, Some(VideoInterface::DisplayPort));

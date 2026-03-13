@@ -90,6 +90,9 @@ fn main() {
                         Ok(parsed) => {
                             let caps = capabilities_from_edid(&parsed, &library);
 
+                            if let Some(v) = caps.edid_version {
+                                println!("  EDID version: {}", v);
+                            }
                             println!(
                                 "  Manufacturer: {:?}",
                                 caps.manufacturer.as_deref().unwrap_or("Unknown")

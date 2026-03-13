@@ -54,6 +54,8 @@ pub struct DisplayCapabilities {
     pub manufacturer: Option<String>,
     /// Manufacture date or model year, decoded from bytes 16–17.
     pub manufacture_date: Option<crate::model::manufacture::ManufactureDate>,
+    /// EDID specification version and revision, decoded from bytes 18–19.
+    pub edid_version: Option<crate::model::edid::EdidVersion>,
     /// Manufacturer-assigned product code.
     pub product_code: Option<u16>,
     /// Manufacturer-assigned serial number, if encoded numerically in the base block.

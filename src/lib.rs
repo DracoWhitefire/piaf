@@ -28,7 +28,7 @@ pub use model::ExtensionData;
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use model::ExtensionHandler;
 pub use model::{
-    ColorBitDepth, DisplayCapabilities, EdidError, EdidWarning, ExtensionLibrary,
+    ColorBitDepth, DisplayCapabilities, EdidError, EdidVersion, EdidWarning, ExtensionLibrary,
     ExtensionMetadata, ExtensionTagRegistry, KnownExtensions, ManufactureDate, ParsedEdid,
     VideoInterface, VideoMode,
 };

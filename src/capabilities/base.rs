@@ -2,6 +2,7 @@ use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::VideoMode;
 use crate::model::color::ColorBitDepth;
+use crate::model::edid::EdidVersion;
 use crate::model::input::VideoInterface;
 use crate::model::manufacture::ManufactureDate;
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -69,7 +70,10 @@ impl ExtensionHandler for BaseBlockHandler {
         // 2. Manufacture date (bytes 16-17)
         caps.manufacture_date = Some(ManufactureDate::from_edid_bytes(base[16], base[17]));
 
-        // 3. Product Code (offsets 0x0A-0x0B, little-endian)
+        // 3. EDID version and revision (bytes 18-19)
+        caps.edid_version = Some(EdidVersion { version: base[18], revision: base[19] });
+
+        // 4. Product Code (offsets 0x0A-0x0B, little-endian)
         let product_code = ((base[0x0B] as u16) << 8) | (base[0x0A] as u16);
         if product_code != 0 {
             caps.product_code = Some(product_code);
@@ -206,8 +210,19 @@ mod tests {
     use super::*;
     use crate::model::capabilities::DisplayCapabilities;
     use crate::model::color::ColorBitDepth;
+    use crate::model::edid::EdidVersion;
     use crate::model::input::VideoInterface;
     use crate::model::manufacture::ManufactureDate;
+
+    #[test]
+    fn test_edid_version() {
+        let mut base = [0u8; 128];
+        base[18] = 1;
+        base[19] = 4;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(caps.edid_version, Some(EdidVersion { version: 1, revision: 4 }));
+    }
 
     #[test]
     fn test_manufacture_date() {

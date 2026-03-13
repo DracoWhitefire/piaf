@@ -17,7 +17,7 @@ pub use diagnostics::{EdidError, EdidWarning};
 
 /// Parsed EDID intermediate representation.
 pub mod edid;
-pub use edid::ParsedEdid;
+pub use edid::{EdidVersion, ParsedEdid};
 
 /// Color-related model types.
 pub mod color;
