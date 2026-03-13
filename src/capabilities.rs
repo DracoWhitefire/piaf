@@ -11,44 +11,13 @@ use crate::model::extension::ExtensionLibrary;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[derive(Debug)]
-pub struct Cea861Handler;
+pub struct BaseBlockHandler;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
-impl ExtensionHandler for Cea861Handler {
-    fn process(&self, ext: &[u8; 128], caps: &mut DisplayCapabilities) {
-        // CEA-861 Extension Block
-        // Offset 2: Offset of DTDs
-        // Bit 7 of byte 3: 1=Supports basic audio
-        if (ext[3] & 0x40) != 0 {
-            caps.has_audio = true;
-        }
-        
-        // We could also parse Video Data Blocks (VICs) here to get more modes
-    }
-}
-
-#[cfg(any(feature = "alloc", feature = "std"))]
-impl ExtensionLibrary {
-    pub fn with_standard_handlers() -> Self {
-        let mut lib = Self::with_standard_extensions();
-        if let Some(cea) = lib.extensions.iter_mut().find(|e| e.tag == 0x02) {
-            cea.handler = Some(Box::new(Cea861Handler));
-        }
-        lib
-    }
-}
-
-pub fn capabilities_from_edid(edid: &ParsedEdid, library: &ExtensionLibrary) -> DisplayCapabilities {
-    let mut caps = DisplayCapabilities::default();
-    let base = &edid.base_block;
-
-    #[cfg(not(any(feature = "alloc", feature = "std")))]
-    let _ = library;
-
-    // 1. Manufacturer ID (offsets 0x08-0x09)
-    // 2 bytes, 3 characters, 5 bits per character (00001=A, ..., 11010=Z)
-    #[cfg(any(feature = "alloc", feature = "std"))]
-    {
+impl ExtensionHandler for BaseBlockHandler {
+    fn process(&self, base: &[u8; 128], caps: &mut DisplayCapabilities) {
+        // 1. Manufacturer ID (offsets 0x08-0x09)
+        // 2 bytes, 3 characters, 5 bits per character (00001=A, ..., 11010=Z)
         let id_raw = ((base[0x08] as u16) << 8) | (base[0x09] as u16);
         let char1 = ((id_raw >> 10) & 0x1F) as u8;
         let char2 = ((id_raw >> 5) & 0x1F) as u8;
@@ -61,40 +30,35 @@ pub fn capabilities_from_edid(edid: &ParsedEdid, library: &ExtensionLibrary) -> 
             mfg.push((char3 + b'A' - 1) as char);
             caps.manufacturer = Some(mfg);
         }
-    }
 
-    // 2. Product Code (offsets 0x0A-0x0B, little-endian)
-    let product_code = ((base[0x0B] as u16) << 8) | (base[0x0A] as u16);
-    if product_code != 0 {
-        caps.product_code = Some(product_code);
-    }
+        // 2. Product Code (offsets 0x0A-0x0B, little-endian)
+        let product_code = ((base[0x0B] as u16) << 8) | (base[0x0A] as u16);
+        if product_code != 0 {
+            caps.product_code = Some(product_code);
+        }
 
-    // 3. Serial Number (offsets 0x0C-0x0F, little-endian)
-    let serial = ((base[0x0F] as u32) << 24)
-        | ((base[0x0E] as u32) << 16)
-        | ((base[0x0D] as u32) << 8)
-        | (base[0x0C] as u32);
-    if serial != 0 {
-        caps.serial_number = Some(serial);
-    }
+        // 3. Serial Number (offsets 0x0C-0x0F, little-endian)
+        let serial = ((base[0x0F] as u32) << 24)
+            | ((base[0x0E] as u32) << 16)
+            | ((base[0x0D] as u32) << 8)
+            | (base[0x0C] as u32);
+        if serial != 0 {
+            caps.serial_number = Some(serial);
+        }
 
-    // 4. Video Input Definition (offset 0x14)
-    // Bit 7: 1=Digital, 0=Analog
-    caps.digital = (base[0x14] & 0x80) != 0;
+        // 4. Video Input Definition (offset 0x14)
+        // Bit 7: 1=Digital, 0=Analog
+        caps.digital = (base[0x14] & 0x80) != 0;
 
-    // 5. Physical Dimensions (offsets 0x15-0x16, width and height in cm)
-    // 0, 0 means undefined
-    let width = base[0x15] as u16;
-    let height = base[0x16] as u16;
-    if width > 0 && height > 0 {
-        caps.width_cm = Some(width);
-        caps.height_cm = Some(height);
-    }
+        // 5. Physical Dimensions (offsets 0x15-0x16, width and height in cm)
+        let width = base[0x15] as u16;
+        let height = base[0x16] as u16;
+        if width > 0 && height > 0 {
+            caps.width_cm = Some(width);
+            caps.height_cm = Some(height);
+        }
 
-    // 6. 18-byte Descriptors (offsets 0x36, 0x48, 0x5A, 0x6C)
-    // We'll look for the Display Name descriptor (Tag 0xFC)
-    #[cfg(any(feature = "alloc", feature = "std"))]
-    {
+        // 6. 18-byte Descriptors (offsets 0x36, 0x48, 0x5A, 0x6C)
         for i in 0..4 {
             let offset = 0x36 + (i * 18);
             let descriptor = &base[offset..offset + 18];
@@ -102,7 +66,6 @@ pub fn capabilities_from_edid(edid: &ParsedEdid, library: &ExtensionLibrary) -> 
             // Monitor Name Descriptor: Header 00 00 00 FC 00
             if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFC] {
                 let name_bytes = &descriptor[5..18];
-                // Strip trailing newline (0x0A) or padding (0x20)
                 let name = String::from_utf8_lossy(name_bytes);
                 let trimmed = name.trim().to_string();
                 if !trimmed.is_empty() {
@@ -119,11 +82,8 @@ pub fn capabilities_from_edid(edid: &ParsedEdid, library: &ExtensionLibrary) -> 
                 caps.max_pixel_clock_mhz = Some((descriptor[9] as u16) * 10);
             }
         }
-    }
 
-    // 7. Standard Timings (offsets 0x26-0x35, 8 descriptors, 2 bytes each)
-    #[cfg(any(feature = "alloc", feature = "std"))]
-    {
+        // 7. Standard Timings (offsets 0x26-0x35, 8 descriptors, 2 bytes each)
         for i in 0..8 {
             let offset = 0x26 + (i * 2);
             let b1 = base[offset];
@@ -133,40 +93,34 @@ pub fn capabilities_from_edid(edid: &ParsedEdid, library: &ExtensionLibrary) -> 
                 continue; // Unused
             }
 
-            let width = (b1 as u16 + 31) * 8;
+            let w = (b1 as u16 + 31) * 8;
             let ratio_bits = (b2 >> 6) & 0x03;
             let refresh_rate = (b2 & 0x3F) + 60;
 
-            let height = match ratio_bits {
-                0x00 => (width * 10) / 16, // 16:10
-                0x01 => (width * 3) / 4,   // 4:3
-                0x02 => (width * 4) / 5,   // 5:4
-                0x03 => (width * 9) / 16,  // 16:9
+            let h = match ratio_bits {
+                0x00 => (w * 10) / 16, // 16:10
+                0x01 => (w * 3) / 4,   // 4:3
+                0x02 => (w * 4) / 5,   // 5:4
+                0x03 => (w * 9) / 16,  // 16:9
                 _ => unreachable!(),
             };
 
             caps.supported_modes.push(VideoMode {
-                width,
-                height,
+                width: w,
+                height: h,
                 refresh_rate,
             });
         }
-    }
 
-    // 8. Detailed Timing Descriptors (DTD) (offsets 0x36, 0x48, 0x5A, 0x6C)
-    // First one is mandatory, others can be Monitor Descriptors
-    #[cfg(any(feature = "alloc", feature = "std"))]
-    {
+        // 8. Detailed Timing Descriptors (DTD) (offsets 0x36, 0x48, 0x5A, 0x6C)
         for i in 0..4 {
             let offset = 0x36 + (i * 18);
             let dtd = &base[offset..offset + 18];
 
-            // If first two bytes are 0, it's NOT a DTD (it's a monitor descriptor)
             if dtd[0] == 0x00 && dtd[1] == 0x00 {
                 continue;
             }
 
-            // Simple DTD extraction (pixel clock != 0)
             let pixel_clock = ((dtd[1] as u32) << 8) | (dtd[0] as u32);
             if pixel_clock == 0 {
                 continue;
@@ -177,8 +131,6 @@ pub fn capabilities_from_edid(edid: &ParsedEdid, library: &ExtensionLibrary) -> 
             let vactive = (((dtd[7] as u16) & 0xF0) << 4) | (dtd[5] as u16);
             let vblank = (((dtd[7] as u16) & 0x0F) << 8) | (dtd[6] as u16);
 
-            // Refresh rate calculation: PixelClock / (HActive+HBlank * VActive+VBlank)
-            // Pixel clock is in 10kHz units.
             let refresh_rate = if hactive > 0 && vactive > 0 && hblank > 0 && vblank > 0 {
                 let total_pixels = (hactive + hblank) as u32 * (vactive + vblank) as u32;
                 if total_pixels > 0 {
@@ -202,9 +154,52 @@ pub fn capabilities_from_edid(edid: &ParsedEdid, library: &ExtensionLibrary) -> 
             }
         }
     }
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+#[derive(Debug)]
+pub struct Cea861Handler;
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+impl ExtensionHandler for Cea861Handler {
+    fn process(&self, ext: &[u8; 128], caps: &mut DisplayCapabilities) {
+        // CEA-861 Extension Block
+        // Offset 2: Offset of DTDs
+        // Bit 7 of byte 3: 1=Supports basic audio
+        if (ext[3] & 0x40) != 0 {
+            caps.has_audio = true;
+        }
+        
+        // We could also parse Video Data Blocks (VICs) here to get more modes
+    }
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+impl ExtensionLibrary {
+    pub fn with_standard_handlers() -> Self {
+        let mut lib = Self::with_standard_extensions();
+        lib.base_handler = Some(Box::new(BaseBlockHandler));
+        if let Some(cea) = lib.extensions.iter_mut().find(|e| e.tag == 0x02) {
+            cea.handler = Some(Box::new(Cea861Handler));
+        }
+        lib
+    }
+}
+
+pub fn capabilities_from_edid(edid: &ParsedEdid, library: &ExtensionLibrary) -> DisplayCapabilities {
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    let mut caps = DisplayCapabilities::default();
+    #[cfg(not(any(feature = "alloc", feature = "std")))]
+    let caps = DisplayCapabilities::default();
 
     #[cfg(any(feature = "alloc", feature = "std"))]
     {
+        // 1. Process Base Block via Base Handler (if present)
+        if let Some(handler) = &library.base_handler {
+            handler.process(&edid.base_block, &mut caps);
+        }
+
+        // 2. Process Extension Blocks via registered handlers
         for ext in &edid.extensions {
             let tag = ext[0];
             if let Some(metadata) = library.extensions.iter().find(|e| e.tag == tag) {
@@ -213,6 +208,12 @@ pub fn capabilities_from_edid(edid: &ParsedEdid, library: &ExtensionLibrary) -> 
                 }
             }
         }
+    }
+
+    #[cfg(not(any(feature = "alloc", feature = "std")))]
+    {
+        let _ = edid;
+        let _ = library;
     }
 
     caps
@@ -225,6 +226,7 @@ mod tests {
     use crate::parser::parse_edid;
 
     #[test]
+    #[cfg(any(feature = "alloc", feature = "std"))]
     fn test_capabilities_identification() {
         let mut bytes = [0u8; 128];
         bytes[0..8].copy_from_slice(&crate::parser::EDID_HEADER);
@@ -270,7 +272,7 @@ mod tests {
 
         let registry = ExtensionTagRegistry::new();
         let parsed = parse_edid(&bytes, &registry).unwrap();
-        let library = ExtensionLibrary::new();
+        let library = ExtensionLibrary::with_standard_handlers();
         let caps = capabilities_from_edid(&parsed, &library);
 
         #[cfg(any(feature = "alloc", feature = "std"))]
@@ -314,7 +316,7 @@ mod tests {
 
         let registry = ExtensionTagRegistry::new();
         let parsed = parse_edid(&bytes, &registry).unwrap();
-        let library = ExtensionLibrary::new();
+        let library = ExtensionLibrary::with_standard_handlers();
         let caps = capabilities_from_edid(&parsed, &library);
 
         assert_eq!(caps.supported_modes.len(), 2);
@@ -379,7 +381,7 @@ mod tests {
 
         let registry = ExtensionTagRegistry::new();
         let parsed = parse_edid(&bytes, &registry).unwrap();
-        let library = ExtensionLibrary::new();
+        let library = ExtensionLibrary::with_standard_handlers();
         let caps = capabilities_from_edid(&parsed, &library);
 
         assert_eq!(caps.supported_modes.len(), 1);
