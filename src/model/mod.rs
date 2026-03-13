@@ -12,4 +12,6 @@ pub mod edid;
 pub use edid::ParsedEdid;
 
 pub mod capabilities;
+#[cfg(feature = "std")]
+pub use capabilities::ExtensionData;
 pub use capabilities::{DisplayCapabilities, VideoMode};

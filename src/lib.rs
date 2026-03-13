@@ -8,6 +8,8 @@ pub use model::{
     DisplayCapabilities, EdidError, EdidWarning, ExtensionLibrary, ExtensionMetadata,
     ExtensionTagRegistry, ParsedEdid, VideoMode,
 };
+#[cfg(feature = "std")]
+pub use model::ExtensionData;
 
 pub mod parser;
 pub use parser::parse_edid;
