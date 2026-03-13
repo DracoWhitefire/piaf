@@ -38,6 +38,9 @@ jobs:
       - name: Clippy
         run: cargo clippy -- -D warnings
 
+      - name: Docs
+        run: cargo rustdoc -- -D missing_docs
+
       - name: Test (std)
         run: cargo test
 
