@@ -27,6 +27,61 @@ impl<T: Any + core::fmt::Debug + Send + Sync> ExtensionData for T {
     }
 }
 
+/// Stereo viewing support decoded from DTD byte 17 bits 6, 5, and 0.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StereoMode {
+    /// Normal display; no stereo (bits 6–5 = `0b00`; bit 0 is don't-care).
+    #[default]
+    None,
+    /// Field-sequential stereo, right image when stereo sync = 1 (bits 6–5 = `0b01`, bit 0 = 0).
+    FieldSequentialRightFirst,
+    /// Field-sequential stereo, left image when stereo sync = 1 (bits 6–5 = `0b10`, bit 0 = 0).
+    FieldSequentialLeftFirst,
+    /// 2-way interleaved stereo, right image on even lines (bits 6–5 = `0b01`, bit 0 = 1).
+    TwoWayInterleavedRightEven,
+    /// 2-way interleaved stereo, left image on even lines (bits 6–5 = `0b10`, bit 0 = 1).
+    TwoWayInterleavedLeftEven,
+    /// 4-way interleaved stereo (bits 6–5 = `0b11`, bit 0 = 0).
+    FourWayInterleaved,
+    /// Side-by-side interleaved stereo (bits 6–5 = `0b11`, bit 0 = 1).
+    SideBySideInterleaved,
+}
+
+/// Sync signal definition decoded from DTD byte 17 bits 4–1.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncDefinition {
+    /// Analog composite sync (bit 4 = 0, bit 3 = 0).
+    AnalogComposite {
+        /// H-sync pulse present during V-sync (serrations).
+        serrations: bool,
+        /// Sync on all three RGB signals (`true`) or green only (`false`).
+        sync_on_all_rgb: bool,
+    },
+    /// Bipolar analog composite sync (bit 4 = 0, bit 3 = 1).
+    BipolarAnalogComposite {
+        /// H-sync pulse present during V-sync (serrations).
+        serrations: bool,
+        /// Sync on all three RGB signals (`true`) or green only (`false`).
+        sync_on_all_rgb: bool,
+    },
+    /// Digital composite sync on H-sync pin (bit 4 = 1, bit 3 = 0).
+    DigitalComposite {
+        /// H-sync pulse present during V-sync (serrations).
+        serrations: bool,
+        /// H-sync polarity outside V-sync: `true` = positive.
+        h_sync_positive: bool,
+    },
+    /// Digital separate sync (bit 4 = 1, bit 3 = 1).
+    DigitalSeparate {
+        /// V-sync polarity: `true` = positive.
+        v_sync_positive: bool,
+        /// H-sync polarity: `true` = positive.
+        h_sync_positive: bool,
+    },
+}
+
 /// A display video mode expressed as resolution, refresh rate, and scan type.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -47,6 +102,14 @@ pub struct VideoMode {
     pub v_front_porch: u16,
     /// Vertical sync pulse width in lines (0 when not decoded from a DTD).
     pub v_sync_width: u16,
+    /// Horizontal border width in pixels on each side of the active area (0 when not from a DTD).
+    pub h_border: u8,
+    /// Vertical border height in lines on each side of the active area (0 when not from a DTD).
+    pub v_border: u8,
+    /// Stereo viewing support (default `None` for non-DTD modes).
+    pub stereo: StereoMode,
+    /// Sync signal definition (`None` for non-DTD modes).
+    pub sync: Option<SyncDefinition>,
 }
 
 /// Consumer-facing display capability model derived from a parsed EDID.

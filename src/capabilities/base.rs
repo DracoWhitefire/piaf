@@ -1,6 +1,6 @@
 use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::capabilities::VideoMode;
+use crate::model::capabilities::{StereoMode, SyncDefinition, VideoMode};
 use crate::model::color::{
     AnalogColorType, Chromaticity, ChromaticityPoint, ColorBitDepth, ColorManagementData,
     DcmChannel, DigitalColorEncoding, DisplayGamma, WhitePoint,
@@ -490,6 +490,41 @@ fn decode_detailed_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) {
             caps.preferred_image_size_mm = Some((h_mm, v_mm));
         }
 
+        // Border (bytes 15-16): pixels/lines on each side of the active area.
+        let h_border = dtd[15];
+        let v_border = dtd[16];
+
+        // Stereo (byte 17 bits 6, 5, and 0 — non-contiguous three-bit code).
+        let stereo = match ((dtd[17] >> 5) & 0x03, dtd[17] & 0x01) {
+            (0b00, _) => StereoMode::None,
+            (0b01, 0) => StereoMode::FieldSequentialRightFirst,
+            (0b10, 0) => StereoMode::FieldSequentialLeftFirst,
+            (0b01, 1) => StereoMode::TwoWayInterleavedRightEven,
+            (0b10, 1) => StereoMode::TwoWayInterleavedLeftEven,
+            (0b11, 0) => StereoMode::FourWayInterleaved,
+            _         => StereoMode::SideBySideInterleaved,
+        };
+
+        // Sync (byte 17 bits 4-1): bit 4 = digital, bit 3 = sync subtype.
+        let sync = Some(if dtd[17] & 0x10 == 0 {
+            // Analog
+            let serrations    = dtd[17] & 0x04 != 0;
+            let sync_on_all_rgb = dtd[17] & 0x02 != 0;
+            if dtd[17] & 0x08 == 0 {
+                SyncDefinition::AnalogComposite { serrations, sync_on_all_rgb }
+            } else {
+                SyncDefinition::BipolarAnalogComposite { serrations, sync_on_all_rgb }
+            }
+        } else {
+            // Digital
+            let h_sync_positive = dtd[17] & 0x02 != 0;
+            if dtd[17] & 0x08 == 0 {
+                SyncDefinition::DigitalComposite { serrations: dtd[17] & 0x04 != 0, h_sync_positive }
+            } else {
+                SyncDefinition::DigitalSeparate { v_sync_positive: dtd[17] & 0x04 != 0, h_sync_positive }
+            }
+        });
+
         let mode = VideoMode {
             width: hactive,
             height: vactive,
@@ -499,6 +534,10 @@ fn decode_detailed_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) {
             h_sync_width,
             v_front_porch,
             v_sync_width,
+            h_border,
+            v_border,
+            stereo,
+            sync,
         };
         // If a mode with matching identity (w/h/rate/interlaced) was already added from a
         // non-DTD source (which has zero sync fields), upgrade it in place. Otherwise append.
@@ -1293,6 +1332,73 @@ mod tests {
 
         assert!(!caps.supported_modes[0].interlaced);
         assert_eq!(caps.preferred_image_size_mm, None);
+    }
+
+    // Helper: build a minimal valid 1920x1080@60 DTD with byte 17 set to `flags`.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    fn dtd_with_byte17(flags: u8) -> VideoMode {
+        let mut base = [0u8; 128];
+        base[0x36] = 0x02; base[0x37] = 0x3A;
+        base[0x38] = 0x80; base[0x39] = 0x18; base[0x3A] = 0x71;
+        base[0x3B] = 0x38; base[0x3C] = 0x2D; base[0x3D] = 0x40;
+        base[0x45] = 3; // h_border
+        base[0x46] = 2; // v_border
+        base[0x47] = flags;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        caps.supported_modes.into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn test_dtd_border() {
+        let mode = dtd_with_byte17(0x1E); // progressive, digital separate, positive/positive
+        assert_eq!(mode.h_border, 3);
+        assert_eq!(mode.v_border, 2);
+    }
+
+    #[test]
+    fn test_dtd_stereo() {
+        use crate::model::capabilities::StereoMode;
+        // bits 6-5 = 00: no stereo
+        assert_eq!(dtd_with_byte17(0x1E).stereo, StereoMode::None);
+        // bits 6-5 = 01, bit 0 = 0: field sequential right first
+        assert_eq!(dtd_with_byte17(0x3E).stereo, StereoMode::FieldSequentialRightFirst);
+        // bits 6-5 = 10, bit 0 = 0: field sequential left first
+        assert_eq!(dtd_with_byte17(0x5E).stereo, StereoMode::FieldSequentialLeftFirst);
+        // bits 6-5 = 01, bit 0 = 1: 2-way interleaved right even
+        assert_eq!(dtd_with_byte17(0x3F).stereo, StereoMode::TwoWayInterleavedRightEven);
+        // bits 6-5 = 10, bit 0 = 1: 2-way interleaved left even
+        assert_eq!(dtd_with_byte17(0x5F).stereo, StereoMode::TwoWayInterleavedLeftEven);
+        // bits 6-5 = 11, bit 0 = 0: 4-way interleaved
+        assert_eq!(dtd_with_byte17(0x7E).stereo, StereoMode::FourWayInterleaved);
+        // bits 6-5 = 11, bit 0 = 1: side-by-side
+        assert_eq!(dtd_with_byte17(0x7F).stereo, StereoMode::SideBySideInterleaved);
+    }
+
+    #[test]
+    fn test_dtd_sync_types() {
+        use crate::model::capabilities::SyncDefinition;
+        // Analog composite, no serrations, sync on green: bits 4-1 = 0b0000
+        assert_eq!(dtd_with_byte17(0x00).sync,
+            Some(SyncDefinition::AnalogComposite { serrations: false, sync_on_all_rgb: false }));
+        // Analog composite, serrations, sync on all RGB: bits 4-1 = 0b0011
+        assert_eq!(dtd_with_byte17(0x06).sync,
+            Some(SyncDefinition::AnalogComposite { serrations: true, sync_on_all_rgb: true }));
+        // Bipolar analog composite, no serrations, sync on all RGB: bits 4-1 = 0b0101 (0x0A)
+        assert_eq!(dtd_with_byte17(0x0A).sync,
+            Some(SyncDefinition::BipolarAnalogComposite { serrations: false, sync_on_all_rgb: true }));
+        // Digital composite, no serrations, H-sync negative: bits 4-1 = 0b1000
+        assert_eq!(dtd_with_byte17(0x10).sync,
+            Some(SyncDefinition::DigitalComposite { serrations: false, h_sync_positive: false }));
+        // Digital composite, serrations, H-sync positive: bits 4-1 = 0b1011
+        assert_eq!(dtd_with_byte17(0x16).sync,
+            Some(SyncDefinition::DigitalComposite { serrations: true, h_sync_positive: true }));
+        // Digital separate, V-sync negative, H-sync negative: bits 4-1 = 0b1100
+        assert_eq!(dtd_with_byte17(0x18).sync,
+            Some(SyncDefinition::DigitalSeparate { v_sync_positive: false, h_sync_positive: false }));
+        // Digital separate, V-sync positive, H-sync positive: bits 4-1 = 0b1111
+        assert_eq!(dtd_with_byte17(0x1E).sync,
+            Some(SyncDefinition::DigitalSeparate { v_sync_positive: true, h_sync_positive: true }));
     }
 
     #[test]

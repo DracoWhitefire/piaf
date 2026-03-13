@@ -53,4 +53,4 @@ pub use timing::{
 pub mod capabilities;
 #[cfg(feature = "std")]
 pub use capabilities::ExtensionData;
-pub use capabilities::{DisplayCapabilities, VideoMode};
+pub use capabilities::{DisplayCapabilities, StereoMode, SyncDefinition, VideoMode};
