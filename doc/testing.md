@@ -51,6 +51,17 @@ Important expectations:
 - invalid input results in controlled errors or warnings,
 - unknown structures do not break parsing invariants.
 
+The fuzz target is in `fuzz/fuzz_targets/parse_edid.rs` and exercises the full pipeline: raw bytes → `parse_edid` → `capabilities_from_edid`. It is set up using `cargo-fuzz` with libFuzzer.
+
+`cargo-fuzz` requires nightly. The library itself stays on stable; nightly is only needed to build and run the fuzz targets.
+
+```
+cargo +nightly fuzz build parse_edid
+cargo +nightly fuzz run parse_edid
+```
+
+The fuzzer runs indefinitely. Stop it with Ctrl+C. Any crashes are written to `fuzz/artifacts/parse_edid/`.
+
 ## Test philosophy
 
 PIAF should be strict about structural integrity, but practical about diagnostics.
