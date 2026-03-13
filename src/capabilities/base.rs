@@ -199,6 +199,32 @@ impl ExtensionHandler for BaseBlockHandler {
 mod tests {
     use super::*;
     use crate::model::capabilities::DisplayCapabilities;
+    use crate::model::color::ColorBitDepth;
+
+    #[test]
+    fn test_color_bit_depth() {
+        let mut base = [0u8; 128];
+
+        // Digital, 8 bpc (0b010 in bits 6-4 → 0x20), interface undefined
+        base[0x14] = 0x80 | 0x20;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert!(caps.digital);
+        assert_eq!(caps.color_bit_depth, Some(ColorBitDepth::Depth8));
+
+        // Digital, undefined depth (0b000)
+        base[0x14] = 0x80;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert_eq!(caps.color_bit_depth, None);
+
+        // Analog — no color bit depth
+        base[0x14] = 0x00;
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        assert!(!caps.digital);
+        assert_eq!(caps.color_bit_depth, None);
+    }
 
     #[test]
     fn test_identification() {
