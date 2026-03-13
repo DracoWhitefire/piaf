@@ -193,8 +193,6 @@ pub struct DisplayCapabilities {
     /// Video modes decoded from standard timing and detailed timing descriptors.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub supported_modes: Vec<VideoMode>,
-    /// `true` if the display reports basic audio support (set by a CEA-861 handler).
-    pub has_audio: bool,
     /// Non-fatal conditions collected from the parser and all handlers.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub warnings: Vec<EdidWarning>,

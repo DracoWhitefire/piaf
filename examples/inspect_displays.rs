@@ -170,7 +170,11 @@ fn main() {
                             if let Some(cea) = caps.get_extension_data::<Cea861Capabilities>(0x02) {
                                 println!(
                                     "  Audio support: {}",
-                                    if cea.flags.contains(Cea861Flags::BASIC_AUDIO) { "Yes" } else { "No" }
+                                    if cea.flags.contains(Cea861Flags::BASIC_AUDIO) {
+                                        "Yes"
+                                    } else {
+                                        "No"
+                                    }
                                 );
                             }
 
