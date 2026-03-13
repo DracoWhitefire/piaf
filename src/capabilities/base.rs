@@ -144,6 +144,71 @@ fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilities) {
             }
         }
 
+        // Established Timings III Descriptor: tag 0xF7
+        // Byte 5 must be revision 0x0A. Bytes 6-11 are a 44-bit timing bitmap.
+        if descriptor[0..5] == [0x00, 0x00, 0x00, 0xF7, 0x00] && descriptor[5] == 0x0A {
+            const ET3: &[(usize, u8, u16, u16, u8)] = &[
+                // Byte 6
+                (6, 0x80,  640,  350, 85),
+                (6, 0x40,  640,  400, 85),
+                (6, 0x20,  720,  400, 85),
+                (6, 0x10,  640,  480, 85),
+                (6, 0x08,  848,  480, 60),
+                (6, 0x04,  800,  600, 85),
+                (6, 0x02, 1024,  768, 85),
+                (6, 0x01, 1152,  864, 75),
+                // Byte 7
+                (7, 0x80, 1280,  768, 60), // RB — same mode as non-RB below; deduplicates
+                (7, 0x40, 1280,  768, 60),
+                (7, 0x20, 1280,  768, 75),
+                (7, 0x10, 1280,  768, 85),
+                (7, 0x08, 1280,  960, 60),
+                (7, 0x04, 1280,  960, 85),
+                (7, 0x02, 1280, 1024, 60),
+                (7, 0x01, 1280, 1024, 85),
+                // Byte 8
+                (8, 0x80, 1360,  768, 60),
+                (8, 0x40, 1440,  900, 60), // RB
+                (8, 0x20, 1440,  900, 60),
+                (8, 0x10, 1440,  900, 75),
+                (8, 0x08, 1440,  900, 85),
+                (8, 0x04, 1400, 1050, 60), // RB
+                (8, 0x02, 1400, 1050, 60),
+                (8, 0x01, 1400, 1050, 75),
+                // Byte 9
+                (9, 0x80, 1400, 1050, 85),
+                (9, 0x40, 1680, 1050, 60), // RB
+                (9, 0x20, 1680, 1050, 60),
+                (9, 0x10, 1680, 1050, 75),
+                (9, 0x08, 1680, 1050, 85),
+                (9, 0x04, 1600, 1200, 60),
+                (9, 0x02, 1600, 1200, 65),
+                (9, 0x01, 1600, 1200, 70),
+                // Byte 10
+                (10, 0x80, 1600, 1200, 75),
+                (10, 0x40, 1600, 1200, 85),
+                (10, 0x20, 1792, 1344, 60),
+                (10, 0x10, 1792, 1344, 75),
+                (10, 0x08, 1856, 1392, 60),
+                (10, 0x04, 1856, 1392, 75),
+                (10, 0x02, 1920, 1200, 60), // RB
+                (10, 0x01, 1920, 1200, 60),
+                // Byte 11 (bits 3-0 reserved)
+                (11, 0x80, 1920, 1200, 75),
+                (11, 0x40, 1920, 1200, 85),
+                (11, 0x20, 1920, 1440, 60),
+                (11, 0x10, 1920, 1440, 75),
+            ];
+            for &(byte_off, mask, w, h, rate) in ET3 {
+                if descriptor[byte_off] & mask != 0 {
+                    let mode = VideoMode { width: w, height: h, refresh_rate: rate };
+                    if !caps.supported_modes.contains(&mode) {
+                        caps.supported_modes.push(mode);
+                    }
+                }
+            }
+        }
+
         // Additional Standard Timing Descriptor: tag 0xFA
         // Bytes 5-16 contain up to 6 standard timing entries (2 bytes each).
         if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFA] {
@@ -762,6 +827,30 @@ mod tests {
             })
         );
         assert_eq!(caps.display_name, Some("PIAF".to_string()));
+    }
+
+    #[test]
+    fn test_established_timings_iii() {
+        let mut base = [0u8; 128];
+
+        base[0x36..0x3B].copy_from_slice(&[0x00, 0x00, 0x00, 0xF7, 0x00]);
+        base[0x3B] = 0x0A; // revision
+
+        // Byte 6: set 1024x768@85 (bit 1) and 1152x864@75 (bit 0)
+        base[0x3C] = 0x03;
+        // Byte 7: set 1280x1024@60 (bit 1)
+        base[0x3D] = 0x02;
+        // Byte 9: set 1600x1200@60 (bit 2)
+        base[0x3F] = 0x04;
+
+        let mut caps = DisplayCapabilities::default();
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+
+        assert!(caps.supported_modes.contains(&VideoMode { width: 1024, height: 768,  refresh_rate: 85 }));
+        assert!(caps.supported_modes.contains(&VideoMode { width: 1152, height: 864,  refresh_rate: 75 }));
+        assert!(caps.supported_modes.contains(&VideoMode { width: 1280, height: 1024, refresh_rate: 60 }));
+        assert!(caps.supported_modes.contains(&VideoMode { width: 1600, height: 1200, refresh_rate: 60 }));
+        assert_eq!(caps.supported_modes.len(), 4);
     }
 
     #[test]
