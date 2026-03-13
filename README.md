@@ -88,9 +88,9 @@ See [`examples/inspect_displays.rs`](examples/inspect_displays.rs) for a complet
 
 ## Status
 
-The core pipeline is complete and tested against real hardware captures. The extension system is stable and open for consumer use.
+The core pipeline is complete and tested against real hardware captures. The base block is fully decoded. The extension system is stable and open for consumer use.
 
-Remaining work before a 0.1 release focuses on broader fixture coverage and conservative expansion of CEA-861 support.
+Remaining work before a 0.1 release focuses on broader fixture coverage and CEA-861 expansion (Short Audio Descriptors, Short Video Descriptors, YCbCr encoding details).
 
 ## Documentation
 
