@@ -2,10 +2,12 @@
 use crate::model::prelude::prelude::{String, Vec, Box};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::diagnostics::EdidWarning;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub trait ExtensionHandler: core::fmt::Debug {
-    fn process(&self, block: &[u8; 128], caps: &mut DisplayCapabilities);
+    fn process(&self, block: &[u8; 128], caps: &mut DisplayCapabilities, warnings: &mut Vec<EdidWarning>);
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]

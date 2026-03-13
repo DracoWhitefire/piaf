@@ -35,9 +35,11 @@ pub fn capabilities_from_edid(edid: &ParsedEdid, library: &ExtensionLibrary) -> 
 
     #[cfg(any(feature = "alloc", feature = "std"))]
     {
+        let mut warnings = Vec::new();
+
         // 1. Process Base Block through all registered base handlers, in order
         for handler in &library.base_handlers {
-            handler.process(&edid.base_block, &mut caps);
+            handler.process(&edid.base_block, &mut caps, &mut warnings);
         }
 
         // 2. Process Extension Blocks via registered handlers
@@ -45,10 +47,12 @@ pub fn capabilities_from_edid(edid: &ParsedEdid, library: &ExtensionLibrary) -> 
             let tag = ext[0];
             if let Some(metadata) = library.extensions.iter().find(|e| e.tag == tag) {
                 if let Some(handler) = &metadata.handler {
-                    handler.process(ext, &mut caps);
+                    handler.process(ext, &mut caps, &mut warnings);
                 }
             }
         }
+
+        caps.warnings.extend(warnings);
     }
 
     #[cfg(not(any(feature = "alloc", feature = "std")))]

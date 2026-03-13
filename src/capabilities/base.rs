@@ -2,9 +2,11 @@ use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::VideoMode;
 #[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::diagnostics::EdidWarning;
+#[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::extension::ExtensionHandler;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::prelude::String;
+use crate::model::prelude::prelude::{String, Vec};
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[derive(Debug)]
@@ -12,7 +14,7 @@ pub struct BaseBlockHandler;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl ExtensionHandler for BaseBlockHandler {
-    fn process(&self, base: &[u8; 128], caps: &mut DisplayCapabilities) {
+    fn process(&self, base: &[u8; 128], caps: &mut DisplayCapabilities, _warnings: &mut Vec<EdidWarning>) {
         // 1. Manufacturer ID (offsets 0x08-0x09)
         // 2 bytes, 3 characters, 5 bits per character (00001=A, ..., 11010=Z)
         let id_raw = ((base[0x08] as u16) << 8) | (base[0x09] as u16);
@@ -194,7 +196,7 @@ mod tests {
         }
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps);
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
 
         assert_eq!(caps.manufacturer, Some("SAM".to_string()));
         assert_eq!(caps.product_code, Some(0x1234));
@@ -218,7 +220,7 @@ mod tests {
         base[0x29] = 0x8F;
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps);
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
 
         assert_eq!(caps.supported_modes.len(), 2);
         assert_eq!(caps.supported_modes[0].width, 1920);
@@ -255,7 +257,7 @@ mod tests {
         base[0x51] = 17; // Max pixel clock (170 MHz)
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps);
+        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
 
         assert_eq!(caps.supported_modes.len(), 1);
         assert_eq!(caps.supported_modes[0].width, 1920);

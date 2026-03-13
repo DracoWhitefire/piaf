@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 use piaf::{
     parse_edid, capabilities_from_edid,
-    DisplayCapabilities, ExtensionHandler, ExtensionLibrary,
+    DisplayCapabilities, EdidWarning, ExtensionHandler, ExtensionLibrary,
 };
 
 // ---------------------------------------------------------------------------
@@ -26,7 +26,7 @@ struct CeaDetails {
 struct CeaDetailsHandler;
 
 impl ExtensionHandler for CeaDetailsHandler {
-    fn process(&self, ext: &[u8; 128], caps: &mut DisplayCapabilities) {
+    fn process(&self, ext: &[u8; 128], caps: &mut DisplayCapabilities, _warnings: &mut Vec<EdidWarning>) {
         // Bit 6 of byte 3: basic audio support
         if (ext[3] & 0x40) != 0 {
             caps.has_audio = true;
