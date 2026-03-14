@@ -64,7 +64,6 @@ pub struct DisplayCapabilities {
     pub timing_formula: Option<TimingFormula>,
     pub supported_modes: Vec<VideoMode>,
     // Extensions
-    pub has_audio: bool,
     pub warnings: Vec<EdidWarning>,
     pub extension_data: HashMap<u8, Arc<dyn ExtensionData>>,
 }
