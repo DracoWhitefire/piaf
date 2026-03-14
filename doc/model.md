@@ -120,6 +120,6 @@ have a single place to inspect all diagnostics.
 
 ## Planned additions
 
-- CEA-861: Short Video Descriptors (SVDs), Short Audio Descriptors (SADs), speaker allocation, and remaining data blocks
 - DisplayID: fragment reassembly and full logical block parsing
+- HDMI 2.0 VSDB (OUI `0xC45DD8`): extended TMDS rate, DSC, VRR range
 - Derived-value helpers as a separate module (not on `DisplayCapabilities`)
