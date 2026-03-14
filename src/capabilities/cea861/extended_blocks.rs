@@ -23,6 +23,54 @@ pub(super) const EXT_TAG_ROOM_CONFIGURATION: u8 = 0x13;
 pub(super) const EXT_TAG_SPEAKER_LOCATION: u8 = 0x14;
 pub(super) const EXT_TAG_INFOFRAME: u8 = 0x20;
 
+/// All extended tag codes that are implemented by this library.
+///
+/// This list must be kept in sync with the match arms in `mod.rs`.
+/// The `test_all_extended_tags_accounted_for` test uses it to verify that the
+/// union of implemented and reserved tags covers every value 0x00–0xFF.
+#[cfg(test)]
+pub(super) const IMPLEMENTED_EXTENDED_TAGS: &[u8] = &[
+    EXT_TAG_VIDEO_CAPABILITY,        // 0x00
+    EXT_TAG_VSVDB,                   // 0x01
+    EXT_TAG_VESA_DDDB,               // 0x02
+    EXT_TAG_VTB_EXT,                 // 0x03
+    EXT_TAG_COLORIMETRY,             // 0x05
+    EXT_TAG_HDR_STATIC_METADATA,     // 0x06
+    EXT_TAG_HDR_DYNAMIC_METADATA,    // 0x07
+    EXT_TAG_VIDEO_FORMAT_PREFERENCE, // 0x0D
+    EXT_TAG_Y420_VIDEO,              // 0x0E
+    EXT_TAG_Y420_CAPABILITY_MAP,     // 0x0F
+    EXT_TAG_VSADB,                   // 0x11
+    EXT_TAG_HDMI_AUDIO,              // 0x12
+    EXT_TAG_ROOM_CONFIGURATION,      // 0x13
+    EXT_TAG_SPEAKER_LOCATION,        // 0x14
+    EXT_TAG_INFOFRAME,               // 0x20
+    EXT_TAG_T7VTDB,                  // 0x22
+    EXT_TAG_T8VTDB,                  // 0x23
+    EXT_TAG_T10VTDB,                 // 0x2A
+    EXT_TAG_HF_EEODB,                // 0x78
+    EXT_TAG_HF_SCDB,                 // 0x79
+];
+
+/// Extended tag ranges that are explicitly reserved or deferred.
+///
+/// Each entry is an inclusive `(first, last)` range. These are listed here so
+/// that `test_all_extended_tags_accounted_for` can confirm there are no gaps.
+/// When the CTA spec assigns a new tag, remove it from the appropriate range,
+/// add an `EXT_TAG_*` constant, and implement the block (or add it to
+/// `IMPLEMENTED_EXTENDED_TAGS` as a no-op stub).
+#[cfg(test)]
+pub(super) const RESERVED_EXTENDED_TAG_RANGES: &[(u8, u8)] = &[
+    (0x04, 0x04), // HDMI Forum Video Data Block — no public structure without Forum membership
+    (0x08, 0x0C), // Reserved for video-related blocks (CTA-861-H Table 62)
+    (0x10, 0x10), // Reserved for CTA Miscellaneous Audio Fields (MAF)
+    (0x15, 0x1F), // Reserved for audio-related blocks
+    (0x21, 0x21), // Reserved
+    (0x24, 0x29), // Reserved
+    (0x2B, 0x77), // Reserved
+    (0x7A, 0xFF), // Reserved (including HDMI Forum reserved range 0x7A–0x7F)
+];
+
 // ---------------------------------------------------------------------------
 // Video Capability Data Block (extended tag 0x00)
 // ---------------------------------------------------------------------------
@@ -2693,5 +2741,44 @@ mod tests {
         assert!(cap.allm); // feature flag was parsed
         assert!(cap.vrr_min_hz.is_none()); // VRR range absent (need both bytes)
         assert!(cap.vrr_max_hz.is_none());
+    }
+
+    // Extended tag coverage
+
+    #[test]
+    fn test_all_extended_tags_accounted_for() {
+        // Every value 0x00–0xFF must be either in IMPLEMENTED_EXTENDED_TAGS or
+        // within one of RESERVED_EXTENDED_TAG_RANGES.  If this test fails after
+        // a spec update, add an EXT_TAG_* constant, implement the block (or add
+        // a stub), update IMPLEMENTED_EXTENDED_TAGS, and shrink the relevant
+        // reserved range.
+        for tag in 0u16..=255 {
+            let tag = tag as u8;
+            let implemented = IMPLEMENTED_EXTENDED_TAGS.contains(&tag);
+            let reserved = RESERVED_EXTENDED_TAG_RANGES
+                .iter()
+                .any(|&(lo, hi)| tag >= lo && tag <= hi);
+            assert!(
+                implemented || reserved,
+                "Extended tag 0x{:02X} is unaccounted for: \
+                 add it to IMPLEMENTED_EXTENDED_TAGS or RESERVED_EXTENDED_TAG_RANGES",
+                tag
+            );
+        }
+    }
+
+    #[test]
+    fn test_implemented_and_reserved_are_disjoint() {
+        // Sanity check: no tag should appear in both lists simultaneously.
+        for &tag in IMPLEMENTED_EXTENDED_TAGS {
+            let in_reserved = RESERVED_EXTENDED_TAG_RANGES
+                .iter()
+                .any(|&(lo, hi)| tag >= lo && tag <= hi);
+            assert!(
+                !in_reserved,
+                "Extended tag 0x{:02X} appears in both IMPLEMENTED and RESERVED",
+                tag
+            );
+        }
     }
 }
