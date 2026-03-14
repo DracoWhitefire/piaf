@@ -50,8 +50,11 @@ pub use parser::parse_edid;
 
 /// Capability extraction from a [`ParsedEdid`].
 pub mod capabilities;
+pub use capabilities::capabilities_from_edid;
+pub use capabilities::Cea861Flags;
+#[cfg(any(feature = "alloc", feature = "std"))]
 pub use capabilities::{
-    capabilities_from_edid, AudioFormat, AudioFormatInfo, AudioSampleRates, Cea861Capabilities,
-    Cea861Flags, Cea861Handler, ColorimetryBlock, ColorimetryFlags, HdmiVsdb, HdmiVsdbFlags,
-    HdrEotf, HdrStaticMetadata, ShortAudioDescriptor, VideoCapability, VideoCapabilityFlags,
+    AudioFormat, AudioFormatInfo, AudioSampleRates, Cea861Capabilities, Cea861Handler,
+    ColorimetryBlock, ColorimetryFlags, HdmiVsdb, HdmiVsdbFlags, HdrEotf, HdrStaticMetadata,
+    ShortAudioDescriptor, VideoCapability, VideoCapabilityFlags,
 };
