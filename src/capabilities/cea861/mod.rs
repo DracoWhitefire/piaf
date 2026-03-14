@@ -13,9 +13,9 @@ pub use extended_blocks::{
     infoframe_type, ColorimetryBlock, ColorimetryFlags, DtcPointEncoding,
     HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata, InfoFrameDescriptor,
     RoomConfigurationBlock, SpeakerAllocation, SpeakerAllocationFlags, SpeakerAllocationFlags2,
-    SpeakerAllocationFlags3, SpeakerLocationEntry, T7VtdbBlock, T8VtdbBlock, VendorSpecificBlock,
-    VesaDisplayDeviceBlock, VesaTransferCharacteristic, VideoCapability, VideoCapabilityFlags,
-    VtbExtBlock,
+    SpeakerAllocationFlags3, SpeakerLocationEntry, T10VtdbBlock, T10VtdbEntry, T7VtdbBlock,
+    T8VtdbBlock, VendorSpecificBlock, VesaDisplayDeviceBlock, VesaTransferCharacteristic,
+    VideoCapability, VideoCapabilityFlags, VtbExtBlock,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use hdmi_vsdb::{HdmiVsdb, HdmiVsdbFlags};
@@ -23,6 +23,8 @@ pub use hdmi_vsdb::{HdmiVsdb, HdmiVsdbFlags};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::capabilities::base::timings::decode_dtd_slot;
 use crate::model::capabilities::DisplayCapabilities;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::capabilities::VideoMode;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -34,14 +36,15 @@ use audio::parse_audio_data_block;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use extended_blocks::{
     parse_colorimetry, parse_hdr_dynamic_metadata, parse_hdr_static_metadata, parse_infoframe_db,
-    parse_room_configuration, parse_speaker_allocation, parse_speaker_location, parse_t7vtdb,
-    parse_t8vtdb, parse_vendor_specific_block, parse_vesa_display_device,
+    parse_room_configuration, parse_speaker_allocation, parse_speaker_location, parse_t10vtdb,
+    parse_t7vtdb, parse_t8vtdb, parse_vendor_specific_block, parse_vesa_display_device,
     parse_vesa_transfer_characteristic, parse_video_capability, parse_video_format_preferences,
     parse_vtb_ext, parse_y420_capability_map, parse_y420_vdb, EXT_TAG_COLORIMETRY,
     EXT_TAG_HDMI_AUDIO, EXT_TAG_HDR_DYNAMIC_METADATA, EXT_TAG_HDR_STATIC_METADATA,
-    EXT_TAG_INFOFRAME, EXT_TAG_ROOM_CONFIGURATION, EXT_TAG_SPEAKER_LOCATION, EXT_TAG_T7VTDB,
-    EXT_TAG_T8VTDB, EXT_TAG_VESA_DDDB, EXT_TAG_VIDEO_CAPABILITY, EXT_TAG_VIDEO_FORMAT_PREFERENCE,
-    EXT_TAG_VSADB, EXT_TAG_VSVDB, EXT_TAG_VTB_EXT, EXT_TAG_Y420_CAPABILITY_MAP, EXT_TAG_Y420_VIDEO,
+    EXT_TAG_INFOFRAME, EXT_TAG_ROOM_CONFIGURATION, EXT_TAG_SPEAKER_LOCATION, EXT_TAG_T10VTDB,
+    EXT_TAG_T7VTDB, EXT_TAG_T8VTDB, EXT_TAG_VESA_DDDB, EXT_TAG_VIDEO_CAPABILITY,
+    EXT_TAG_VIDEO_FORMAT_PREFERENCE, EXT_TAG_VSADB, EXT_TAG_VSVDB, EXT_TAG_VTB_EXT,
+    EXT_TAG_Y420_CAPABILITY_MAP, EXT_TAG_Y420_VIDEO,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use hdmi_vsdb::parse_hdmi_vsdb;
@@ -185,6 +188,12 @@ pub struct Cea861Capabilities {
     /// timing codes. The decoded modes are also added to
     /// [`DisplayCapabilities::supported_modes`].
     pub t8_vtdb: Vec<T8VtdbBlock>,
+    /// DisplayID Type X Video Timing Data Blocks (extended tag `0x2A`).
+    ///
+    /// Each entry corresponds to one T10VTDB block carrying 1–4 CVT
+    /// formula-based timing descriptors. Modes with refresh rates that fit in
+    /// `u8` (≤ 255 Hz) are also added to [`DisplayCapabilities::supported_modes`].
+    pub t10_vtdb: Vec<T10VtdbBlock>,
 }
 
 /// Processes a CEA-861 extension block (tag `0x02`).
@@ -227,6 +236,7 @@ impl ExtensionHandler for Cea861Handler {
             vendor_specific_audio: Vec::new(),
             t7_vtdb: Vec::new(),
             t8_vtdb: Vec::new(),
+            t10_vtdb: Vec::new(),
         };
 
         // Parse the data block collection: bytes 4 through dtd_offset-1.
@@ -442,6 +452,32 @@ impl ExtensionHandler for Cea861Handler {
                                     }
                                 }
                                 cea_caps.t8_vtdb.push(t8);
+                            }
+                        }
+                        Some(EXT_TAG_T10VTDB) => {
+                            if let Some(t10) = parse_t10vtdb(&block_data[1..]) {
+                                for entry in &t10.entries {
+                                    if let Ok(refresh_rate) = u8::try_from(entry.refresh_hz) {
+                                        let mode = VideoMode {
+                                            width: entry.width,
+                                            height: entry.height,
+                                            refresh_rate,
+                                            interlaced: false,
+                                            ..Default::default()
+                                        };
+                                        let already_present =
+                                            caps.supported_modes.iter().any(|m| {
+                                                m.width == mode.width
+                                                    && m.height == mode.height
+                                                    && m.refresh_rate == mode.refresh_rate
+                                                    && m.interlaced == mode.interlaced
+                                            });
+                                        if !already_present {
+                                            caps.supported_modes.push(mode);
+                                        }
+                                    }
+                                }
+                                cea_caps.t10_vtdb.push(t10);
                             }
                         }
                         Some(EXT_TAG_HDMI_AUDIO) if cea_caps.hdmi_audio.is_none() => {

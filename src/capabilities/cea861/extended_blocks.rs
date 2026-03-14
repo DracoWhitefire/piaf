@@ -9,6 +9,7 @@ pub(super) const EXT_TAG_VIDEO_CAPABILITY: u8 = 0x00;
 pub(super) const EXT_TAG_VSADB: u8 = 0x11;
 pub(super) const EXT_TAG_T7VTDB: u8 = 0x22;
 pub(super) const EXT_TAG_T8VTDB: u8 = 0x23;
+pub(super) const EXT_TAG_T10VTDB: u8 = 0x2A;
 pub(super) const EXT_TAG_COLORIMETRY: u8 = 0x05;
 pub(super) const EXT_TAG_HDR_STATIC_METADATA: u8 = 0x06;
 pub(super) const EXT_TAG_HDR_DYNAMIC_METADATA: u8 = 0x07;
@@ -945,6 +946,100 @@ pub(super) fn parse_t8vtdb(block_data: &[u8]) -> Option<T8VtdbBlock> {
         codes,
         timings,
     })
+}
+
+// ---------------------------------------------------------------------------
+// DisplayID Type X Video Timing Data Block (extended tag 0x2A)
+// ---------------------------------------------------------------------------
+
+/// A single timing entry from a T10VTDB block.
+///
+/// Type X timings use a CVT formula to derive the full signal, but only the
+/// display-facing parameters (resolution and refresh rate) are exposed here.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct T10VtdbEntry {
+    /// Horizontal active pixels.
+    pub width: u16,
+    /// Vertical active lines.
+    pub height: u16,
+    /// Vertical refresh rate in Hz (1–1024).
+    ///
+    /// Values above 255 are only possible when the block uses 7- or 8-byte
+    /// descriptors (M ≥ 1 in the `rev` byte).
+    pub refresh_hz: u16,
+    /// When `true`, this timing also supports YCbCr 4:2:0 sampling (YCC420 flag).
+    pub y420: bool,
+}
+
+/// A decoded DisplayID Type X Video Timing Data Block (T10VTDB, extended tag `0x2A`).
+///
+/// Type X timings are CVT formula-based: each descriptor encodes the active
+/// resolution and refresh rate directly, with blanking derived by the display.
+/// A block may contain 1–4 descriptors (limited by the 30-byte CTA extended
+/// block payload cap).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct T10VtdbBlock {
+    /// Decoded timing entries. Each entry corresponds to one descriptor in the block.
+    pub entries: Vec<T10VtdbEntry>,
+}
+
+/// Parse a T10VTDB payload (`block_data` starts after the extended tag byte).
+///
+/// Returns `None` for an empty payload or an invalid descriptor-size extension
+/// (`M > 2`). Descriptors that do not divide evenly into the payload are ignored.
+///
+/// Layout (CTA-861-H Table 109–110 / DisplayID 2.x Type X):
+/// - `block_data[0]`: `rev` byte — bits[6:4] = M (0→6 B, 1→7 B, 2→8 B per descriptor)
+/// - `block_data[1..]`: array of N descriptors of `6 + M` bytes each
+///
+/// Per-descriptor layout:
+/// - `[0]`: flags — `YCC420[7]`, `Stereo[6:5]`, `VR_HB[4]`, `EVS[3]`, `Formula[2:0]`
+/// - `[1..2]`: H active − 1 (LE u16)
+/// - `[3..4]`: V active − 1 (LE u16)
+/// - `[5]`: refresh rate LSB (stored − 1, i.e. actual = `x[5] + 1`)
+/// - `[6]` (M≥1): bits[1:0] = refresh rate high 2 bits
+pub(super) fn parse_t10vtdb(block_data: &[u8]) -> Option<T10VtdbBlock> {
+    let rev = *block_data.first()?;
+    let m = (rev >> 4) & 0x07;
+    if m > 2 {
+        return None; // invalid per spec
+    }
+    let sz = 6 + m as usize;
+
+    let payload = &block_data[1..];
+    let mut entries = Vec::new();
+    let mut i = 0;
+
+    while i + sz <= payload.len() {
+        let d = &payload[i..i + sz];
+
+        let flags = d[0];
+        let y420 = (flags >> 7) & 1 != 0;
+
+        let width = u16::from_le_bytes([d[1], d[2]]).saturating_add(1);
+        let height = u16::from_le_bytes([d[3], d[4]]).saturating_add(1);
+
+        let refresh_lsb = d[5] as u16;
+        let refresh_hz = if m >= 1 {
+            let msb = (d[6] & 0x03) as u16;
+            (refresh_lsb | (msb << 8)) + 1
+        } else {
+            refresh_lsb + 1
+        };
+
+        entries.push(T10VtdbEntry {
+            width,
+            height,
+            refresh_hz,
+            y420,
+        });
+
+        i += sz;
+    }
+
+    Some(T10VtdbBlock { entries })
 }
 
 // ---------------------------------------------------------------------------
@@ -2037,5 +2132,93 @@ mod tests {
 
         assert!(dmt_to_mode(0x00).is_none());
         assert!(dmt_to_mode(0x59).is_none());
+    }
+
+    // T10VTDB tests
+
+    /// Build a 6-byte T10 descriptor for the given width, height, refresh (M=0).
+    fn t10_desc_6(width: u16, height: u16, refresh: u16, y420: bool) -> [u8; 6] {
+        let flags = if y420 { 0x80 } else { 0x00 };
+        let h = (width - 1).to_le_bytes();
+        let v = (height - 1).to_le_bytes();
+        [flags, h[0], h[1], v[0], v[1], (refresh - 1) as u8]
+    }
+
+    #[test]
+    fn test_t10vtdb_6byte_single() {
+        // M=0 (rev=0x00); 640×480@60
+        let desc = t10_desc_6(640, 480, 60, false);
+        let mut data = vec![0x00u8]; // rev byte (M=0)
+        data.extend_from_slice(&desc);
+        let t10 = parse_t10vtdb(&data).unwrap();
+        assert_eq!(t10.entries.len(), 1);
+        assert_eq!(t10.entries[0].width, 640);
+        assert_eq!(t10.entries[0].height, 480);
+        assert_eq!(t10.entries[0].refresh_hz, 60);
+        assert!(!t10.entries[0].y420);
+    }
+
+    #[test]
+    fn test_t10vtdb_7byte_high_refresh() {
+        // M=1 (rev=0x10); 1920×1080@512 — refresh > 255 requires 2-byte field
+        // refresh stored = 511 = 0x1FF → lsb=0xFF, msb_bits=0x01
+        let flags = 0x00u8;
+        let h = (1919u16).to_le_bytes(); // 1920 - 1
+        let v = (1079u16).to_le_bytes(); // 1080 - 1
+        let data = [
+            0x10, // rev: M=1
+            flags, h[0], h[1], v[0], v[1], 0xFF, // refresh lsb (511 & 0xFF)
+            0x01, // refresh msb bits[1:0] = 0x01 → (0x01 << 8) | 0xFF = 511; +1 = 512
+        ];
+        let t10 = parse_t10vtdb(&data).unwrap();
+        assert_eq!(t10.entries[0].width, 1920);
+        assert_eq!(t10.entries[0].height, 1080);
+        assert_eq!(t10.entries[0].refresh_hz, 512);
+    }
+
+    #[test]
+    fn test_t10vtdb_multiple_descriptors() {
+        // M=0; two descriptors back-to-back
+        let d1 = t10_desc_6(1280, 720, 60, false);
+        let d2 = t10_desc_6(1920, 1080, 60, false);
+        let mut data = vec![0x00u8];
+        data.extend_from_slice(&d1);
+        data.extend_from_slice(&d2);
+        let t10 = parse_t10vtdb(&data).unwrap();
+        assert_eq!(t10.entries.len(), 2);
+        assert_eq!(t10.entries[0].width, 1280);
+        assert_eq!(t10.entries[1].width, 1920);
+    }
+
+    #[test]
+    fn test_t10vtdb_y420_flag() {
+        let desc = t10_desc_6(3840, 2160, 60, true);
+        let mut data = vec![0x00u8];
+        data.extend_from_slice(&desc);
+        let t10 = parse_t10vtdb(&data).unwrap();
+        assert!(t10.entries[0].y420);
+    }
+
+    #[test]
+    fn test_t10vtdb_invalid_m_returns_none() {
+        // M=3 (bits[6:4]=011 → rev=0x30) is invalid
+        let data = [0x30u8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        assert!(parse_t10vtdb(&data).is_none());
+    }
+
+    #[test]
+    fn test_t10vtdb_empty_returns_none() {
+        assert!(parse_t10vtdb(&[]).is_none());
+    }
+
+    #[test]
+    fn test_t10vtdb_trailing_partial_descriptor_ignored() {
+        // M=0 (6-byte descriptors); 7 payload bytes = 1 complete + 1 orphan
+        let desc = t10_desc_6(800, 600, 60, false);
+        let mut data = vec![0x00u8];
+        data.extend_from_slice(&desc);
+        data.push(0xFF); // orphan byte
+        let t10 = parse_t10vtdb(&data).unwrap();
+        assert_eq!(t10.entries.len(), 1); // only the complete descriptor
     }
 }

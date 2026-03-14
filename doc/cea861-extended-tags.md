@@ -31,7 +31,7 @@ Extended tag data blocks use outer CTA tag `0x07`, with the first payload byte a
 | `0x22` | DisplayID Type VII Video Timing Data Block (T7VTDB) | ✓ implemented (`T7VtdbBlock`) |
 | `0x23` | DisplayID Type VIII Video Timing Data Block (T8VTDB) | ✓ implemented (`T8VtdbBlock`) |
 | `0x24`–`0x29` | Reserved | — reserved |
-| `0x2A` | DisplayID Type X Video Timing Data Block (T10VTDB) | — not yet |
+| `0x2A` | DisplayID Type X Video Timing Data Block (T10VTDB) | ✓ implemented (`T10VtdbBlock`) |
 | `0x2B`–`0x77` | Reserved | — reserved |
 | `0x78` | HDMI Forum EDID Extension Override Data Block | — not yet |
 | `0x79` | HDMI Forum Sink Capability Data Block | — not yet |
@@ -72,10 +72,33 @@ Byte 6…L+1: Vendor-specific payload (L-4 bytes)
 
 Identical structure to VSVDB; semantics are audio-capability-related rather than video.
 
-### DisplayID Type VII / VIII / X (`0x22`, `0x23`, `0x2A`)
+### DisplayID Type VII (`0x22`)
 
-Source: CTA-861-H Tables 104, 107, 109–110. These embed DisplayID timing descriptors
-inside a CTA data block. Deferred to the 0.2 DisplayID milestone.
+Source: CTA-861-H Table 104. One 20-byte DisplayID-style timing descriptor per block.
+Pixel clock in kHz (24-bit LE); 16-bit H/V fields; T7Y420 flag. Implemented as `T7VtdbBlock`.
+
+### DisplayID Type VIII (`0x23`)
+
+Source: CTA-861-H Table 107. List of VESA DMT ID codes (1-byte when TCS=0, 2-byte LE
+when TCS=1). Only `Code_Type = 0x00` (DMT) is defined for CTA-861. Implemented as
+`T8VtdbBlock` with a built-in lookup table for DMT IDs 0x01–0x58.
+
+### DisplayID Type X (`0x2A`)
+
+Source: CTA-861-H Tables 109–110. CVT formula-based timing descriptors of 6–8 bytes
+each (size = 6 + M, where M = bits[6:4] of the `rev` byte). Per descriptor:
+
+```
+[0]     flags: YCC420[7] | Stereo[6:5] | VR_HB[4] | EVS[3] | Formula[2:0]
+[1..2]  Horizontal active − 1 (LE u16)
+[3..4]  Vertical active − 1 (LE u16)
+[5]     Refresh rate LSB (stored − 1)
+[6]     (M≥1) bits[1:0] = refresh rate high 2 bits; bits[7:2] = CVT controls
+[7]     (M=2) Alt_Min_VBlank and reserved
+```
+
+Full refresh Hz = `(x[5] | ((x[6] & 0x03) << 8)) + 1`. Implemented as `T10VtdbBlock`
+containing a `Vec<T10VtdbEntry>`. M > 2 is invalid and returns `None`.
 
 ### HDMI Forum blocks (`0x78`, `0x79`)
 

@@ -585,6 +585,26 @@ fn main() {
                                         }
                                     }
                                 }
+                                if !cea.t10_vtdb.is_empty() {
+                                    let total: usize =
+                                        cea.t10_vtdb.iter().map(|t| t.entries.len()).sum();
+                                    println!(
+                                        "  T10VTDB ({} block(s), {} entry(ies)):",
+                                        cea.t10_vtdb.len(),
+                                        total
+                                    );
+                                    for t10 in &cea.t10_vtdb {
+                                        for e in &t10.entries {
+                                            println!(
+                                                "    {}x{}@{}Hz{}",
+                                                e.width,
+                                                e.height,
+                                                e.refresh_hz,
+                                                if e.y420 { " (Y420)" } else { "" }
+                                            );
+                                        }
+                                    }
+                                }
                                 if !cea.vtb_ext.is_empty() {
                                     let total: usize =
                                         cea.vtb_ext.iter().map(|v| v.timings.len()).sum();
