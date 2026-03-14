@@ -2,9 +2,11 @@ use crate::model::capabilities::VideoMode;
 
 /// Extended tag codes used in CEA Extended Tag Data Blocks (outer tag `0x07`).
 /// The first byte of the block payload is the extended tag.
+pub(super) const EXT_TAG_VSVDB: u8 = 0x01;
 pub(super) const EXT_TAG_VESA_DDDB: u8 = 0x02;
 pub(super) const EXT_TAG_VTB_EXT: u8 = 0x03;
 pub(super) const EXT_TAG_VIDEO_CAPABILITY: u8 = 0x00;
+pub(super) const EXT_TAG_VSADB: u8 = 0x11;
 pub(super) const EXT_TAG_COLORIMETRY: u8 = 0x05;
 pub(super) const EXT_TAG_HDR_STATIC_METADATA: u8 = 0x06;
 pub(super) const EXT_TAG_HDR_DYNAMIC_METADATA: u8 = 0x07;
@@ -633,6 +635,44 @@ pub(super) fn parse_infoframe_db(block_data: &[u8]) -> Vec<InfoFrameDescriptor> 
     }
 
     out
+}
+
+// ---------------------------------------------------------------------------
+// Vendor-Specific Video Data Block (extended tag 0x01)
+// Vendor-Specific Audio Data Block (extended tag 0x11)
+// ---------------------------------------------------------------------------
+
+/// A decoded Vendor-Specific Video Data Block (VSVDB, extended tag `0x01`) or
+/// Vendor-Specific Audio Data Block (VSADB, extended tag `0x11`).
+///
+/// Both block types share the same structure: a 3-byte IEEE OUI followed by an
+/// opaque vendor-defined payload (CTA-861 Tables 56–57). The payload is stored
+/// verbatim for consumers that recognise the OUI.
+///
+/// Well-known video OUIs include Dolby Vision (`0x00D046`) and HDR10+ (`0x90848B`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VendorSpecificBlock {
+    /// 24-bit IEEE OUI in canonical (MSB-first) form.
+    ///
+    /// Assembled from the three OUI bytes as `(byte2 << 16) | (byte1 << 8) | byte0`,
+    /// where byte0 is the least-significant byte as stored on the wire.
+    pub oui: u32,
+    /// Vendor-defined payload bytes following the OUI.
+    pub payload: Vec<u8>,
+}
+
+/// Parse a VSVDB or VSADB payload (`block_data` starts after the extended tag byte).
+///
+/// Returns `None` if the payload is shorter than the 3-byte OUI minimum.
+pub(super) fn parse_vendor_specific_block(block_data: &[u8]) -> Option<VendorSpecificBlock> {
+    if block_data.len() < 3 {
+        return None;
+    }
+    let oui =
+        ((block_data[2] as u32) << 16) | ((block_data[1] as u32) << 8) | (block_data[0] as u32);
+    let payload = block_data[3..].to_vec();
+    Some(VendorSpecificBlock { oui, payload })
 }
 
 // ---------------------------------------------------------------------------
@@ -1474,5 +1514,38 @@ mod tests {
         // version=1, 1 DTB, 0 CVTs, 0 STs — but only 4 bytes, no room for 18-byte DTB
         let data = [0x01u8, 0x01, 0x00, 0x00];
         assert!(parse_vtb_ext(&data).is_none());
+    }
+
+    // --- Vendor-Specific Video / Audio Data Block tests ---
+
+    #[test]
+    fn test_vsvdb_basic() {
+        // OUI = 0x00D046 (Dolby), stored LSB-first: [0x46, 0xD0, 0x00], payload = [0xAB, 0xCD]
+        let payload = [0x46u8, 0xD0, 0x00, 0xAB, 0xCD];
+        let b = parse_vendor_specific_block(&payload).unwrap();
+        assert_eq!(b.oui, 0x00D046);
+        assert_eq!(b.payload, vec![0xAB, 0xCD]);
+    }
+
+    #[test]
+    fn test_vsvdb_oui_only_no_payload() {
+        let payload = [0x03u8, 0x0C, 0x00]; // OUI = 0x000C03 (HDMI), no payload
+        let b = parse_vendor_specific_block(&payload).unwrap();
+        assert_eq!(b.oui, 0x000C03);
+        assert!(b.payload.is_empty());
+    }
+
+    #[test]
+    fn test_vsvdb_too_short_returns_none() {
+        assert!(parse_vendor_specific_block(&[0x46u8, 0xD0]).is_none());
+    }
+
+    #[test]
+    fn test_vsadb_same_structure() {
+        // VSADB has identical wire format to VSVDB; reuse the same parser.
+        let payload = [0x8Bu8, 0x84, 0x90, 0x01]; // OUI = 0x90848B (HDR10+), payload = [0x01]
+        let b = parse_vendor_specific_block(&payload).unwrap();
+        assert_eq!(b.oui, 0x90848B);
+        assert_eq!(b.payload, vec![0x01]);
     }
 }

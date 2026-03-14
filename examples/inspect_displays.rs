@@ -526,6 +526,32 @@ fn main() {
                                         );
                                     }
                                 }
+                                if !cea.vendor_specific_video.is_empty() {
+                                    println!(
+                                        "  Vendor-Specific Video ({}):",
+                                        cea.vendor_specific_video.len()
+                                    );
+                                    for b in &cea.vendor_specific_video {
+                                        println!(
+                                            "    OUI=0x{:06X} payload={} byte(s)",
+                                            b.oui,
+                                            b.payload.len()
+                                        );
+                                    }
+                                }
+                                if !cea.vendor_specific_audio.is_empty() {
+                                    println!(
+                                        "  Vendor-Specific Audio ({}):",
+                                        cea.vendor_specific_audio.len()
+                                    );
+                                    for b in &cea.vendor_specific_audio {
+                                        println!(
+                                            "    OUI=0x{:06X} payload={} byte(s)",
+                                            b.oui,
+                                            b.payload.len()
+                                        );
+                                    }
+                                }
                                 if !cea.vtb_ext.is_empty() {
                                     let total: usize =
                                         cea.vtb_ext.iter().map(|v| v.timings.len()).sum();

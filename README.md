@@ -103,6 +103,7 @@ CEA-861 data blocks decoded by `Cea861Handler`:
 | `0x04` | Speaker Allocation Data Block | Three-byte channel presence bitmask |
 | `0x05` | VESA Display Transfer Characteristic | 8/10/12-bit packed luminance points |
 | `0x07` ext `0x00` | Video Capability Data Block | Quantization range and overscan flags |
+| `0x07` ext `0x01` | Vendor-Specific Video Data Block | IEEE OUI + opaque vendor payload (e.g. Dolby Vision) |
 | `0x07` ext `0x02` | VESA Display Device Data Block | Interface type, clock range, native resolution, audio, color depth |
 | `0x07` ext `0x03` | VESA Video Timing Block Extension | DTBs, CVT, and Standard Timing entries as `VideoMode` |
 | `0x07` ext `0x05` | Colorimetry Data Block | xvYCC, sYCC, opRGB, BT.2020 variants |
@@ -114,9 +115,10 @@ CEA-861 data blocks decoded by `Cea861Handler`:
 | `0x07` ext `0x12` | HDMI Audio Data Block | Multi-stream audio flag and embedded SADs |
 | `0x07` ext `0x13` | Room Configuration Data Block | Speaker count and location availability |
 | `0x07` ext `0x14` | Speaker Location Data Block | Per-channel assignment and distance |
+| `0x07` ext `0x11` | Vendor-Specific Audio Data Block | IEEE OUI + opaque vendor payload |
 | `0x07` ext `0x20` | InfoFrame Data Block | Short InfoFrame Descriptors with OUI for VSI |
 
-Remaining work before a 0.1 release: HDMI 2.0 VSDB (OUI `0xC45DD8`), broader fixture coverage, and DisplayID support. Several less-common CEA-861 extended tag blocks (e.g. ext `0x01`, `0x04`, `0x08`–`0x0C`, `0x10`–`0x11`) are not yet decoded.
+Remaining work before a 0.1 release: HDMI 2.0 VSDB (OUI `0xC45DD8`), broader fixture coverage, and DisplayID support.
 
 ## Documentation
 

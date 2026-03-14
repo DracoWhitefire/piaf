@@ -13,7 +13,7 @@ pub use extended_blocks::{
     infoframe_type, ColorimetryBlock, ColorimetryFlags, DtcPointEncoding,
     HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata, InfoFrameDescriptor,
     RoomConfigurationBlock, SpeakerAllocation, SpeakerAllocationFlags, SpeakerAllocationFlags2,
-    SpeakerAllocationFlags3, SpeakerLocationEntry, VesaDisplayDeviceBlock,
+    SpeakerAllocationFlags3, SpeakerLocationEntry, VendorSpecificBlock, VesaDisplayDeviceBlock,
     VesaTransferCharacteristic, VideoCapability, VideoCapabilityFlags, VtbExtBlock,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -34,13 +34,13 @@ use audio::parse_audio_data_block;
 use extended_blocks::{
     parse_colorimetry, parse_hdr_dynamic_metadata, parse_hdr_static_metadata, parse_infoframe_db,
     parse_room_configuration, parse_speaker_allocation, parse_speaker_location,
-    parse_vesa_display_device, parse_vesa_transfer_characteristic, parse_video_capability,
-    parse_video_format_preferences, parse_vtb_ext, parse_y420_capability_map, parse_y420_vdb,
-    EXT_TAG_COLORIMETRY, EXT_TAG_HDMI_AUDIO, EXT_TAG_HDR_DYNAMIC_METADATA,
-    EXT_TAG_HDR_STATIC_METADATA, EXT_TAG_INFOFRAME, EXT_TAG_ROOM_CONFIGURATION,
-    EXT_TAG_SPEAKER_LOCATION, EXT_TAG_VESA_DDDB, EXT_TAG_VIDEO_CAPABILITY,
-    EXT_TAG_VIDEO_FORMAT_PREFERENCE, EXT_TAG_VTB_EXT, EXT_TAG_Y420_CAPABILITY_MAP,
-    EXT_TAG_Y420_VIDEO,
+    parse_vendor_specific_block, parse_vesa_display_device, parse_vesa_transfer_characteristic,
+    parse_video_capability, parse_video_format_preferences, parse_vtb_ext,
+    parse_y420_capability_map, parse_y420_vdb, EXT_TAG_COLORIMETRY, EXT_TAG_HDMI_AUDIO,
+    EXT_TAG_HDR_DYNAMIC_METADATA, EXT_TAG_HDR_STATIC_METADATA, EXT_TAG_INFOFRAME,
+    EXT_TAG_ROOM_CONFIGURATION, EXT_TAG_SPEAKER_LOCATION, EXT_TAG_VESA_DDDB,
+    EXT_TAG_VIDEO_CAPABILITY, EXT_TAG_VIDEO_FORMAT_PREFERENCE, EXT_TAG_VSADB, EXT_TAG_VSVDB,
+    EXT_TAG_VTB_EXT, EXT_TAG_Y420_CAPABILITY_MAP, EXT_TAG_Y420_VIDEO,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use hdmi_vsdb::parse_hdmi_vsdb;
@@ -161,6 +161,17 @@ pub struct Cea861Capabilities {
     /// Each element corresponds to one VTB-EXT data block. The decoded timings are
     /// also added to [`DisplayCapabilities::supported_modes`].
     pub vtb_ext: Vec<VtbExtBlock>,
+    /// Vendor-Specific Video Data Blocks (extended tag `0x01`).
+    ///
+    /// Each entry holds the vendor's IEEE OUI and their opaque payload. Multiple
+    /// VSVDBs are allowed (one per vendor). Well-known OUIs include Dolby Vision
+    /// (`0x00D046`) and HDR10+ (`0x90848B`).
+    pub vendor_specific_video: Vec<VendorSpecificBlock>,
+    /// Vendor-Specific Audio Data Blocks (extended tag `0x11`).
+    ///
+    /// Each entry holds the vendor's IEEE OUI and their opaque payload. Multiple
+    /// VSADBs are allowed (one per vendor).
+    pub vendor_specific_audio: Vec<VendorSpecificBlock>,
 }
 
 /// Processes a CEA-861 extension block (tag `0x02`).
@@ -199,6 +210,8 @@ impl ExtensionHandler for Cea861Handler {
             y420_capability_map: Vec::new(),
             vesa_display_device: None,
             vtb_ext: Vec::new(),
+            vendor_specific_video: Vec::new(),
+            vendor_specific_audio: Vec::new(),
         };
 
         // Parse the data block collection: bytes 4 through dtd_offset-1.
@@ -297,6 +310,16 @@ impl ExtensionHandler for Cea861Handler {
                 } else if tag == 0x07 {
                     // Extended Tag Data Block: first payload byte is the extended tag.
                     match block_data.first().copied() {
+                        Some(EXT_TAG_VSVDB) => {
+                            if let Some(b) = parse_vendor_specific_block(&block_data[1..]) {
+                                cea_caps.vendor_specific_video.push(b);
+                            }
+                        }
+                        Some(EXT_TAG_VSADB) => {
+                            if let Some(b) = parse_vendor_specific_block(&block_data[1..]) {
+                                cea_caps.vendor_specific_audio.push(b);
+                            }
+                        }
                         Some(EXT_TAG_VESA_DDDB) if cea_caps.vesa_display_device.is_none() => {
                             cea_caps.vesa_display_device =
                                 parse_vesa_display_device(&block_data[1..]);
