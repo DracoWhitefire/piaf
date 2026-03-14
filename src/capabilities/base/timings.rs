@@ -128,8 +128,7 @@ pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities) {
     // H values are 10-bit; V values are 6-bit. Byte 11 holds all four MSB pairs.
     let h_front_porch = (((dtd[11] as u16) >> 6) << 8) | (dtd[8] as u16);
     let h_sync_width = ((((dtd[11] as u16) >> 4) & 0x03) << 8) | (dtd[9] as u16);
-    let v_front_porch =
-        ((((dtd[11] as u16) >> 2) & 0x03) << 4) | (((dtd[10] as u16) >> 4) & 0x0F);
+    let v_front_porch = ((((dtd[11] as u16) >> 2) & 0x03) << 4) | (((dtd[10] as u16) >> 4) & 0x0F);
     let v_sync_width = (((dtd[11] as u16) & 0x03) << 4) | ((dtd[10] as u16) & 0x0F);
 
     // Physical image area in mm: 12-bit H from byte 12 + upper nibble of byte 14,

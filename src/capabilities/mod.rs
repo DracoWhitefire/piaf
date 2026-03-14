@@ -3,11 +3,12 @@ mod cea861;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use base::BaseBlockHandler;
-#[cfg(any(feature = "alloc", feature = "std"))]
-pub use cea861::Cea861Capabilities;
 pub use cea861::Cea861Flags;
 #[cfg(any(feature = "alloc", feature = "std"))]
-pub use cea861::Cea861Handler;
+pub use cea861::{
+    AudioFormat, AudioFormatInfo, AudioSampleRates, Cea861Capabilities, Cea861Handler,
+    ShortAudioDescriptor,
+};
 
 use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]

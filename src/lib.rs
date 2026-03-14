@@ -50,4 +50,7 @@ pub use parser::parse_edid;
 
 /// Capability extraction from a [`ParsedEdid`].
 pub mod capabilities;
-pub use capabilities::{capabilities_from_edid, Cea861Capabilities, Cea861Flags, Cea861Handler};
+pub use capabilities::{
+    capabilities_from_edid, AudioFormat, AudioFormatInfo, AudioSampleRates, Cea861Capabilities,
+    Cea861Flags, Cea861Handler, ShortAudioDescriptor,
+};

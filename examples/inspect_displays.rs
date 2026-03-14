@@ -1,6 +1,7 @@
 use piaf::{
-    capabilities_from_edid, parse_edid, Cea861Capabilities, Cea861Flags, Cea861Handler,
-    DisplayCapabilities, EdidWarning, ExtensionHandler, ExtensionLibrary,
+    capabilities_from_edid, parse_edid, AudioFormat, AudioFormatInfo, Cea861Capabilities,
+    Cea861Flags, Cea861Handler, DisplayCapabilities, EdidWarning, ExtensionHandler,
+    ExtensionLibrary,
 };
 use std::fs;
 use std::path::Path;
@@ -192,6 +193,56 @@ fn main() {
                                         cea.vics.len(),
                                         vic_strs.join(", ")
                                     );
+                                }
+                                if !cea.audio_descriptors.is_empty() {
+                                    println!(
+                                        "  Audio descriptors ({}):",
+                                        cea.audio_descriptors.len()
+                                    );
+                                    for sad in &cea.audio_descriptors {
+                                        let fmt = match sad.format {
+                                            AudioFormat::Lpcm => "LPCM",
+                                            AudioFormat::Ac3 => "AC-3",
+                                            AudioFormat::Mpeg1 => "MPEG-1",
+                                            AudioFormat::Mp3 => "MP3",
+                                            AudioFormat::Mpeg2Multichannel => "MPEG-2",
+                                            AudioFormat::AacLc => "AAC-LC",
+                                            AudioFormat::Dts => "DTS",
+                                            AudioFormat::Atrac => "ATRAC",
+                                            AudioFormat::OneBitAudio => "One-Bit",
+                                            AudioFormat::EnhancedAc3 => "E-AC-3",
+                                            AudioFormat::DtsHd => "DTS-HD",
+                                            AudioFormat::MlpTrueHd => "TrueHD",
+                                            AudioFormat::Dst => "DST",
+                                            AudioFormat::WmaPro => "WMA-Pro",
+                                            AudioFormat::Extended(_) => "Extended",
+                                            AudioFormat::Reserved(_) => "Reserved",
+                                        };
+                                        let info = match sad.format_info {
+                                            AudioFormatInfo::Lpcm {
+                                                depth_16,
+                                                depth_20,
+                                                depth_24,
+                                            } => {
+                                                let mut depths = Vec::new();
+                                                if depth_16 {
+                                                    depths.push("16-bit");
+                                                }
+                                                if depth_20 {
+                                                    depths.push("20-bit");
+                                                }
+                                                if depth_24 {
+                                                    depths.push("24-bit");
+                                                }
+                                                depths.join("/")
+                                            }
+                                            AudioFormatInfo::MaxBitrateKbps(kbps) => {
+                                                format!("max {}kbps", kbps)
+                                            }
+                                            AudioFormatInfo::Raw(b) => format!("byte3=0x{:02X}", b),
+                                        };
+                                        println!("    {} {}ch  {}", fmt, sad.max_channels, info);
+                                    }
                                 }
                             }
 

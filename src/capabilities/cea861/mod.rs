@@ -1,5 +1,12 @@
+#[cfg(any(feature = "alloc", feature = "std"))]
+mod audio;
 mod vic_table;
 
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use audio::{AudioFormat, AudioFormatInfo, AudioSampleRates, ShortAudioDescriptor};
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::capabilities::base::timings::decode_dtd_slot;
 use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
@@ -8,7 +15,7 @@ use crate::model::extension::ExtensionHandler;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::Vec;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::capabilities::base::timings::decode_dtd_slot;
+use audio::parse_audio_data_block;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use vic_table::vic_to_mode;
 
@@ -45,12 +52,14 @@ bitflags::bitflags! {
 pub struct Cea861Capabilities {
     /// Capability flags from byte 3 of the CEA-861 header.
     pub flags: Cea861Flags,
-    /// Short Video Descriptors from the CEA Video Data Block.
+    /// Short Video Descriptors from the CEA Video Data Block (tag `0x02`).
     ///
     /// Each entry is `(vic_number, is_native)`. VICs beyond the range of the
     /// built-in lookup table are included here but do not produce an entry in
     /// [`DisplayCapabilities::supported_modes`].
     pub vics: Vec<(u8, bool)>,
+    /// Short Audio Descriptors from the CEA Audio Data Block (tag `0x01`).
+    pub audio_descriptors: Vec<ShortAudioDescriptor>,
 }
 
 /// Processes a CEA-861 extension block (tag `0x02`).
@@ -72,6 +81,7 @@ impl ExtensionHandler for Cea861Handler {
         let mut cea_caps = Cea861Capabilities {
             flags,
             vics: Vec::new(),
+            audio_descriptors: Vec::new(),
         };
 
         // Parse the data block collection: bytes 4 through dtd_offset-1.
@@ -106,7 +116,12 @@ impl ExtensionHandler for Cea861Handler {
 
                 let block_data = &collection[i..i + length];
 
-                if tag == 0x02 {
+                if tag == 0x01 {
+                    // Audio Data Block: 3-byte Short Audio Descriptors.
+                    cea_caps
+                        .audio_descriptors
+                        .extend(parse_audio_data_block(block_data));
+                } else if tag == 0x02 {
                     // Video Data Block: each byte is a Short Video Descriptor.
                     for &svd in block_data {
                         let native = (svd & 0x80) != 0;
@@ -140,7 +155,7 @@ impl ExtensionHandler for Cea861Handler {
 
         // Parse Detailed Timing Descriptors from byte dtd_offset through byte 126.
         // When dtd_offset == 0 there are no DTDs (the spec says no timing data present).
-        if dtd_offset >= 4 && dtd_offset <= 110 {
+        if (4..=110).contains(&dtd_offset) {
             let mut offset = dtd_offset;
             while offset + 18 <= 127 {
                 decode_dtd_slot(&ext[offset..offset + 18], caps);
@@ -276,15 +291,15 @@ mod tests {
     /// 58392 * 10000 / (2720 * 1481) = 144.8 → rounds to 144.
     fn write_dtd_2560x1440_144(ext: &mut [u8; 128], offset: usize) {
         let clk: u16 = 58392; // 10 kHz units
-        ext[offset]     = (clk & 0xFF) as u8;
+        ext[offset] = (clk & 0xFF) as u8;
         ext[offset + 1] = (clk >> 8) as u8;
         // hactive=2560, hblank=160
-        ext[offset + 2] = (2560 & 0xFF) as u8;         // hactive low
-        ext[offset + 3] = (160 & 0xFF) as u8;          // hblank low
+        ext[offset + 2] = (2560 & 0xFF) as u8; // hactive low
+        ext[offset + 3] = (160 & 0xFF) as u8; // hblank low
         ext[offset + 4] = (((2560 >> 4) & 0xF0) | ((160 >> 8) & 0x0F)) as u8;
         // vactive=1440, vblank=41
-        ext[offset + 5] = (1440 & 0xFF) as u8;         // vactive low
-        ext[offset + 6] = (41 & 0xFF) as u8;           // vblank low
+        ext[offset + 5] = (1440 & 0xFF) as u8; // vactive low
+        ext[offset + 6] = (41 & 0xFF) as u8; // vblank low
         ext[offset + 7] = (((1440 >> 4) & 0xF0) | ((41 >> 8) & 0x0F)) as u8;
         // bytes 8-16: sync/image (leave zero — minimal)
         // byte 17: digital separate sync, both polarities positive
@@ -314,7 +329,7 @@ mod tests {
         // A DTD slot whose first two bytes are 0x00 is a monitor descriptor and must be skipped.
         let mut ext = [0u8; 128];
         ext[2] = 4; // dtd_offset = 4 — no data blocks, DTDs start immediately
-        // ext[4..22] stays all-zero → zero pixel clock → skipped
+                    // ext[4..22] stays all-zero → zero pixel clock → skipped
 
         let mut caps = DisplayCapabilities::default();
         Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
