@@ -7,6 +7,7 @@ pub(super) const EXT_TAG_HDR_DYNAMIC_METADATA: u8 = 0x07;
 pub(super) const EXT_TAG_VIDEO_FORMAT_PREFERENCE: u8 = 0x0D;
 pub(super) const EXT_TAG_Y420_VIDEO: u8 = 0x0E;
 pub(super) const EXT_TAG_Y420_CAPABILITY_MAP: u8 = 0x0F;
+pub(super) const EXT_TAG_HDMI_AUDIO: u8 = 0x12;
 
 // ---------------------------------------------------------------------------
 // Video Capability Data Block (extended tag 0x00)

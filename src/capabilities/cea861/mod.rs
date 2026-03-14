@@ -33,8 +33,9 @@ use extended_blocks::{
     parse_colorimetry, parse_hdr_dynamic_metadata, parse_hdr_static_metadata,
     parse_speaker_allocation, parse_vesa_transfer_characteristic, parse_video_capability,
     parse_video_format_preferences, parse_y420_capability_map, parse_y420_vdb, EXT_TAG_COLORIMETRY,
-    EXT_TAG_HDR_DYNAMIC_METADATA, EXT_TAG_HDR_STATIC_METADATA, EXT_TAG_VIDEO_CAPABILITY,
-    EXT_TAG_VIDEO_FORMAT_PREFERENCE, EXT_TAG_Y420_CAPABILITY_MAP, EXT_TAG_Y420_VIDEO,
+    EXT_TAG_HDR_DYNAMIC_METADATA, EXT_TAG_HDR_STATIC_METADATA, EXT_TAG_HDMI_AUDIO,
+    EXT_TAG_VIDEO_CAPABILITY, EXT_TAG_VIDEO_FORMAT_PREFERENCE, EXT_TAG_Y420_CAPABILITY_MAP,
+    EXT_TAG_Y420_VIDEO,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use hdmi_vsdb::parse_hdmi_vsdb;
@@ -64,6 +65,20 @@ bitflags::bitflags! {
     }
 }
 
+/// Decoded HDMI Audio Data Block (extended tag `0x12`).
+///
+/// Advertises HDMI-specific audio capabilities, including Multi-Stream Audio (MSA)
+/// support and a set of Short Audio Descriptors for the HDMI audio path.
+#[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HdmiAudioBlock {
+    /// If `true`, the sink supports HDMI Multi-Stream Audio (MSA).
+    pub multi_stream_audio: bool,
+    /// Short Audio Descriptors for the HDMI audio path (eARC-capable formats, etc.).
+    pub audio_descriptors: Vec<ShortAudioDescriptor>,
+}
+
 /// Decoded capabilities from a CEA-861 extension block.
 ///
 /// Stored in [`DisplayCapabilities::extension_data`] under tag `0x02` by [`Cea861Handler`].
@@ -90,6 +105,8 @@ pub struct Cea861Capabilities {
     pub colorimetry: Option<ColorimetryBlock>,
     /// Decoded HDR Static Metadata Data Block (extended tag `0x06`), if present.
     pub hdr_static_metadata: Option<HdrStaticMetadata>,
+    /// Decoded HDMI Audio Data Block (extended tag `0x12`), if present.
+    pub hdmi_audio: Option<HdmiAudioBlock>,
     /// Decoded VESA Display Transfer Characteristic Data Block (standard tag `0x05`), if present.
     ///
     /// Encodes the display's luminance transfer function as normalized sample points.
@@ -145,6 +162,7 @@ impl ExtensionHandler for Cea861Handler {
             video_capability: None,
             colorimetry: None,
             hdr_static_metadata: None,
+            hdmi_audio: None,
             vesa_transfer_characteristic: None,
             speaker_allocation: None,
             hdr_dynamic_metadata: Vec::new(),
@@ -292,6 +310,17 @@ impl ExtensionHandler for Cea861Handler {
                             if cea_caps.y420_capability_map.is_empty() =>
                         {
                             cea_caps.y420_capability_map = parse_y420_capability_map(block_data);
+                        }
+                        Some(EXT_TAG_HDMI_AUDIO) if cea_caps.hdmi_audio.is_none() => {
+                            // block_data[0] = ext tag; block_data[1] = flags; block_data[2..] = SADs.
+                            let multi_stream_audio =
+                                block_data.get(1).is_some_and(|&b| b & 0x08 != 0);
+                            let audio_descriptors = block_data
+                                .get(2..)
+                                .map(parse_audio_data_block)
+                                .unwrap_or_default();
+                            cea_caps.hdmi_audio =
+                                Some(HdmiAudioBlock { multi_stream_audio, audio_descriptors });
                         }
                         _ => {}
                     }
@@ -595,5 +624,79 @@ mod tests {
 
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         assert_eq!(cea.y420_capability_map, vec![0b0000_0101]);
+    }
+
+    #[test]
+    fn test_hdmi_audio_block_with_msa_and_sads() {
+        // HDMI Audio Data Block: outer tag=7, length=8 → (7<<5)|8 = 0xE8
+        // payload: ext tag 0x12, flags byte (MSA=bit3 set), then two SADs (6 bytes) = 8 bytes
+        // SAD 1: LPCM (AFC=1), 2ch, 44.1kHz+48kHz, 16-bit
+        // SAD 2: AC-3 (AFC=2), 6ch, 48kHz, max bitrate 640kbps
+        let mut ext = [0u8; 128];
+        // collection = ext[4..13] = 9 bytes (1 header + 8 payload)
+        ext[2] = 13;
+        ext[4] = (7 << 5) | 8; // outer tag=7, length=8
+        ext[5] = 0x12;          // EXT_TAG_HDMI_AUDIO
+        ext[6] = 0x08;          // flags: MSA set (bit 3)
+        // SAD 1: LPCM 2ch
+        ext[7] = (1 << 3) | 1; // AFC=1 (LPCM), max_ch=2 → (AFC<<3)|(ch-1) = 0x09
+        ext[8] = 0x06;          // 44.1kHz (bit1) + 48kHz (bit2)
+        ext[9] = 0x01;          // 16-bit
+        // SAD 2: AC-3 6ch
+        ext[10] = (2 << 3) | 5; // AFC=2 (AC-3), max_ch=6 → 0x15
+        ext[11] = 0x04;         // 48kHz only
+        ext[12] = 0x50;         // max bitrate = 0x50 * 8 = 640 kbps
+
+        let mut caps = DisplayCapabilities::default();
+        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+
+        let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
+        let hdmi_audio = cea.hdmi_audio.as_ref().unwrap();
+        assert!(hdmi_audio.multi_stream_audio);
+        assert_eq!(hdmi_audio.audio_descriptors.len(), 2);
+        assert!(matches!(hdmi_audio.audio_descriptors[0].format, AudioFormat::Lpcm));
+        assert_eq!(hdmi_audio.audio_descriptors[0].max_channels, 2);
+        assert!(matches!(hdmi_audio.audio_descriptors[1].format, AudioFormat::Ac3));
+        assert_eq!(hdmi_audio.audio_descriptors[1].max_channels, 6);
+    }
+
+    #[test]
+    fn test_hdmi_audio_block_no_msa() {
+        let mut ext = [0u8; 128];
+        // collection = ext[4..10] = 6 bytes (1 header + 5 payload: ext_tag+flags+3-byte SAD)
+        ext[2] = 10;
+        ext[4] = (7 << 5) | 5; // outer tag=7, length=5
+        ext[5] = 0x12;          // EXT_TAG_HDMI_AUDIO
+        ext[6] = 0x00;          // flags: MSA not set
+        // One LPCM SAD
+        ext[7] = (1 << 3) | 1;
+        ext[8] = 0x04;
+        ext[9] = 0x01;
+
+        let mut caps = DisplayCapabilities::default();
+        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+
+        let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
+        let hdmi_audio = cea.hdmi_audio.as_ref().unwrap();
+        assert!(!hdmi_audio.multi_stream_audio);
+        assert_eq!(hdmi_audio.audio_descriptors.len(), 1);
+    }
+
+    #[test]
+    fn test_hdmi_audio_block_flags_only() {
+        // Block with no SADs — just ext tag + flags byte.
+        let mut ext = [0u8; 128];
+        ext[2] = 7;
+        ext[4] = (7 << 5) | 2; // length=2: ext tag + flags, no SADs
+        ext[5] = 0x12;
+        ext[6] = 0x08; // MSA set
+
+        let mut caps = DisplayCapabilities::default();
+        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+
+        let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
+        let hdmi_audio = cea.hdmi_audio.as_ref().unwrap();
+        assert!(hdmi_audio.multi_stream_audio);
+        assert!(hdmi_audio.audio_descriptors.is_empty());
     }
 }
