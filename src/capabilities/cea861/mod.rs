@@ -37,15 +37,16 @@ use audio::parse_audio_data_block;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use extended_blocks::{
     parse_colorimetry, parse_hdr_dynamic_metadata, parse_hdr_static_metadata, parse_hf_eeodb,
-    parse_hf_scdb, parse_infoframe_db, parse_room_configuration, parse_speaker_allocation,
-    parse_speaker_location, parse_t10vtdb, parse_t7vtdb, parse_t8vtdb, parse_vendor_specific_block,
-    parse_vesa_display_device, parse_vesa_transfer_characteristic, parse_video_capability,
-    parse_video_format_preferences, parse_vtb_ext, parse_y420_capability_map, parse_y420_vdb,
-    EXT_TAG_COLORIMETRY, EXT_TAG_HDMI_AUDIO, EXT_TAG_HDR_DYNAMIC_METADATA,
-    EXT_TAG_HDR_STATIC_METADATA, EXT_TAG_HF_EEODB, EXT_TAG_HF_SCDB, EXT_TAG_INFOFRAME,
-    EXT_TAG_ROOM_CONFIGURATION, EXT_TAG_SPEAKER_LOCATION, EXT_TAG_T10VTDB, EXT_TAG_T7VTDB,
-    EXT_TAG_T8VTDB, EXT_TAG_VESA_DDDB, EXT_TAG_VIDEO_CAPABILITY, EXT_TAG_VIDEO_FORMAT_PREFERENCE,
-    EXT_TAG_VSADB, EXT_TAG_VSVDB, EXT_TAG_VTB_EXT, EXT_TAG_Y420_CAPABILITY_MAP, EXT_TAG_Y420_VIDEO,
+    parse_hf_scdb, parse_hf_vsdb, parse_infoframe_db, parse_room_configuration,
+    parse_speaker_allocation, parse_speaker_location, parse_t10vtdb, parse_t7vtdb, parse_t8vtdb,
+    parse_vendor_specific_block, parse_vesa_display_device, parse_vesa_transfer_characteristic,
+    parse_video_capability, parse_video_format_preferences, parse_vtb_ext,
+    parse_y420_capability_map, parse_y420_vdb, EXT_TAG_COLORIMETRY, EXT_TAG_HDMI_AUDIO,
+    EXT_TAG_HDR_DYNAMIC_METADATA, EXT_TAG_HDR_STATIC_METADATA, EXT_TAG_HF_EEODB, EXT_TAG_HF_SCDB,
+    EXT_TAG_INFOFRAME, EXT_TAG_ROOM_CONFIGURATION, EXT_TAG_SPEAKER_LOCATION, EXT_TAG_T10VTDB,
+    EXT_TAG_T7VTDB, EXT_TAG_T8VTDB, EXT_TAG_VESA_DDDB, EXT_TAG_VIDEO_CAPABILITY,
+    EXT_TAG_VIDEO_FORMAT_PREFERENCE, EXT_TAG_VSADB, EXT_TAG_VSVDB, EXT_TAG_VTB_EXT,
+    EXT_TAG_Y420_CAPABILITY_MAP, EXT_TAG_Y420_VIDEO,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use hdmi_vsdb::parse_hdmi_vsdb;
@@ -109,6 +110,12 @@ pub struct Cea861Capabilities {
     pub audio_descriptors: Vec<ShortAudioDescriptor>,
     /// Decoded HDMI 1.x Vendor-Specific Data Block (OUI `0x000C03`), if present.
     pub hdmi_vsdb: Option<HdmiVsdb>,
+    /// Decoded HDMI Forum Vendor-Specific Data Block (OUI `0xC45DD8`), if present.
+    ///
+    /// Carries the same HDMI Forum Sink Capability Data Structure (SCDS) as
+    /// [`hf_scdb`][Self::hf_scdb]. Typically found on HDMI 2.0 sinks; HDMI 2.1 sinks
+    /// more commonly use the HF-SCDB (extended tag `0x79`) instead.
+    pub hf_vsdb: Option<HdmiForumSinkCap>,
     /// Decoded Video Capability Data Block (extended tag `0x00`), if present.
     pub video_capability: Option<VideoCapability>,
     /// Decoded Colorimetry Data Block (extended tag `0x05`), if present.
@@ -230,6 +237,7 @@ impl ExtensionHandler for Cea861Handler {
             vics: Vec::new(),
             audio_descriptors: Vec::new(),
             hdmi_vsdb: None,
+            hf_vsdb: None,
             video_capability: None,
             colorimetry: None,
             hdr_static_metadata: None,
@@ -332,9 +340,12 @@ impl ExtensionHandler for Cea861Handler {
                         }
                     }
                 } else if tag == 0x03 {
-                    // Vendor-Specific Data Block: check for HDMI OUI.
+                    // Vendor-Specific Data Block: dispatch by OUI.
                     if cea_caps.hdmi_vsdb.is_none() {
                         cea_caps.hdmi_vsdb = parse_hdmi_vsdb(block_data);
+                    }
+                    if cea_caps.hf_vsdb.is_none() {
+                        cea_caps.hf_vsdb = parse_hf_vsdb(block_data);
                     }
                 } else if tag == 0x04 {
                     // Speaker Allocation Data Block.

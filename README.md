@@ -99,7 +99,7 @@ CEA-861 data blocks decoded by `Cea861Handler`:
 |-----|-------|-------|
 | `0x01` | Audio Data Block | Short Audio Descriptors (SADs) |
 | `0x02` | Video Data Block | VICs 1–127 (standard SVDs) and 128–255 (extended SVDs) |
-| `0x03` | Vendor-Specific Data Block | HDMI 1.x VSDB (OUI `0x000C03`) |
+| `0x03` | Vendor-Specific Data Block | HDMI 1.x VSDB (OUI `0x000C03`); HDMI Forum VSDB (OUI `0xC45DD8`) |
 | `0x04` | Speaker Allocation Data Block | Three-byte channel presence bitmask |
 | `0x05` | VESA Display Transfer Characteristic | 8/10/12-bit packed luminance points |
 | `0x07` ext `0x00` | Video Capability Data Block | Quantization range and overscan flags |
@@ -123,7 +123,7 @@ CEA-861 data blocks decoded by `Cea861Handler`:
 | `0x07` ext `0x79` | HDMI Forum Sink Capability Data Block | FRL rate, SCDC, Deep Color 4:2:0, ALLM, VRR range, DSC capabilities |
 | `0x07` ext `0x20` | InfoFrame Data Block | Short InfoFrame Descriptors with OUI for VSI |
 
-Remaining work before a 0.1 release: HDMI 2.0 VSDB (OUI `0xC45DD8`), broader fixture coverage, and DisplayID support.
+Remaining work before a 0.1 release: broader fixture coverage and DisplayID support.
 
 ## Documentation
 
@@ -134,3 +134,5 @@ Design and architecture notes live under [`doc/`](doc/):
 - [`doc/extensibility.md`](doc/extensibility.md) — extension system guide
 - [`doc/scope.md`](doc/scope.md) — scope and evolution strategy
 - [`doc/testing.md`](doc/testing.md) — testing strategy and fuzzing
+- [`doc/cea861-vsdb.md`](doc/cea861-vsdb.md) — VSDB wire formats (HDMI 1.x and HDMI Forum)
+- [`doc/cea861-extended-tags.md`](doc/cea861-extended-tags.md) — extended tag block wire formats

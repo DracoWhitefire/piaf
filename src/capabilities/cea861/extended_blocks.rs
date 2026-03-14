@@ -1298,32 +1298,22 @@ pub struct HdmiForumSinkCap {
     pub dsc: Option<HdmiForumDsc>,
 }
 
-/// Parse an HF-SCDB payload (`block_data` starts after the extended tag byte).
+/// Parses an HDMI Forum Sink Capability Data Structure (SCDS) from a byte slice
+/// where `scds[0]` is the Version byte.
 ///
-/// Returns `None` if the block is too short (fewer than 6 bytes: 2 reserved +
-/// 4 mandatory SCDS bytes).
+/// Used by both [`parse_hf_scdb`] (which skips two reserved prefix bytes first)
+/// and [`parse_hf_vsdb`] (where the SCDS starts immediately after the OUI).
 ///
-/// Layout (offsets from start of `block_data`):
-/// - `[0..1]`: Reserved (0x00)
-/// - `[2]`: SCDS Version (expected 1)
-/// - `[3]`: Max_TMDS_Character_Rate (× 5 = MHz; 0 → ≤ 340 MHz)
-/// - `[4]`: SCDC/3D flags
-/// - `[5]`: Max_FRL_Rate[7:4] | UHD_VIC[3] | DC_420 flags[2:0]
-/// - `[6]`: optional — FAPA/QMS/ALLM/VRR feature flags
-/// - `[7]`: optional — VRRmax[9:8] | VRRmin[5:0]
-/// - `[8]`: optional — VRRmax[7:0]
-/// - `[9]`: optional — DSC capability flags
-/// - `[10]`: optional — DSC_Max_FRL_Rate[7:4] | DSC_MaxSlices[3:0]
-/// - `[11]`: optional — DSC_MaxTotalChunkBytes[5:0]
-pub(super) fn parse_hf_scdb(block_data: &[u8]) -> Option<HdmiForumSinkCap> {
-    if block_data.len() < 6 {
+/// Returns `None` if `scds` is shorter than the 4 mandatory bytes.
+pub(super) fn parse_hdmi_scds(scds: &[u8]) -> Option<HdmiForumSinkCap> {
+    if scds.len() < 4 {
         return None;
     }
 
-    let version = block_data[2];
-    let max_tmds_rate_mhz = (block_data[3] as u16) * 5;
+    let version = scds[0];
+    let max_tmds_rate_mhz = (scds[1] as u16) * 5;
 
-    let scdc = block_data[4];
+    let scdc = scds[2];
     let scdc_present = (scdc >> 7) & 1 != 0;
     let rr_capable = (scdc >> 6) & 1 != 0;
     let cable_status = (scdc >> 5) & 1 != 0;
@@ -1333,14 +1323,14 @@ pub(super) fn parse_hf_scdb(block_data: &[u8]) -> Option<HdmiForumSinkCap> {
     let dual_view_3d = (scdc >> 1) & 1 != 0;
     let osd_disparity_3d = scdc & 1 != 0;
 
-    let frl_dc = block_data[5];
+    let frl_dc = scds[3];
     let max_frl_rate = HdmiForumFrl::from_raw((frl_dc >> 4) & 0x0F);
     let uhd_vic = (frl_dc >> 3) & 1 != 0;
     let dc_48bit_420 = (frl_dc >> 2) & 1 != 0;
     let dc_36bit_420 = (frl_dc >> 1) & 1 != 0;
     let dc_30bit_420 = frl_dc & 1 != 0;
 
-    // Optional extended section: feature flags (byte 6) + VRR range (bytes 7–8).
+    // Optional extended section: feature flags (byte 4) + VRR range (bytes 5–6).
     let (
         fapa_end_extended,
         qms,
@@ -1351,7 +1341,7 @@ pub(super) fn parse_hf_scdb(block_data: &[u8]) -> Option<HdmiForumSinkCap> {
         neg_mvrr,
         vrr_min_hz,
         vrr_max_hz,
-    ) = if let Some(&ext) = block_data.get(6) {
+    ) = if let Some(&ext) = scds.get(4) {
         let fapa_end_extended = (ext >> 7) & 1 != 0;
         let qms = (ext >> 6) & 1 != 0;
         let m_delta = (ext >> 5) & 1 != 0;
@@ -1361,10 +1351,10 @@ pub(super) fn parse_hf_scdb(block_data: &[u8]) -> Option<HdmiForumSinkCap> {
         let allm = (ext >> 1) & 1 != 0;
         let fapa_start_location = ext & 1 != 0;
 
-        let vrr = block_data.get(7).and_then(|&b7| {
-            block_data.get(8).map(|&b8| {
-                let vrr_min = b7 & 0x3F;
-                let vrr_max = ((b7 >> 6) as u16) << 8 | b8 as u16;
+        let vrr = scds.get(5).and_then(|&b5| {
+            scds.get(6).map(|&b6| {
+                let vrr_min = b5 & 0x3F;
+                let vrr_max = ((b5 >> 6) as u16) << 8 | b6 as u16;
                 (vrr_min, vrr_max)
             })
         });
@@ -1387,10 +1377,10 @@ pub(super) fn parse_hf_scdb(block_data: &[u8]) -> Option<HdmiForumSinkCap> {
         (false, false, false, false, false, false, false, None, None)
     };
 
-    // Optional DSC section (bytes 9–11).
-    let dsc = block_data.get(9).and_then(|&dsc_flags| {
-        let dsc_frl_slices = *block_data.get(10)?;
-        let chunk_raw = block_data.get(11).map_or(0, |&b| b & 0x3F);
+    // Optional DSC section (bytes 7–9).
+    let dsc = scds.get(7).and_then(|&dsc_flags| {
+        let dsc_frl_slices = *scds.get(8)?;
+        let chunk_raw = scds.get(9).map_or(0, |&b| b & 0x3F);
 
         let max_chunk_bytes = if chunk_raw == 0 {
             0
@@ -1404,7 +1394,6 @@ pub(super) fn parse_hf_scdb(block_data: &[u8]) -> Option<HdmiForumSinkCap> {
             qms_tfr_max: (dsc_flags >> 5) & 1 != 0,
             qms_tfr_min: (dsc_flags >> 4) & 1 != 0,
             all_bpc: (dsc_flags >> 3) & 1 != 0,
-            // bit 2 is reserved in SCDB (valid in HF-VSDB only)
             bpc12: (dsc_flags >> 1) & 1 != 0,
             bpc10: dsc_flags & 1 != 0,
             max_frl_rate: HdmiForumFrl::from_raw((dsc_frl_slices >> 4) & 0x0F),
@@ -1440,6 +1429,41 @@ pub(super) fn parse_hf_scdb(block_data: &[u8]) -> Option<HdmiForumSinkCap> {
         vrr_max_hz,
         dsc,
     })
+}
+
+/// Parses an HF-SCDB payload where `block_data` starts after the extended tag byte.
+///
+/// Layout (offsets from start of `block_data`):
+/// `[0..1]` = Reserved; `[2]` = Version; `[3]` = Max_TMDS_Character_Rate × 5 MHz;
+/// `[4]` = SCDC/3D flags; `[5]` = FRL/DC/UHD_VIC; `[6+]` = optional sections.
+///
+/// Returns `None` if fewer than 6 bytes (2 reserved + 4 mandatory SCDS bytes).
+pub(super) fn parse_hf_scdb(block_data: &[u8]) -> Option<HdmiForumSinkCap> {
+    if block_data.len() < 6 {
+        return None;
+    }
+    parse_hdmi_scds(&block_data[2..])
+}
+
+/// IEEE OUI for the HDMI Forum: `0xC45DD8` (stored little-endian as `[0xD8, 0x5D, 0xC4]`).
+pub(super) const HF_VSDB_OUI: [u8; 3] = [0xD8, 0x5D, 0xC4];
+
+/// Parses `block_data` (the full VSDB payload, starting with the 3-byte OUI)
+/// as an HDMI Forum VSDB (HF-VSDB, OUI `0xC45DD8`).
+///
+/// The HF-VSDB carries the SCDS immediately after the OUI, with no reserved
+/// prefix bytes.  The minimum valid block is 7 bytes: 3 OUI + 4 mandatory SCDS
+/// bytes (version, max TMDS rate, SCDC flags, FRL/DC flags).
+///
+/// Returns `None` if the OUI does not match or the block is too short.
+pub(super) fn parse_hf_vsdb(block_data: &[u8]) -> Option<HdmiForumSinkCap> {
+    if block_data.len() < 7 {
+        return None;
+    }
+    if block_data[0..3] != HF_VSDB_OUI {
+        return None;
+    }
+    parse_hdmi_scds(&block_data[3..])
 }
 
 // ---------------------------------------------------------------------------
@@ -2741,6 +2765,75 @@ mod tests {
         assert!(cap.allm); // feature flag was parsed
         assert!(cap.vrr_min_hz.is_none()); // VRR range absent (need both bytes)
         assert!(cap.vrr_max_hz.is_none());
+    }
+
+    // HF-VSDB tests
+
+    /// Builds a minimal valid HF-VSDB payload: OUI + 4-byte SCDS.
+    fn hf_vsdb_min(version: u8, tmds_div5: u8, scdc: u8, frl_dc: u8) -> Vec<u8> {
+        vec![0xD8, 0x5D, 0xC4, version, tmds_div5, scdc, frl_dc]
+    }
+
+    #[test]
+    fn test_hf_vsdb_basic_fields() {
+        // version=1, TMDS=120 → 600 MHz, SCDC_Present, Max_FRL_Rate=6 (12G×4), DC_48b_420
+        let data = hf_vsdb_min(1, 120, 0x80, (6 << 4) | 0x04);
+        let cap = parse_hf_vsdb(&data).unwrap();
+        assert_eq!(cap.version, 1);
+        assert_eq!(cap.max_tmds_rate_mhz, 600);
+        assert!(cap.scdc_present);
+        assert!(!cap.rr_capable);
+        assert_eq!(cap.max_frl_rate, HdmiForumFrl::Rate12Gbps4Lanes);
+        assert!(cap.dc_48bit_420);
+        assert!(!cap.dc_36bit_420);
+        assert!(!cap.dc_30bit_420);
+    }
+
+    #[test]
+    fn test_hf_vsdb_wrong_oui_returns_none() {
+        // OUI is HDMI Licensing (not Forum)
+        let data = vec![0x03, 0x0C, 0x00, 1, 0, 0, 0];
+        assert!(parse_hf_vsdb(&data).is_none());
+    }
+
+    #[test]
+    fn test_hf_vsdb_too_short_returns_none() {
+        // Only 6 bytes — need at least 7 (3 OUI + 4 SCDS)
+        let data = vec![0xD8, 0x5D, 0xC4, 1, 0, 0];
+        assert!(parse_hf_vsdb(&data).is_none());
+    }
+
+    #[test]
+    fn test_hf_vsdb_allm_and_vrr() {
+        // ALLM + VRR range: VRRmin=48, VRRmax=144
+        let mut data = hf_vsdb_min(1, 0, 0, 0);
+        data.push(0x02); // ext_byte: ALLM
+        data.push(48); // VRRmin=48, VRRmax[9:8]=0
+        data.push(144); // VRRmax[7:0]=144
+        let cap = parse_hf_vsdb(&data).unwrap();
+        assert!(cap.allm);
+        assert_eq!(cap.vrr_min_hz, Some(48));
+        assert_eq!(cap.vrr_max_hz, Some(144));
+    }
+
+    #[test]
+    fn test_hf_vsdb_scds_same_as_scdb() {
+        // The SCDS payload is identical for HF-VSDB and HF-SCDB.
+        // Build equivalent payloads and confirm equal parsed output.
+        let version = 1u8;
+        let tmds = 120u8;
+        let scdc = 0xC8u8; // SCDC_Present | RR_Capable | LTE_340
+        let frl_dc = (5u8 << 4) | 0x03; // FRL=5 (10G), DC_36b_420 | DC_30b_420
+
+        // HF-VSDB: OUI + SCDS directly
+        let vsdb_data = vec![0xD8, 0x5D, 0xC4, version, tmds, scdc, frl_dc];
+        let vsdb_cap = parse_hf_vsdb(&vsdb_data).unwrap();
+
+        // HF-SCDB: 2 reserved bytes + SCDS (as passed after ext tag strip)
+        let scdb_data = vec![0x00, 0x00, version, tmds, scdc, frl_dc];
+        let scdb_cap = parse_hf_scdb(&scdb_data).unwrap();
+
+        assert_eq!(vsdb_cap, scdb_cap);
     }
 
     // Extended tag coverage
