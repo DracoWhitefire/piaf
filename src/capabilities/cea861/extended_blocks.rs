@@ -10,6 +10,7 @@ pub(super) const EXT_TAG_VSADB: u8 = 0x11;
 pub(super) const EXT_TAG_T7VTDB: u8 = 0x22;
 pub(super) const EXT_TAG_T8VTDB: u8 = 0x23;
 pub(super) const EXT_TAG_T10VTDB: u8 = 0x2A;
+pub(super) const EXT_TAG_HF_EEODB: u8 = 0x78;
 pub(super) const EXT_TAG_COLORIMETRY: u8 = 0x05;
 pub(super) const EXT_TAG_HDR_STATIC_METADATA: u8 = 0x06;
 pub(super) const EXT_TAG_HDR_DYNAMIC_METADATA: u8 = 0x07;
@@ -1040,6 +1041,27 @@ pub(super) fn parse_t10vtdb(block_data: &[u8]) -> Option<T10VtdbBlock> {
     }
 
     Some(T10VtdbBlock { entries })
+}
+
+// ---------------------------------------------------------------------------
+// HDMI Forum EDID Extension Override Data Block (extended tag 0x78)
+// ---------------------------------------------------------------------------
+
+/// Parse the HF-EEODB payload (`block_data` starts after the extended tag byte).
+///
+/// Returns the EDID extension block count override, or `None` if the payload
+/// is empty or the count is zero (meaningless).
+///
+/// The HF-EEODB is defined in HDMI 2.1 section 10.3.6. It must be the first
+/// data block of Block 1 and overrides the extension count in the base EDID
+/// header for HDMI 2.1 sinks whose full E-EDID exceeds what the 1-byte base
+/// count can represent.
+pub(super) fn parse_hf_eeodb(block_data: &[u8]) -> Option<u8> {
+    let count = *block_data.first()?;
+    if count == 0 {
+        return None;
+    }
+    Some(count)
 }
 
 // ---------------------------------------------------------------------------
@@ -2220,5 +2242,24 @@ mod tests {
         data.push(0xFF); // orphan byte
         let t10 = parse_t10vtdb(&data).unwrap();
         assert_eq!(t10.entries.len(), 1); // only the complete descriptor
+    }
+
+    // HF-EEODB tests
+
+    #[test]
+    fn test_hf_eeodb_valid() {
+        assert_eq!(parse_hf_eeodb(&[5]), Some(5));
+        assert_eq!(parse_hf_eeodb(&[255]), Some(255));
+        assert_eq!(parse_hf_eeodb(&[1]), Some(1));
+    }
+
+    #[test]
+    fn test_hf_eeodb_zero_returns_none() {
+        assert!(parse_hf_eeodb(&[0]).is_none());
+    }
+
+    #[test]
+    fn test_hf_eeodb_empty_returns_none() {
+        assert!(parse_hf_eeodb(&[]).is_none());
     }
 }

@@ -33,7 +33,7 @@ Extended tag data blocks use outer CTA tag `0x07`, with the first payload byte a
 | `0x24`–`0x29` | Reserved | — reserved |
 | `0x2A` | DisplayID Type X Video Timing Data Block (T10VTDB) | ✓ implemented (`T10VtdbBlock`) |
 | `0x2B`–`0x77` | Reserved | — reserved |
-| `0x78` | HDMI Forum EDID Extension Override Data Block | — not yet |
+| `0x78` | HDMI Forum EDID Extension Override Data Block | ✓ implemented (`hf_eeodb_extension_count`) |
 | `0x79` | HDMI Forum Sink Capability Data Block | — not yet |
 | `0x7A`–`0x7F` | Reserved for HDMI | — reserved |
 | `0x80`–`0xFF` | Reserved | — reserved |
@@ -100,7 +100,23 @@ each (size = 6 + M, where M = bits[6:4] of the `rev` byte). Per descriptor:
 Full refresh Hz = `(x[5] | ((x[6] & 0x03) << 8)) + 1`. Implemented as `T10VtdbBlock`
 containing a `Vec<T10VtdbEntry>`. M > 2 is invalid and returns `None`.
 
-### HDMI Forum blocks (`0x78`, `0x79`)
+### HDMI Forum EDID Extension Override Data Block (`0x78`)
+
+Source: HDMI 2.1 section 10.3.6 (structure reconstructed from Linux kernel `drm_edid.c`
+and edid-decode; the full HDMI Forum spec requires membership).
+
+```
+Byte 1:  Tag Code (0x07) | Length = 2
+Byte 2:  Extended Tag Code (0x78)
+Byte 3:  EDID Extension Block Count (override value; 0 = invalid)
+```
+
+Must be the **first data block** in Block 1 (the first CTA-861 extension). Overrides the
+1-byte extension count in the base EDID header for HDMI 2.1 sinks whose full E-EDID
+exceeds what the base EDID byte can represent. Exposed as
+`Cea861Capabilities::hf_eeodb_extension_count: Option<u8>`.
+
+### HDMI Forum Sink Capability Data Block (`0x79`)
 
 Source: HDMI Forum EDID Extension Specification (not publicly available without HDMI Forum
 membership). Deferred until the spec can be sourced.

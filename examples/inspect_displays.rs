@@ -605,6 +605,12 @@ fn main() {
                                         }
                                     }
                                 }
+                                if let Some(count) = cea.hf_eeodb_extension_count {
+                                    println!(
+                                        "  HF-EEODB: extension block count override = {}",
+                                        count
+                                    );
+                                }
                                 if !cea.vtb_ext.is_empty() {
                                     let total: usize =
                                         cea.vtb_ext.iter().map(|v| v.timings.len()).sum();
