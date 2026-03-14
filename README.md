@@ -7,14 +7,17 @@ It accepts raw display identification bytes, validates and decodes them, and exp
 ## Quick start
 
 ```rust
-use piaf::{parse_edid, capabilities_from_edid, ExtensionLibrary};
+use piaf::{parse_edid, capabilities_from_edid, ExtensionLibrary, ScreenSize};
 
 let bytes: Vec<u8> = std::fs::read("/sys/class/drm/card0-HDMI-A-1/edid")?;
 let library = ExtensionLibrary::with_standard_handlers();
 let parsed = parse_edid(&bytes, &library)?;
 let caps = capabilities_from_edid(&parsed, &library);
 
-println!("{:?} — {}x{} cm", caps.display_name, caps.width_cm.unwrap_or(0), caps.height_cm.unwrap_or(0));
+println!("{:?}", caps.display_name);
+if let Some(ScreenSize::Physical { width_cm, height_cm }) = caps.screen_size {
+    println!("{}x{} cm", width_cm, height_cm);
+}
 ```
 
 ## Core pipeline
@@ -88,9 +91,26 @@ See [`examples/inspect_displays.rs`](examples/inspect_displays.rs) for a complet
 
 ## Status
 
-The core pipeline is complete and tested against real hardware captures. The base block is fully decoded. The extension system is stable and open for consumer use.
+The core pipeline is complete and tested against real hardware captures. The base block is fully decoded. The CEA-861 extension handler covers all major data block types. The extension system is stable and open for consumer use.
 
-Remaining work before a 0.1 release focuses on broader fixture coverage and CEA-861 expansion (Short Audio Descriptors, Short Video Descriptors, YCbCr encoding details).
+CEA-861 data blocks decoded by `Cea861Handler`:
+
+| Tag | Block | Notes |
+|-----|-------|-------|
+| `0x01` | Audio Data Block | Short Audio Descriptors (SADs) |
+| `0x02` | Video Data Block | VICs 1–127 (standard SVDs) and 128–255 (extended SVDs) |
+| `0x03` | Vendor-Specific Data Block | HDMI 1.x VSDB (OUI `0x000C03`) |
+| `0x04` | Speaker Allocation Data Block | Three-byte channel presence bitmask |
+| `0x05` | VESA Display Transfer Characteristic | 8/10/12-bit packed luminance points |
+| `0x07` ext `0x00` | Video Capability Data Block | Quantization range and overscan flags |
+| `0x07` ext `0x05` | Colorimetry Data Block | xvYCC, sYCC, opRGB, BT.2020 variants |
+| `0x07` ext `0x06` | HDR Static Metadata Data Block | EOTFs and luminance levels |
+| `0x07` ext `0x07` | HDR Dynamic Metadata Data Block | HDR10+, Dolby Vision application types |
+| `0x07` ext `0x0D` | Video Format Preference Data Block | Short Video References (SVRs) |
+| `0x07` ext `0x0E` | YCbCr 4:2:0 Video Data Block | 4:2:0-only VICs |
+| `0x07` ext `0x0F` | YCbCr 4:2:0 Capability Map | Per-VIC 4:2:0 capability bitmap |
+
+Remaining work before a 0.1 release: HDMI 2.0 VSDB (OUI `0xC45DD8`), broader fixture coverage, and DisplayID support.
 
 ## Documentation
 
