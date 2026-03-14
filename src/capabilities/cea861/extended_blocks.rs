@@ -8,6 +8,8 @@ pub(super) const EXT_TAG_VIDEO_FORMAT_PREFERENCE: u8 = 0x0D;
 pub(super) const EXT_TAG_Y420_VIDEO: u8 = 0x0E;
 pub(super) const EXT_TAG_Y420_CAPABILITY_MAP: u8 = 0x0F;
 pub(super) const EXT_TAG_HDMI_AUDIO: u8 = 0x12;
+pub(super) const EXT_TAG_ROOM_CONFIGURATION: u8 = 0x13;
+pub(super) const EXT_TAG_SPEAKER_LOCATION: u8 = 0x14;
 
 // ---------------------------------------------------------------------------
 // Video Capability Data Block (extended tag 0x00)
@@ -488,6 +490,69 @@ pub(super) fn parse_y420_capability_map(block_data: &[u8]) -> Vec<u8> {
     block_data[1..].to_vec()
 }
 
+// ---------------------------------------------------------------------------
+// Room Configuration Data Block (extended tag 0x13)
+// ---------------------------------------------------------------------------
+
+/// Decoded Room Configuration Data Block (extended tag `0x13`).
+///
+/// Describes the number of loudspeakers in the listening room and whether
+/// individual speaker locations are provided in an accompanying
+/// Speaker Location Data Block (extended tag `0x14`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RoomConfigurationBlock {
+    /// Number of loudspeakers in the room (bits 4:0).  `0` means not specified.
+    pub speaker_count: u8,
+    /// If `true`, individual speaker location entries are present in an
+    /// accompanying Speaker Location Data Block (extended tag `0x14`).
+    pub has_speaker_locations: bool,
+}
+
+pub(super) fn parse_room_configuration(block_data: &[u8]) -> Option<RoomConfigurationBlock> {
+    // block_data[0] = extended tag; payload byte at [1].
+    let b = *block_data.get(1)?;
+    Some(RoomConfigurationBlock {
+        speaker_count: b & 0x1F,
+        has_speaker_locations: b & 0x40 != 0,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Speaker Location Data Block (extended tag 0x14)
+// ---------------------------------------------------------------------------
+
+/// A single speaker location entry from the Speaker Location Data Block
+/// (extended tag `0x14`).
+///
+/// Each entry is two bytes: a channel assignment and a normalized distance
+/// from the listener (0 = closest, 255 = furthest).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpeakerLocationEntry {
+    /// Channel assignment code (speaker role).
+    ///
+    /// Values follow the CTA-861-I Table 49 channel assignment codes
+    /// (e.g. `0x00` = FL/FR, `0x01` = LFE1, `0x02` = FC, etc.).
+    pub channel_assignment: u8,
+    /// Normalized distance from the listener position.
+    ///
+    /// `0` = at or very close to the listener; `255` = furthest.
+    /// The absolute distance is not encoded.
+    pub distance: u8,
+}
+
+pub(super) fn parse_speaker_location(block_data: &[u8]) -> Vec<SpeakerLocationEntry> {
+    // block_data[0] = extended tag; entries start at [1], each 2 bytes.
+    block_data[1..]
+        .chunks_exact(2)
+        .map(|c| SpeakerLocationEntry {
+            channel_assignment: c[0],
+            distance: c[1],
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -690,5 +755,61 @@ mod tests {
     #[test]
     fn test_vesa_dtc_empty_returns_none() {
         assert!(parse_vesa_transfer_characteristic(&[]).is_none());
+    }
+
+    // --- Room Configuration Data Block tests ---
+
+    #[test]
+    fn test_room_configuration_basic() {
+        // 5 speakers, speaker location entries present
+        let data = [EXT_TAG_ROOM_CONFIGURATION, 0x45]; // 0b0100_0101: bit6=1, bits4:0=5
+        let rc = parse_room_configuration(&data).unwrap();
+        assert_eq!(rc.speaker_count, 5);
+        assert!(rc.has_speaker_locations);
+    }
+
+    #[test]
+    fn test_room_configuration_no_locations() {
+        // 7 speakers, no location data
+        let data = [EXT_TAG_ROOM_CONFIGURATION, 0x07]; // bit6=0, count=7
+        let rc = parse_room_configuration(&data).unwrap();
+        assert_eq!(rc.speaker_count, 7);
+        assert!(!rc.has_speaker_locations);
+    }
+
+    #[test]
+    fn test_room_configuration_too_short_returns_none() {
+        let data = [EXT_TAG_ROOM_CONFIGURATION];
+        assert!(parse_room_configuration(&data).is_none());
+    }
+
+    // --- Speaker Location Data Block tests ---
+
+    #[test]
+    fn test_speaker_location_entries() {
+        // Two entries: FL/FR at distance 100, LFE1 at distance 80
+        let data = [EXT_TAG_SPEAKER_LOCATION, 0x00, 100, 0x01, 80];
+        let entries = parse_speaker_location(&data);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].channel_assignment, 0x00);
+        assert_eq!(entries[0].distance, 100);
+        assert_eq!(entries[1].channel_assignment, 0x01);
+        assert_eq!(entries[1].distance, 80);
+    }
+
+    #[test]
+    fn test_speaker_location_odd_trailing_byte_ignored() {
+        // Three bytes after tag = one complete entry + one orphan byte → 1 entry
+        let data = [EXT_TAG_SPEAKER_LOCATION, 0x02, 50, 0xFF];
+        let entries = parse_speaker_location(&data);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].channel_assignment, 0x02);
+        assert_eq!(entries[0].distance, 50);
+    }
+
+    #[test]
+    fn test_speaker_location_empty_block() {
+        let data = [EXT_TAG_SPEAKER_LOCATION];
+        assert!(parse_speaker_location(&data).is_empty());
     }
 }

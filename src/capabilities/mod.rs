@@ -8,9 +8,10 @@ pub use cea861::Cea861Flags;
 pub use cea861::{
     AudioFormat, AudioFormatInfo, AudioSampleRates, Cea861Capabilities, Cea861Handler,
     ColorimetryBlock, ColorimetryFlags, DtcPointEncoding, HdmiAudioBlock, HdmiVsdb, HdmiVsdbFlags,
-    HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata, ShortAudioDescriptor,
-    SpeakerAllocation, SpeakerAllocationFlags, SpeakerAllocationFlags2, SpeakerAllocationFlags3,
-    VesaTransferCharacteristic, VideoCapability, VideoCapabilityFlags,
+    HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata, RoomConfigurationBlock,
+    ShortAudioDescriptor, SpeakerAllocation, SpeakerAllocationFlags, SpeakerAllocationFlags2,
+    SpeakerAllocationFlags3, SpeakerLocationEntry, VesaTransferCharacteristic, VideoCapability,
+    VideoCapabilityFlags,
 };
 
 use crate::model::capabilities::DisplayCapabilities;

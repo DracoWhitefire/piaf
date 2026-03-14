@@ -56,7 +56,8 @@ pub use capabilities::Cea861Flags;
 pub use capabilities::{
     AudioFormat, AudioFormatInfo, AudioSampleRates, Cea861Capabilities, Cea861Handler,
     ColorimetryBlock, ColorimetryFlags, DtcPointEncoding, HdmiAudioBlock, HdmiVsdb, HdmiVsdbFlags,
-    HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata, ShortAudioDescriptor,
-    SpeakerAllocation, SpeakerAllocationFlags, SpeakerAllocationFlags2, SpeakerAllocationFlags3,
-    VesaTransferCharacteristic, VideoCapability, VideoCapabilityFlags,
+    HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata, RoomConfigurationBlock,
+    ShortAudioDescriptor, SpeakerAllocation, SpeakerAllocationFlags, SpeakerAllocationFlags2,
+    SpeakerAllocationFlags3, SpeakerLocationEntry, VesaTransferCharacteristic, VideoCapability,
+    VideoCapabilityFlags,
 };
