@@ -8,7 +8,7 @@ use crate::model::prelude::Vec;
 
 mod descriptors;
 mod header;
-mod timings;
+pub(crate) mod timings;
 
 /// Decodes the EDID base block into [`DisplayCapabilities`].
 ///

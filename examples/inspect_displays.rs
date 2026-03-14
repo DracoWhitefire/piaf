@@ -235,14 +235,11 @@ fn main() {
 
                             if !caps.supported_modes.is_empty() {
                                 println!("  Supported Modes ({}):", caps.supported_modes.len());
-                                for mode in caps.supported_modes.iter().take(5) {
+                                for mode in caps.supported_modes.iter() {
                                     println!(
                                         "    - {}x{}@{}Hz",
                                         mode.width, mode.height, mode.refresh_rate
                                     );
-                                }
-                                if caps.supported_modes.len() > 5 {
-                                    println!("    ... and {} more", caps.supported_modes.len() - 5);
                                 }
                             }
 

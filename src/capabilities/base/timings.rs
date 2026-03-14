@@ -82,133 +82,146 @@ pub(super) fn decode_standard_timings(base: &[u8; 128], caps: &mut DisplayCapabi
     }
 }
 
+/// Decodes a single 18-byte Detailed Timing Descriptor slice into [`DisplayCapabilities`].
+///
+/// Returns without modifying `caps` if the slot is a monitor descriptor (zero pixel clock)
+/// or contains invalid geometry. If the mode already exists in `caps.supported_modes` it is
+/// upgraded in place (preserving sync timing that may have been missing from an earlier source);
+/// otherwise it is appended.
+///
+/// This is `pub(crate)` so that the CEA-861 handler can reuse it for DTDs in extension blocks.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities) {
+    debug_assert!(dtd.len() >= 18, "DTD slot must be at least 18 bytes");
+
+    if dtd[0] == 0x00 && dtd[1] == 0x00 {
+        return; // monitor descriptor, not a DTD
+    }
+
+    let pixel_clock = ((dtd[1] as u32) << 8) | (dtd[0] as u32);
+    if pixel_clock == 0 {
+        return;
+    }
+
+    let hactive = (((dtd[4] as u16) & 0xF0) << 4) | (dtd[2] as u16);
+    let hblank = (((dtd[4] as u16) & 0x0F) << 8) | (dtd[3] as u16);
+    let vactive = (((dtd[7] as u16) & 0xF0) << 4) | (dtd[5] as u16);
+    let vblank = (((dtd[7] as u16) & 0x0F) << 8) | (dtd[6] as u16);
+
+    if hactive == 0 || vactive == 0 || hblank == 0 || vblank == 0 {
+        return;
+    }
+
+    let total_pixels = (hactive + hblank) as u32 * (vactive + vblank) as u32;
+    if total_pixels == 0 {
+        return;
+    }
+
+    let rate = (pixel_clock * 10_000) / total_pixels;
+    let Some(refresh_rate) = u8::try_from(rate).ok() else {
+        return;
+    };
+
+    let interlaced = dtd[17] & 0x80 != 0;
+
+    // Sync timing (bytes 8-11).
+    // H values are 10-bit; V values are 6-bit. Byte 11 holds all four MSB pairs.
+    let h_front_porch = (((dtd[11] as u16) >> 6) << 8) | (dtd[8] as u16);
+    let h_sync_width = ((((dtd[11] as u16) >> 4) & 0x03) << 8) | (dtd[9] as u16);
+    let v_front_porch =
+        ((((dtd[11] as u16) >> 2) & 0x03) << 4) | (((dtd[10] as u16) >> 4) & 0x0F);
+    let v_sync_width = (((dtd[11] as u16) & 0x03) << 4) | ((dtd[10] as u16) & 0x0F);
+
+    // Physical image area in mm: 12-bit H from byte 12 + upper nibble of byte 14,
+    // 12-bit V from byte 13 + lower nibble of byte 14. Both zero = undefined.
+    let h_mm = (((dtd[14] as u16) & 0xF0) << 4) | (dtd[12] as u16);
+    let v_mm = (((dtd[14] as u16) & 0x0F) << 8) | (dtd[13] as u16);
+    if h_mm != 0 && v_mm != 0 && caps.preferred_image_size_mm.is_none() {
+        caps.preferred_image_size_mm = Some((h_mm, v_mm));
+    }
+
+    // Border (bytes 15-16): pixels/lines on each side of the active area.
+    let h_border = dtd[15];
+    let v_border = dtd[16];
+
+    // Stereo (byte 17 bits 6, 5, and 0 — non-contiguous three-bit code).
+    let stereo = match ((dtd[17] >> 5) & 0x03, dtd[17] & 0x01) {
+        (0b00, _) => StereoMode::None,
+        (0b01, 0) => StereoMode::FieldSequentialRightFirst,
+        (0b10, 0) => StereoMode::FieldSequentialLeftFirst,
+        (0b01, 1) => StereoMode::TwoWayInterleavedRightEven,
+        (0b10, 1) => StereoMode::TwoWayInterleavedLeftEven,
+        (0b11, 0) => StereoMode::FourWayInterleaved,
+        _ => StereoMode::SideBySideInterleaved,
+    };
+
+    // Sync (byte 17 bits 4-1): bit 4 = digital, bit 3 = sync subtype.
+    let sync = Some(if dtd[17] & 0x10 == 0 {
+        // Analog
+        let serrations = dtd[17] & 0x04 != 0;
+        let sync_on_all_rgb = dtd[17] & 0x02 != 0;
+        if dtd[17] & 0x08 == 0 {
+            SyncDefinition::AnalogComposite {
+                serrations,
+                sync_on_all_rgb,
+            }
+        } else {
+            SyncDefinition::BipolarAnalogComposite {
+                serrations,
+                sync_on_all_rgb,
+            }
+        }
+    } else {
+        // Digital
+        let h_sync_positive = dtd[17] & 0x02 != 0;
+        if dtd[17] & 0x08 == 0 {
+            SyncDefinition::DigitalComposite {
+                serrations: dtd[17] & 0x04 != 0,
+                h_sync_positive,
+            }
+        } else {
+            SyncDefinition::DigitalSeparate {
+                v_sync_positive: dtd[17] & 0x04 != 0,
+                h_sync_positive,
+            }
+        }
+    });
+
+    let mode = VideoMode {
+        width: hactive,
+        height: vactive,
+        refresh_rate,
+        interlaced,
+        h_front_porch,
+        h_sync_width,
+        v_front_porch,
+        v_sync_width,
+        h_border,
+        v_border,
+        stereo,
+        sync,
+    };
+    // If a mode with matching identity (w/h/rate/interlaced) was already added from a
+    // non-DTD source (which has zero sync fields), upgrade it in place. Otherwise append.
+    if let Some(existing) = caps.supported_modes.iter_mut().find(|m| {
+        m.width == mode.width
+            && m.height == mode.height
+            && m.refresh_rate == mode.refresh_rate
+            && m.interlaced == mode.interlaced
+    }) {
+        *existing = mode;
+    } else {
+        caps.supported_modes.push(mode);
+    }
+}
+
 /// Decodes the four detailed timing descriptor (DTD) slots (offsets 0x36, 0x48, 0x5A, 0x6C).
 /// Slots with a zero pixel clock are monitor descriptors and are skipped here.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn decode_detailed_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) {
     for i in 0..4 {
         let offset = 0x36 + (i * 18);
-        let dtd = &base[offset..offset + 18];
-
-        if dtd[0] == 0x00 && dtd[1] == 0x00 {
-            continue;
-        }
-
-        let pixel_clock = ((dtd[1] as u32) << 8) | (dtd[0] as u32);
-        if pixel_clock == 0 {
-            continue;
-        }
-
-        let hactive = (((dtd[4] as u16) & 0xF0) << 4) | (dtd[2] as u16);
-        let hblank = (((dtd[4] as u16) & 0x0F) << 8) | (dtd[3] as u16);
-        let vactive = (((dtd[7] as u16) & 0xF0) << 4) | (dtd[5] as u16);
-        let vblank = (((dtd[7] as u16) & 0x0F) << 8) | (dtd[6] as u16);
-
-        if hactive == 0 || vactive == 0 || hblank == 0 || vblank == 0 {
-            continue;
-        }
-
-        let total_pixels = (hactive + hblank) as u32 * (vactive + vblank) as u32;
-        if total_pixels == 0 {
-            continue;
-        }
-
-        let rate = (pixel_clock * 10_000) / total_pixels;
-        let Some(refresh_rate) = u8::try_from(rate).ok() else {
-            continue;
-        };
-
-        let interlaced = dtd[17] & 0x80 != 0;
-
-        // Sync timing (bytes 8-11).
-        // H values are 10-bit; V values are 6-bit. Byte 11 holds all four MSB pairs.
-        let h_front_porch = (((dtd[11] as u16) >> 6) << 8) | (dtd[8] as u16);
-        let h_sync_width = ((((dtd[11] as u16) >> 4) & 0x03) << 8) | (dtd[9] as u16);
-        let v_front_porch =
-            ((((dtd[11] as u16) >> 2) & 0x03) << 4) | (((dtd[10] as u16) >> 4) & 0x0F);
-        let v_sync_width = (((dtd[11] as u16) & 0x03) << 4) | ((dtd[10] as u16) & 0x0F);
-
-        // Physical image area in mm: 12-bit H from byte 12 + upper nibble of byte 14,
-        // 12-bit V from byte 13 + lower nibble of byte 14. Both zero = undefined.
-        let h_mm = (((dtd[14] as u16) & 0xF0) << 4) | (dtd[12] as u16);
-        let v_mm = (((dtd[14] as u16) & 0x0F) << 8) | (dtd[13] as u16);
-        if h_mm != 0 && v_mm != 0 && caps.preferred_image_size_mm.is_none() {
-            caps.preferred_image_size_mm = Some((h_mm, v_mm));
-        }
-
-        // Border (bytes 15-16): pixels/lines on each side of the active area.
-        let h_border = dtd[15];
-        let v_border = dtd[16];
-
-        // Stereo (byte 17 bits 6, 5, and 0 — non-contiguous three-bit code).
-        let stereo = match ((dtd[17] >> 5) & 0x03, dtd[17] & 0x01) {
-            (0b00, _) => StereoMode::None,
-            (0b01, 0) => StereoMode::FieldSequentialRightFirst,
-            (0b10, 0) => StereoMode::FieldSequentialLeftFirst,
-            (0b01, 1) => StereoMode::TwoWayInterleavedRightEven,
-            (0b10, 1) => StereoMode::TwoWayInterleavedLeftEven,
-            (0b11, 0) => StereoMode::FourWayInterleaved,
-            _ => StereoMode::SideBySideInterleaved,
-        };
-
-        // Sync (byte 17 bits 4-1): bit 4 = digital, bit 3 = sync subtype.
-        let sync = Some(if dtd[17] & 0x10 == 0 {
-            // Analog
-            let serrations = dtd[17] & 0x04 != 0;
-            let sync_on_all_rgb = dtd[17] & 0x02 != 0;
-            if dtd[17] & 0x08 == 0 {
-                SyncDefinition::AnalogComposite {
-                    serrations,
-                    sync_on_all_rgb,
-                }
-            } else {
-                SyncDefinition::BipolarAnalogComposite {
-                    serrations,
-                    sync_on_all_rgb,
-                }
-            }
-        } else {
-            // Digital
-            let h_sync_positive = dtd[17] & 0x02 != 0;
-            if dtd[17] & 0x08 == 0 {
-                SyncDefinition::DigitalComposite {
-                    serrations: dtd[17] & 0x04 != 0,
-                    h_sync_positive,
-                }
-            } else {
-                SyncDefinition::DigitalSeparate {
-                    v_sync_positive: dtd[17] & 0x04 != 0,
-                    h_sync_positive,
-                }
-            }
-        });
-
-        let mode = VideoMode {
-            width: hactive,
-            height: vactive,
-            refresh_rate,
-            interlaced,
-            h_front_porch,
-            h_sync_width,
-            v_front_porch,
-            v_sync_width,
-            h_border,
-            v_border,
-            stereo,
-            sync,
-        };
-        // If a mode with matching identity (w/h/rate/interlaced) was already added from a
-        // non-DTD source (which has zero sync fields), upgrade it in place. Otherwise append.
-        if let Some(existing) = caps.supported_modes.iter_mut().find(|m| {
-            m.width == mode.width
-                && m.height == mode.height
-                && m.refresh_rate == mode.refresh_rate
-                && m.interlaced == mode.interlaced
-        }) {
-            *existing = mode;
-        } else {
-            caps.supported_modes.push(mode);
-        }
+        decode_dtd_slot(&base[offset..offset + 18], caps);
     }
 }
 

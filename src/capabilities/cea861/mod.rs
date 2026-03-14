@@ -8,6 +8,8 @@ use crate::model::extension::ExtensionHandler;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::Vec;
 #[cfg(any(feature = "alloc", feature = "std"))]
+use crate::capabilities::base::timings::decode_dtd_slot;
+#[cfg(any(feature = "alloc", feature = "std"))]
 use vic_table::vic_to_mode;
 
 bitflags::bitflags! {
@@ -136,6 +138,16 @@ impl ExtensionHandler for Cea861Handler {
             }
         }
 
+        // Parse Detailed Timing Descriptors from byte dtd_offset through byte 126.
+        // When dtd_offset == 0 there are no DTDs (the spec says no timing data present).
+        if dtd_offset >= 4 && dtd_offset <= 110 {
+            let mut offset = dtd_offset;
+            while offset + 18 <= 127 {
+                decode_dtd_slot(&ext[offset..offset + 18], caps);
+                offset += 18;
+            }
+        }
+
         caps.set_extension_data(0x02, cea_caps);
     }
 }
@@ -254,6 +266,59 @@ mod tests {
 
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         assert!(cea.vics.is_empty());
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    /// Builds a minimal valid 18-byte DTD for 2560×1440@144Hz into `ext` starting at `offset`.
+    ///
+    /// Pixel clock = 583.92 MHz → stored as 58392 (little-endian units of 10 kHz).
+    /// Htotal = 2720 (active 2560 + blank 160), Vtotal = 1481 (active 1440 + blank 41).
+    /// 58392 * 10000 / (2720 * 1481) = 144.8 → rounds to 144.
+    fn write_dtd_2560x1440_144(ext: &mut [u8; 128], offset: usize) {
+        let clk: u16 = 58392; // 10 kHz units
+        ext[offset]     = (clk & 0xFF) as u8;
+        ext[offset + 1] = (clk >> 8) as u8;
+        // hactive=2560, hblank=160
+        ext[offset + 2] = (2560 & 0xFF) as u8;         // hactive low
+        ext[offset + 3] = (160 & 0xFF) as u8;          // hblank low
+        ext[offset + 4] = (((2560 >> 4) & 0xF0) | ((160 >> 8) & 0x0F)) as u8;
+        // vactive=1440, vblank=41
+        ext[offset + 5] = (1440 & 0xFF) as u8;         // vactive low
+        ext[offset + 6] = (41 & 0xFF) as u8;           // vblank low
+        ext[offset + 7] = (((1440 >> 4) & 0xF0) | ((41 >> 8) & 0x0F)) as u8;
+        // bytes 8-16: sync/image (leave zero — minimal)
+        // byte 17: digital separate sync, both polarities positive
+        ext[offset + 17] = 0x1E; // bit4=digital, bit3=separate, bit2=Vpos, bit1=Hpos
+    }
+
+    #[test]
+    fn test_cea_dtd_parsed() {
+        let mut ext = [0u8; 128];
+        // No data block collection; DTDs start at offset 4.
+        ext[2] = 4; // dtd_offset = 4
+        write_dtd_2560x1440_144(&mut ext, 4);
+
+        let mut caps = DisplayCapabilities::default();
+        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 2560 && m.height == 1440 && m.refresh_rate == 144),
+            "2560×1440@144 not found in supported_modes"
+        );
+    }
+
+    #[test]
+    fn test_cea_dtd_zero_clock_skipped() {
+        // A DTD slot whose first two bytes are 0x00 is a monitor descriptor and must be skipped.
+        let mut ext = [0u8; 128];
+        ext[2] = 4; // dtd_offset = 4 — no data blocks, DTDs start immediately
+        // ext[4..22] stays all-zero → zero pixel clock → skipped
+
+        let mut caps = DisplayCapabilities::default();
+        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+
         assert!(caps.supported_modes.is_empty());
     }
 }
