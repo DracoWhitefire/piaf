@@ -13,8 +13,8 @@ pub use extended_blocks::{
     infoframe_type, ColorimetryBlock, ColorimetryFlags, DtcPointEncoding,
     HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata, InfoFrameDescriptor,
     RoomConfigurationBlock, SpeakerAllocation, SpeakerAllocationFlags, SpeakerAllocationFlags2,
-    SpeakerAllocationFlags3, SpeakerLocationEntry, VesaTransferCharacteristic, VideoCapability,
-    VideoCapabilityFlags,
+    SpeakerAllocationFlags3, SpeakerLocationEntry, VesaDisplayDeviceBlock,
+    VesaTransferCharacteristic, VideoCapability, VideoCapabilityFlags, VtbExtBlock,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use hdmi_vsdb::{HdmiVsdb, HdmiVsdbFlags};
@@ -34,11 +34,13 @@ use audio::parse_audio_data_block;
 use extended_blocks::{
     parse_colorimetry, parse_hdr_dynamic_metadata, parse_hdr_static_metadata, parse_infoframe_db,
     parse_room_configuration, parse_speaker_allocation, parse_speaker_location,
-    parse_vesa_transfer_characteristic, parse_video_capability, parse_video_format_preferences,
-    parse_y420_capability_map, parse_y420_vdb, EXT_TAG_COLORIMETRY, EXT_TAG_HDMI_AUDIO,
-    EXT_TAG_HDR_DYNAMIC_METADATA, EXT_TAG_HDR_STATIC_METADATA, EXT_TAG_INFOFRAME,
-    EXT_TAG_ROOM_CONFIGURATION, EXT_TAG_SPEAKER_LOCATION, EXT_TAG_VIDEO_CAPABILITY,
-    EXT_TAG_VIDEO_FORMAT_PREFERENCE, EXT_TAG_Y420_CAPABILITY_MAP, EXT_TAG_Y420_VIDEO,
+    parse_vesa_display_device, parse_vesa_transfer_characteristic, parse_video_capability,
+    parse_video_format_preferences, parse_vtb_ext, parse_y420_capability_map, parse_y420_vdb,
+    EXT_TAG_COLORIMETRY, EXT_TAG_HDMI_AUDIO, EXT_TAG_HDR_DYNAMIC_METADATA,
+    EXT_TAG_HDR_STATIC_METADATA, EXT_TAG_INFOFRAME, EXT_TAG_ROOM_CONFIGURATION,
+    EXT_TAG_SPEAKER_LOCATION, EXT_TAG_VESA_DDDB, EXT_TAG_VIDEO_CAPABILITY,
+    EXT_TAG_VIDEO_FORMAT_PREFERENCE, EXT_TAG_VTB_EXT, EXT_TAG_Y420_CAPABILITY_MAP,
+    EXT_TAG_Y420_VIDEO,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use hdmi_vsdb::parse_hdmi_vsdb;
@@ -148,6 +150,17 @@ pub struct Cea861Capabilities {
     /// Short Video Descriptor in the standard Video Data Block. A set bit means
     /// that mode also supports YCbCr 4:2:0.
     pub y420_capability_map: Vec<u8>,
+    /// Decoded VESA Display Device Data Block (extended tag `0x02`), if present.
+    ///
+    /// Describes the physical and electrical characteristics of the display, including
+    /// interface type, native resolution, pixel pitch, and audio support.
+    pub vesa_display_device: Option<VesaDisplayDeviceBlock>,
+    /// Additional timing modes from VESA Video Timing Block Extension blocks
+    /// (extended tag `0x03`).
+    ///
+    /// Each element corresponds to one VTB-EXT data block. The decoded timings are
+    /// also added to [`DisplayCapabilities::supported_modes`].
+    pub vtb_ext: Vec<VtbExtBlock>,
 }
 
 /// Processes a CEA-861 extension block (tag `0x02`).
@@ -184,6 +197,8 @@ impl ExtensionHandler for Cea861Handler {
             video_format_preferences: Vec::new(),
             y420_vics: Vec::new(),
             y420_capability_map: Vec::new(),
+            vesa_display_device: None,
+            vtb_ext: Vec::new(),
         };
 
         // Parse the data block collection: bytes 4 through dtd_offset-1.
@@ -282,6 +297,26 @@ impl ExtensionHandler for Cea861Handler {
                 } else if tag == 0x07 {
                     // Extended Tag Data Block: first payload byte is the extended tag.
                     match block_data.first().copied() {
+                        Some(EXT_TAG_VESA_DDDB) if cea_caps.vesa_display_device.is_none() => {
+                            cea_caps.vesa_display_device =
+                                parse_vesa_display_device(&block_data[1..]);
+                        }
+                        Some(EXT_TAG_VTB_EXT) => {
+                            if let Some(vtb) = parse_vtb_ext(&block_data[1..]) {
+                                for timing in &vtb.timings {
+                                    let already_present = caps.supported_modes.iter().any(|m| {
+                                        m.width == timing.width
+                                            && m.height == timing.height
+                                            && m.refresh_rate == timing.refresh_rate
+                                            && m.interlaced == timing.interlaced
+                                    });
+                                    if !already_present {
+                                        caps.supported_modes.push(timing.clone());
+                                    }
+                                }
+                                cea_caps.vtb_ext.push(vtb);
+                            }
+                        }
                         Some(EXT_TAG_VIDEO_CAPABILITY) if cea_caps.video_capability.is_none() => {
                             cea_caps.video_capability = parse_video_capability(block_data);
                         }

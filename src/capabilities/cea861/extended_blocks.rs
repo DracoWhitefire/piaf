@@ -1,5 +1,9 @@
+use crate::model::capabilities::VideoMode;
+
 /// Extended tag codes used in CEA Extended Tag Data Blocks (outer tag `0x07`).
 /// The first byte of the block payload is the extended tag.
+pub(super) const EXT_TAG_VESA_DDDB: u8 = 0x02;
+pub(super) const EXT_TAG_VTB_EXT: u8 = 0x03;
 pub(super) const EXT_TAG_VIDEO_CAPABILITY: u8 = 0x00;
 pub(super) const EXT_TAG_COLORIMETRY: u8 = 0x05;
 pub(super) const EXT_TAG_HDR_STATIC_METADATA: u8 = 0x06;
@@ -631,6 +635,361 @@ pub(super) fn parse_infoframe_db(block_data: &[u8]) -> Vec<InfoFrameDescriptor> 
     out
 }
 
+// ---------------------------------------------------------------------------
+// VESA Display Device Data Block (extended tag 0x02)
+// ---------------------------------------------------------------------------
+
+/// Decoded VESA Display Device Data Block (extended tag `0x02`).
+///
+/// A fixed 30-byte payload describing the physical and electrical characteristics
+/// of the display, per the VESA Display Device Data Block (DDDB) Standard, Version 1.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VesaDisplayDeviceBlock {
+    /// Interface type code (bits 7:4). 0=Analog, 1=LVDS, 3=DVI-D, 6=HDMI-A, 9=DP, etc.
+    pub interface_type: u8,
+    /// Number of lanes/channels (bits 3:0). For analog interfaces this is a subtype code.
+    pub num_links: u8,
+    /// Interface standard version (bits 7:4 of byte 0x03).
+    pub interface_version: u8,
+    /// Interface standard release (bits 3:0 of byte 0x03).
+    pub interface_release: u8,
+    /// Content protection code (byte 0x04). 0=none, 1=HDCP, 2=DTCP, 3=DPCP.
+    pub content_protection: u8,
+    /// Minimum supported clock frequency per link in MHz (6-bit, range 0–63).
+    pub min_clock_mhz: u8,
+    /// Maximum supported clock frequency per link in MHz (10-bit, range 0–1023).
+    pub max_clock_mhz: u16,
+    /// Native horizontal pixel count, or `None` if the display has no fixed format.
+    pub native_width: Option<u16>,
+    /// Native vertical pixel count, or `None` if the display has no fixed format.
+    pub native_height: Option<u16>,
+    /// Aspect ratio raw byte. Physical AR = (raw / 100.0) + 1.0 (long-axis / short-axis).
+    pub aspect_ratio_raw: u8,
+    /// Default orientation: 0=landscape, 1=portrait, 2=not_fixed, 3=undefined.
+    pub default_orientation: u8,
+    /// Rotation capability: 0=none, 1=90°CW, 2=90°CCW, 3=both.
+    pub rotation_capability: u8,
+    /// Zero pixel (scan origin) location: 0=upper-left, 1=upper-right, 2=lower-left, 3=lower-right.
+    pub zero_pixel_location: u8,
+    /// Scan direction: 0=undefined, 1=long-axis-fast, 2=short-axis-fast, 3=reserved.
+    pub scan_direction: u8,
+    /// Subpixel layout code (byte 0x0D). 0=undefined, 1=RGB-V, 2=RGB-H, etc.
+    pub subpixel_layout: u8,
+    /// Horizontal pixel pitch in 0.01 mm increments (range 0.00–2.55 mm).
+    pub h_pitch_hundredths_mm: u8,
+    /// Vertical pixel pitch in 0.01 mm increments (range 0.00–2.55 mm).
+    pub v_pitch_hundredths_mm: u8,
+    /// Dithering type: 0=none, 1=spatial, 2=temporal, 3=spatial+temporal.
+    pub dithering: u8,
+    /// Display is direct-drive — no internal scaling/de-interlacing/FRC.
+    pub direct_drive: bool,
+    /// Video source should not apply overdrive for this display.
+    pub overdrive_not_recommended: bool,
+    /// Display can de-interlace interlaced input to progressive scan.
+    pub deinterlacing: bool,
+    /// Audio is supported on the video interface.
+    pub audio_on_video_interface: bool,
+    /// Separate audio inputs are provided independently of the video interface.
+    pub separate_audio_inputs: bool,
+    /// Audio received on the video interface automatically overrides other audio inputs.
+    pub audio_input_override: bool,
+    /// Signed audio delay in milliseconds (positive = audio after video, negative = before).
+    /// `None` means no delay information is provided (raw delay byte was 0x00).
+    pub audio_delay_ms: Option<i16>,
+    /// Frame-rate conversion capability: 0=none, 1=single-buffer, 2=double-buffer, 3=interpolation.
+    pub frame_rate_conversion: u8,
+    /// Maximum excursion (±FPS) from the nominal frame rate (6 bits, 0–63).
+    pub frame_rate_range: u8,
+    /// Native or nominal display frame rate in frames/second.
+    pub native_frame_rate: u8,
+    /// Color bit depth per primary on the video interface (1–16).
+    pub interface_color_depth: u8,
+    /// Color bit depth per primary at the display panel without temporal dithering (1–16).
+    pub display_color_depth: u8,
+    /// Raw bytes 0x16–0x1D: chromaticity data for up to three additional primaries.
+    pub additional_chromaticities: [u8; 8],
+    /// Response time in milliseconds (0 = < 1 ms, 127 = > 126 ms).
+    pub response_time_ms: u8,
+    /// `true` if the response time is white-to-black; `false` if black-to-white.
+    pub response_time_white_to_black: bool,
+    /// Percentage of active image outside the visible screen area, horizontally (0–15%).
+    pub h_overscan_pct: u8,
+    /// Percentage of active image outside the visible screen area, vertically (0–15%).
+    pub v_overscan_pct: u8,
+}
+
+pub(super) fn parse_vesa_display_device(block_data: &[u8]) -> Option<VesaDisplayDeviceBlock> {
+    // Fixed 30-byte payload after the extended tag byte.
+    if block_data.len() < 30 {
+        return None;
+    }
+
+    let interface_type = block_data[0] >> 4;
+    let num_links = block_data[0] & 0x0F;
+    let interface_version = block_data[1] >> 4;
+    let interface_release = block_data[1] & 0x0F;
+    let content_protection = block_data[2];
+
+    // Clock frequency:
+    //   Byte 0x05: [m5 m4 m3 m2 m1 m0 M9 M8]  → min = bits 7:2, max hi = bits 1:0
+    //   Byte 0x06: [M7 M6 M5 M4 M3 M2 M1 M0]  → max lo
+    let min_clock_mhz = block_data[3] >> 2;
+    let max_clock_mhz = ((block_data[3] as u16 & 0x03) << 8) | block_data[4] as u16;
+
+    // Native pixel format: 16-bit little-endian pairs, stored as (count - 1).
+    // All-zero means no fixed pixel format.
+    let h_raw = u16::from_le_bytes([block_data[5], block_data[6]]);
+    let v_raw = u16::from_le_bytes([block_data[7], block_data[8]]);
+    let (native_width, native_height) = if h_raw == 0 && v_raw == 0 {
+        (None, None)
+    } else {
+        (Some(h_raw.saturating_add(1)), Some(v_raw.saturating_add(1)))
+    };
+
+    let aspect_ratio_raw = block_data[9];
+    let default_orientation = (block_data[10] >> 6) & 0x03;
+    let rotation_capability = (block_data[10] >> 4) & 0x03;
+    let zero_pixel_location = (block_data[10] >> 2) & 0x03;
+    let scan_direction = block_data[10] & 0x03;
+
+    let subpixel_layout = block_data[11];
+    let h_pitch_hundredths_mm = block_data[12];
+    let v_pitch_hundredths_mm = block_data[13];
+
+    let misc = block_data[14];
+    let dithering = (misc >> 6) & 0x03;
+    let direct_drive = misc & 0x20 != 0;
+    let overdrive_not_recommended = misc & 0x10 != 0;
+    let deinterlacing = misc & 0x08 != 0;
+
+    let audio = block_data[15];
+    let audio_on_video_interface = audio & 0x80 != 0;
+    let separate_audio_inputs = audio & 0x40 != 0;
+    let audio_input_override = audio & 0x20 != 0;
+
+    // Audio delay: bit 7 = sign (1 = audio late / positive), bits 6:0 * 2 = ms.
+    // Value 0x00 = no delay information provided.
+    let delay_raw = block_data[16];
+    let audio_delay_ms = if delay_raw == 0 {
+        None
+    } else {
+        let mag = (delay_raw & 0x7F) as i16 * 2;
+        Some(if delay_raw & 0x80 != 0 { mag } else { -mag })
+    };
+
+    let frame_rate_byte = block_data[17];
+    let frame_rate_conversion = (frame_rate_byte >> 6) & 0x03;
+    let frame_rate_range = frame_rate_byte & 0x3F;
+    let native_frame_rate = block_data[18];
+
+    // Color bit depth: bits 7:4 = interface (value + 1), bits 3:0 = display (value + 1).
+    let cbd = block_data[19];
+    let interface_color_depth = (cbd >> 4) + 1;
+    let display_color_depth = (cbd & 0x0F) + 1;
+
+    let mut additional_chromaticities = [0u8; 8];
+    additional_chromaticities.copy_from_slice(&block_data[20..28]);
+
+    let rt = block_data[28];
+    let response_time_ms = rt & 0x7F;
+    let response_time_white_to_black = rt & 0x80 != 0;
+
+    let overscan = block_data[29];
+    let h_overscan_pct = (overscan >> 4) & 0x0F;
+    let v_overscan_pct = overscan & 0x0F;
+
+    Some(VesaDisplayDeviceBlock {
+        interface_type,
+        num_links,
+        interface_version,
+        interface_release,
+        content_protection,
+        min_clock_mhz,
+        max_clock_mhz,
+        native_width,
+        native_height,
+        aspect_ratio_raw,
+        default_orientation,
+        rotation_capability,
+        zero_pixel_location,
+        scan_direction,
+        subpixel_layout,
+        h_pitch_hundredths_mm,
+        v_pitch_hundredths_mm,
+        dithering,
+        direct_drive,
+        overdrive_not_recommended,
+        deinterlacing,
+        audio_on_video_interface,
+        separate_audio_inputs,
+        audio_input_override,
+        audio_delay_ms,
+        frame_rate_conversion,
+        frame_rate_range,
+        native_frame_rate,
+        interface_color_depth,
+        display_color_depth,
+        additional_chromaticities,
+        response_time_ms,
+        response_time_white_to_black,
+        h_overscan_pct,
+        v_overscan_pct,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// VESA Video Timing Block Extension (extended tag 0x03)
+// ---------------------------------------------------------------------------
+
+/// Decoded VESA Video Timing Block Extension (extended tag `0x03`).
+///
+/// Carries additional video timing modes beyond what fits in the base EDID block.
+/// Each block may contain Detailed Timing Descriptors (DTBs), Coordinated Video
+/// Timings (CVTs), and Standard Timing (ST) entries, per the VESA VTB-EXT Standard,
+/// Release A.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq)]
+pub struct VtbExtBlock {
+    /// VTB-EXT version byte (expected `0x01`).
+    pub version: u8,
+    /// All video modes decoded from this block (DTBs, CVTs, and STs combined).
+    pub timings: Vec<VideoMode>,
+}
+
+/// Decodes a single 18-byte DTD slice into a [`VideoMode`], without side effects.
+/// Returns `None` for non-timing descriptors (zero pixel clock) or invalid geometry.
+fn decode_dtd_to_mode(dtd: &[u8]) -> Option<VideoMode> {
+    if dtd.len() < 18 || (dtd[0] == 0 && dtd[1] == 0) {
+        return None;
+    }
+    let pixel_clock = ((dtd[1] as u32) << 8) | (dtd[0] as u32);
+    if pixel_clock == 0 {
+        return None;
+    }
+    let hactive = (((dtd[4] as u16) & 0xF0) << 4) | (dtd[2] as u16);
+    let hblank = (((dtd[4] as u16) & 0x0F) << 8) | (dtd[3] as u16);
+    let vactive = (((dtd[7] as u16) & 0xF0) << 4) | (dtd[5] as u16);
+    let vblank = (((dtd[7] as u16) & 0x0F) << 8) | (dtd[6] as u16);
+    if hactive == 0 || vactive == 0 || hblank == 0 || vblank == 0 {
+        return None;
+    }
+    let total = (hactive + hblank) as u32 * (vactive + vblank) as u32;
+    let rate = (pixel_clock * 10_000) / total;
+    let refresh_rate = u8::try_from(rate).ok()?;
+    Some(VideoMode {
+        width: hactive,
+        height: vactive,
+        refresh_rate,
+        interlaced: dtd[17] & 0x80 != 0,
+        ..Default::default()
+    })
+}
+
+pub(super) fn parse_vtb_ext(block_data: &[u8]) -> Option<VtbExtBlock> {
+    // Payload layout (after the extended tag byte):
+    //   [0] version (expected 0x01)
+    //   [1] w = number of 18-byte DTBs  (0–6)
+    //   [2] y = number of 3-byte CVTs   (0–40)
+    //   [3] z = number of 2-byte STs    (0–61)
+    //   [4..] timing data
+    if block_data.len() < 4 {
+        return None;
+    }
+    let version = block_data[0];
+    let w = block_data[1] as usize;
+    let y = block_data[2] as usize;
+    let z = block_data[3] as usize;
+    let data = &block_data[4..];
+
+    let required = w * 18 + y * 3 + z * 2;
+    if data.len() < required {
+        return None;
+    }
+
+    let mut timings = Vec::new();
+
+    // Detailed Timing Blocks (18 bytes each)
+    for i in 0..w {
+        if let Some(mode) = decode_dtd_to_mode(&data[i * 18..(i + 1) * 18]) {
+            if !timings.contains(&mode) {
+                timings.push(mode);
+            }
+        }
+    }
+
+    // CVT 3-byte descriptors
+    let cvt_base = w * 18;
+    for i in 0..y {
+        let off = cvt_base + i * 3;
+        let (b0, b1, b2) = (data[off], data[off + 1], data[off + 2]);
+        if b0 == 0 {
+            continue; // unused slot
+        }
+        let lines_raw = (((b1 as u16) & 0xF0) << 4) | (b0 as u16);
+        let v_add = (lines_raw + 1) * 2;
+        let h_add = {
+            let v = v_add as u32;
+            let h = match (b1 >> 2) & 0x03 {
+                0b00 => v * 4 / 3,
+                0b01 => v * 16 / 9,
+                0b10 => v * 16 / 10,
+                _ => continue, // undefined aspect ratio
+            };
+            ((h / 8) * 8) as u16
+        };
+        for (mask, rate) in [
+            (0x10u8, 50u8),
+            (0x08, 60),
+            (0x04, 75),
+            (0x02, 85),
+            (0x01, 60),
+        ] {
+            if b2 & mask != 0 {
+                let mode = VideoMode {
+                    width: h_add,
+                    height: v_add,
+                    refresh_rate: rate,
+                    interlaced: false,
+                    ..Default::default()
+                };
+                if !timings.contains(&mode) {
+                    timings.push(mode);
+                }
+            }
+        }
+    }
+
+    // Standard Timing 2-byte descriptors
+    let st_base = w * 18 + y * 3;
+    for i in 0..z {
+        let off = st_base + i * 2;
+        let (b1, b2) = (data[off], data[off + 1]);
+        if (b1 == 0x01 && b2 == 0x01) || b1 == 0x00 {
+            continue; // unused slot
+        }
+        let width = (b1 as u16 + 31) * 8;
+        let height = match (b2 >> 6) & 0x03 {
+            0x00 => (width * 10) / 16, // 16:10
+            0x01 => (width * 3) / 4,   // 4:3
+            0x02 => (width * 4) / 5,   // 5:4
+            _ => (width * 9) / 16,     // 16:9
+        };
+        let mode = VideoMode {
+            width,
+            height,
+            refresh_rate: (b2 & 0x3F) + 60,
+            interlaced: false,
+            ..Default::default()
+        };
+        if !timings.contains(&mode) {
+            timings.push(mode);
+        }
+    }
+
+    Some(VtbExtBlock { version, timings })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -932,5 +1291,188 @@ mod tests {
     fn test_infoframe_empty_block() {
         let data = [EXT_TAG_INFOFRAME];
         assert!(parse_infoframe_db(&data).is_empty());
+    }
+
+    // --- VESA Display Device Data Block tests ---
+
+    fn minimal_dddb_payload() -> [u8; 30] {
+        let mut d = [0u8; 30];
+        // interface_type=0x0A (DisplayPort), num_links=2 → byte[0] = 0xA2
+        d[0] = 0xA2;
+        // interface_version=1, interface_release=0 → byte[1] = 0x10
+        d[1] = 0x10;
+        // content_protection = 0x01 (HDCP)
+        d[2] = 0x01;
+        // min_clock=40 MHz (40<<2=0xA0), max_clock hi bits=0 → byte[3] = 0xA0
+        // max_clock lo = 0xF0 (240 dec, so max = 240 MHz) → byte[4] = 0xF0
+        d[3] = 0xA0;
+        d[4] = 0xF0;
+        // native pixel: 1920x1080 → stored as 1919 and 1079 (LE)
+        let w: u16 = 1919;
+        let h: u16 = 1079;
+        d[5] = (w & 0xFF) as u8;
+        d[6] = (w >> 8) as u8;
+        d[7] = (h & 0xFF) as u8;
+        d[8] = (h >> 8) as u8;
+        // aspect_ratio_raw = 0x09 (16:9)
+        d[9] = 0x09;
+        // orientation/rotation/zero_pixel/scan: default_orientation=0, rest 0
+        d[10] = 0x00;
+        // subpixel=1 (RGB), pitch defaults to 0
+        d[11] = 0x01;
+        // audio: separate audio inputs set → byte[15] bit6 = 0x40
+        d[15] = 0x40;
+        // audio_delay = 0x82 → sign bit set (audio late), mag = (0x02 * 2) = 4 ms
+        d[16] = 0x82;
+        // color bit depth: interface=8 (stored as 7), display=6 (stored as 5) → 0x75
+        d[19] = 0x75;
+        // response time: 5 ms, black-to-white (bit7=0) → 0x05
+        d[28] = 0x05;
+        // overscan: h=2%, v=3% → 0x23
+        d[29] = 0x23;
+        d
+    }
+
+    #[test]
+    fn test_dddb_basic_fields() {
+        let payload = minimal_dddb_payload();
+        let block = parse_vesa_display_device(&payload).unwrap();
+        assert_eq!(block.interface_type, 0x0A);
+        assert_eq!(block.num_links, 2);
+        assert_eq!(block.interface_version, 1);
+        assert_eq!(block.interface_release, 0);
+        assert_eq!(block.content_protection, 0x01);
+    }
+
+    #[test]
+    fn test_dddb_clock_frequency() {
+        let payload = minimal_dddb_payload();
+        let block = parse_vesa_display_device(&payload).unwrap();
+        assert_eq!(block.min_clock_mhz, 40);
+        assert_eq!(block.max_clock_mhz, 0xF0);
+    }
+
+    #[test]
+    fn test_dddb_native_resolution() {
+        let payload = minimal_dddb_payload();
+        let block = parse_vesa_display_device(&payload).unwrap();
+        assert_eq!(block.native_width, Some(1920));
+        assert_eq!(block.native_height, Some(1080));
+    }
+
+    #[test]
+    fn test_dddb_native_resolution_none_when_zero() {
+        let mut payload = minimal_dddb_payload();
+        payload[5] = 0;
+        payload[6] = 0;
+        payload[7] = 0;
+        payload[8] = 0;
+        let block = parse_vesa_display_device(&payload).unwrap();
+        assert_eq!(block.native_width, None);
+        assert_eq!(block.native_height, None);
+    }
+
+    #[test]
+    fn test_dddb_audio_and_delay() {
+        let payload = minimal_dddb_payload();
+        let block = parse_vesa_display_device(&payload).unwrap();
+        assert!(!block.audio_on_video_interface);
+        assert!(block.separate_audio_inputs);
+        assert!(!block.audio_input_override);
+        // delay_raw = 0x82: sign bit set → positive (audio late), mag = 2*2 = 4 ms
+        assert_eq!(block.audio_delay_ms, Some(4));
+    }
+
+    #[test]
+    fn test_dddb_audio_delay_none_when_zero() {
+        let mut payload = minimal_dddb_payload();
+        payload[16] = 0;
+        let block = parse_vesa_display_device(&payload).unwrap();
+        assert!(block.audio_delay_ms.is_none());
+    }
+
+    #[test]
+    fn test_dddb_audio_delay_negative() {
+        // delay_raw = 0x02: sign bit clear → negative, mag = 2*2 = 4 → -4 ms
+        let mut payload = minimal_dddb_payload();
+        payload[16] = 0x02;
+        let block = parse_vesa_display_device(&payload).unwrap();
+        assert_eq!(block.audio_delay_ms, Some(-4));
+    }
+
+    #[test]
+    fn test_dddb_color_depth() {
+        let payload = minimal_dddb_payload();
+        let block = parse_vesa_display_device(&payload).unwrap();
+        // 0x75 → interface = (7 + 1) = 8, display = (5 + 1) = 6
+        assert_eq!(block.interface_color_depth, 8);
+        assert_eq!(block.display_color_depth, 6);
+    }
+
+    #[test]
+    fn test_dddb_response_time_and_overscan() {
+        let payload = minimal_dddb_payload();
+        let block = parse_vesa_display_device(&payload).unwrap();
+        assert_eq!(block.response_time_ms, 5);
+        assert!(!block.response_time_white_to_black);
+        assert_eq!(block.h_overscan_pct, 2);
+        assert_eq!(block.v_overscan_pct, 3);
+    }
+
+    #[test]
+    fn test_dddb_too_short_returns_none() {
+        let payload = [0u8; 29];
+        assert!(parse_vesa_display_device(&payload).is_none());
+    }
+
+    // --- VTB-EXT tests ---
+
+    #[test]
+    fn test_vtb_ext_empty_version_only() {
+        // version=1, 0 DTBs, 0 CVTs, 0 STs
+        let data = [0x01u8, 0x00, 0x00, 0x00];
+        let vtb = parse_vtb_ext(&data).unwrap();
+        assert_eq!(vtb.version, 1);
+        assert!(vtb.timings.is_empty());
+    }
+
+    #[test]
+    fn test_vtb_ext_too_short_returns_none() {
+        let data = [0x01u8, 0x00, 0x00];
+        assert!(parse_vtb_ext(&data).is_none());
+    }
+
+    #[test]
+    fn test_vtb_ext_standard_timings() {
+        // version=1, 0 DTBs, 0 CVTs, 1 ST
+        // width=1280: (b1+31)*8=1280 → b1=129=0x81; b2=0x00 → 16:10 ratio, rate=60+0=60
+        let data = [0x01u8, 0x00, 0x00, 0x01, 0x81, 0x00];
+        let vtb = parse_vtb_ext(&data).unwrap();
+        assert_eq!(vtb.timings.len(), 1);
+        assert_eq!(vtb.timings[0].width, 1280);
+        assert_eq!(vtb.timings[0].height, 800); // 1280 * 10 / 16 = 800
+        assert_eq!(vtb.timings[0].refresh_rate, 60);
+    }
+
+    #[test]
+    fn test_vtb_ext_cvt_descriptor_16_9() {
+        // version=1, 0 DTBs, 1 CVT, 0 STs
+        // CVT encoding: 1080 lines → lines_raw = (1080/2 - 1) = 539 = 0x21B
+        //   b0 = 0x1B, b1 = (0x20) | aspect_16_9=(0x01<<2) = 0x24
+        //   b2: 60Hz bit set = 0x08
+        let data = [0x01u8, 0x00, 0x01, 0x00, 0x1B, 0x24, 0x08];
+        let vtb = parse_vtb_ext(&data).unwrap();
+        assert!(!vtb.timings.is_empty());
+        let t = vtb.timings.iter().find(|m| m.refresh_rate == 60).unwrap();
+        assert_eq!(t.height, 1080);
+        // 16:9: h = (1080 * 16 / 9) rounded down to multiple of 8 = 1920
+        assert_eq!(t.width, 1920);
+    }
+
+    #[test]
+    fn test_vtb_ext_insufficient_data_for_dtb_returns_none() {
+        // version=1, 1 DTB, 0 CVTs, 0 STs — but only 4 bytes, no room for 18-byte DTB
+        let data = [0x01u8, 0x01, 0x00, 0x00];
+        assert!(parse_vtb_ext(&data).is_none());
     }
 }

@@ -341,26 +341,72 @@ fn main() {
                                 }
                                 if let Some(sa) = &cea.speaker_allocation {
                                     let mut ch = Vec::new();
-                                    if sa.channels.contains(SpeakerAllocationFlags::FL_FR) { ch.push("FL/FR"); }
-                                    if sa.channels.contains(SpeakerAllocationFlags::LFE1) { ch.push("LFE1"); }
-                                    if sa.channels.contains(SpeakerAllocationFlags::FC) { ch.push("FC"); }
-                                    if sa.channels.contains(SpeakerAllocationFlags::BL_BR) { ch.push("BL/BR"); }
-                                    if sa.channels.contains(SpeakerAllocationFlags::BC) { ch.push("BC"); }
-                                    if sa.channels.contains(SpeakerAllocationFlags::FLC_FRC) { ch.push("FLC/FRC"); }
-                                    if sa.channels.contains(SpeakerAllocationFlags::RLC_RRC) { ch.push("RLC/RRC"); }
-                                    if sa.channels.contains(SpeakerAllocationFlags::FLW_FRW) { ch.push("FLW/FRW"); }
-                                    if sa.channels_2.contains(SpeakerAllocationFlags2::TP_FL_FR) { ch.push("TpFL/TpFR"); }
-                                    if sa.channels_2.contains(SpeakerAllocationFlags2::TP_C) { ch.push("TpC"); }
-                                    if sa.channels_2.contains(SpeakerAllocationFlags2::TP_FC) { ch.push("TpFC"); }
-                                    if sa.channels_2.contains(SpeakerAllocationFlags2::LS_RS) { ch.push("LS/RS"); }
-                                    if sa.channels_2.contains(SpeakerAllocationFlags2::LFE2) { ch.push("LFE2"); }
-                                    if sa.channels_2.contains(SpeakerAllocationFlags2::TP_BC) { ch.push("TpBC"); }
-                                    if sa.channels_2.contains(SpeakerAllocationFlags2::SI_L_SI_R) { ch.push("SiL/SiR"); }
-                                    if sa.channels_2.contains(SpeakerAllocationFlags2::TP_SI_L_TP_SI_R) { ch.push("TpSiL/TpSiR"); }
-                                    if sa.channels_3.contains(SpeakerAllocationFlags3::TP_BL_TP_BR) { ch.push("TpBL/TpBR"); }
-                                    if sa.channels_3.contains(SpeakerAllocationFlags3::BT_FC) { ch.push("BtFC"); }
-                                    if sa.channels_3.contains(SpeakerAllocationFlags3::BT_FL_BT_FR) { ch.push("BtFL/BtFR"); }
-                                    if sa.channels_3.contains(SpeakerAllocationFlags3::TP_LS_TP_RS) { ch.push("TpLS/TpRS"); }
+                                    if sa.channels.contains(SpeakerAllocationFlags::FL_FR) {
+                                        ch.push("FL/FR");
+                                    }
+                                    if sa.channels.contains(SpeakerAllocationFlags::LFE1) {
+                                        ch.push("LFE1");
+                                    }
+                                    if sa.channels.contains(SpeakerAllocationFlags::FC) {
+                                        ch.push("FC");
+                                    }
+                                    if sa.channels.contains(SpeakerAllocationFlags::BL_BR) {
+                                        ch.push("BL/BR");
+                                    }
+                                    if sa.channels.contains(SpeakerAllocationFlags::BC) {
+                                        ch.push("BC");
+                                    }
+                                    if sa.channels.contains(SpeakerAllocationFlags::FLC_FRC) {
+                                        ch.push("FLC/FRC");
+                                    }
+                                    if sa.channels.contains(SpeakerAllocationFlags::RLC_RRC) {
+                                        ch.push("RLC/RRC");
+                                    }
+                                    if sa.channels.contains(SpeakerAllocationFlags::FLW_FRW) {
+                                        ch.push("FLW/FRW");
+                                    }
+                                    if sa.channels_2.contains(SpeakerAllocationFlags2::TP_FL_FR) {
+                                        ch.push("TpFL/TpFR");
+                                    }
+                                    if sa.channels_2.contains(SpeakerAllocationFlags2::TP_C) {
+                                        ch.push("TpC");
+                                    }
+                                    if sa.channels_2.contains(SpeakerAllocationFlags2::TP_FC) {
+                                        ch.push("TpFC");
+                                    }
+                                    if sa.channels_2.contains(SpeakerAllocationFlags2::LS_RS) {
+                                        ch.push("LS/RS");
+                                    }
+                                    if sa.channels_2.contains(SpeakerAllocationFlags2::LFE2) {
+                                        ch.push("LFE2");
+                                    }
+                                    if sa.channels_2.contains(SpeakerAllocationFlags2::TP_BC) {
+                                        ch.push("TpBC");
+                                    }
+                                    if sa.channels_2.contains(SpeakerAllocationFlags2::SI_L_SI_R) {
+                                        ch.push("SiL/SiR");
+                                    }
+                                    if sa
+                                        .channels_2
+                                        .contains(SpeakerAllocationFlags2::TP_SI_L_TP_SI_R)
+                                    {
+                                        ch.push("TpSiL/TpSiR");
+                                    }
+                                    if sa.channels_3.contains(SpeakerAllocationFlags3::TP_BL_TP_BR)
+                                    {
+                                        ch.push("TpBL/TpBR");
+                                    }
+                                    if sa.channels_3.contains(SpeakerAllocationFlags3::BT_FC) {
+                                        ch.push("BtFC");
+                                    }
+                                    if sa.channels_3.contains(SpeakerAllocationFlags3::BT_FL_BT_FR)
+                                    {
+                                        ch.push("BtFL/BtFR");
+                                    }
+                                    if sa.channels_3.contains(SpeakerAllocationFlags3::TP_LS_TP_RS)
+                                    {
+                                        ch.push("TpLS/TpRS");
+                                    }
                                     if !ch.is_empty() {
                                         println!("  Speakers:     {}", ch.join(", "));
                                     }
@@ -371,24 +417,43 @@ fn main() {
                                         DtcPointEncoding::Bits10 => "10-bit",
                                         DtcPointEncoding::Bits12 => "12-bit",
                                     };
-                                    println!("  VESA DTC:     {} encoding, {} points", enc, dtc.points.len());
+                                    println!(
+                                        "  VESA DTC:     {} encoding, {} points",
+                                        enc,
+                                        dtc.points.len()
+                                    );
                                 }
                                 if !cea.hdr_dynamic_metadata.is_empty() {
-                                    println!("  HDR Dynamic Metadata ({}):", cea.hdr_dynamic_metadata.len());
+                                    println!(
+                                        "  HDR Dynamic Metadata ({}):",
+                                        cea.hdr_dynamic_metadata.len()
+                                    );
                                     for d in &cea.hdr_dynamic_metadata {
-                                        println!("    type={} version={}", d.application_type, d.application_version);
+                                        println!(
+                                            "    type={} version={}",
+                                            d.application_type, d.application_version
+                                        );
                                     }
                                 }
                                 if !cea.video_format_preferences.is_empty() {
-                                    let svrs: Vec<String> = cea.video_format_preferences.iter().map(|b| format!("0x{:02X}", b)).collect();
+                                    let svrs: Vec<String> = cea
+                                        .video_format_preferences
+                                        .iter()
+                                        .map(|b| format!("0x{:02X}", b))
+                                        .collect();
                                     println!("  Video format preferences: {}", svrs.join(", "));
                                 }
                                 if !cea.y420_vics.is_empty() {
-                                    let vics: Vec<String> = cea.y420_vics.iter().map(|v| v.to_string()).collect();
+                                    let vics: Vec<String> =
+                                        cea.y420_vics.iter().map(|v| v.to_string()).collect();
                                     println!("  Y420-only VICs: {}", vics.join(", "));
                                 }
                                 if !cea.y420_capability_map.is_empty() {
-                                    let bytes: Vec<String> = cea.y420_capability_map.iter().map(|b| format!("0x{:02X}", b)).collect();
+                                    let bytes: Vec<String> = cea
+                                        .y420_capability_map
+                                        .iter()
+                                        .map(|b| format!("0x{:02X}", b))
+                                        .collect();
                                     println!("  Y420 cap map: {}", bytes.join(" "));
                                 }
                                 if let Some(ha) = &cea.hdmi_audio {
@@ -425,9 +490,57 @@ fn main() {
                                     );
                                 }
                                 if !cea.speaker_locations.is_empty() {
-                                    println!("  Speaker locations ({}):", cea.speaker_locations.len());
+                                    println!(
+                                        "  Speaker locations ({}):",
+                                        cea.speaker_locations.len()
+                                    );
                                     for loc in &cea.speaker_locations {
-                                        println!("    ch={} dist={}", loc.channel_assignment, loc.distance);
+                                        println!(
+                                            "    ch={} dist={}",
+                                            loc.channel_assignment, loc.distance
+                                        );
+                                    }
+                                }
+                                if let Some(dddb) = &cea.vesa_display_device {
+                                    println!("  VESA DDDB:    iface_type=0x{:X} links={} min_clock={}MHz max_clock={}MHz",
+                                        dddb.interface_type, dddb.num_links,
+                                        dddb.min_clock_mhz, dddb.max_clock_mhz);
+                                    if let (Some(w), Some(h)) =
+                                        (dddb.native_width, dddb.native_height)
+                                    {
+                                        println!("  Native res:   {}x{}", w, h);
+                                    }
+                                    println!(
+                                        "  Color depth:  interface={}bpc display={}bpc",
+                                        dddb.interface_color_depth, dddb.display_color_depth
+                                    );
+                                    if let Some(delay) = dddb.audio_delay_ms {
+                                        println!(
+                                            "  Audio delay:  {}ms ({})",
+                                            delay.abs(),
+                                            if delay >= 0 {
+                                                "audio late"
+                                            } else {
+                                                "audio early"
+                                            }
+                                        );
+                                    }
+                                }
+                                if !cea.vtb_ext.is_empty() {
+                                    let total: usize =
+                                        cea.vtb_ext.iter().map(|v| v.timings.len()).sum();
+                                    println!(
+                                        "  VTB-EXT ({} block(s), {} timing(s)):",
+                                        cea.vtb_ext.len(),
+                                        total
+                                    );
+                                    for (i, vtb) in cea.vtb_ext.iter().enumerate() {
+                                        for t in &vtb.timings {
+                                            println!(
+                                                "    [{}] {}x{}@{}Hz",
+                                                i, t.width, t.height, t.refresh_rate
+                                            );
+                                        }
                                     }
                                 }
                             }
