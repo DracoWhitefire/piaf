@@ -1,7 +1,8 @@
 use piaf::{
-    capabilities_from_edid, parse_edid, AudioFormat, AudioFormatInfo, Cea861Capabilities,
-    Cea861Flags, Cea861Handler, ColorimetryFlags, DisplayCapabilities, EdidWarning,
-    ExtensionHandler, ExtensionLibrary, HdmiVsdbFlags, HdrEotf,
+    capabilities_from_edid, infoframe_type, parse_edid, AudioFormat, AudioFormatInfo,
+    Cea861Capabilities, Cea861Flags, Cea861Handler, ColorimetryFlags, DisplayCapabilities,
+    DtcPointEncoding, EdidWarning, ExtensionHandler, ExtensionLibrary, HdmiVsdbFlags, HdrEotf,
+    SpeakerAllocationFlags, SpeakerAllocationFlags2, SpeakerAllocationFlags3,
 };
 use std::fs;
 use std::path::Path;
@@ -336,6 +337,97 @@ fn main() {
                                     }
                                     if let Some(fall) = hdr.max_fall {
                                         println!("  MaxFALL:      {:.0} cd/m²", fall);
+                                    }
+                                }
+                                if let Some(sa) = &cea.speaker_allocation {
+                                    let mut ch = Vec::new();
+                                    if sa.channels.contains(SpeakerAllocationFlags::FL_FR) { ch.push("FL/FR"); }
+                                    if sa.channels.contains(SpeakerAllocationFlags::LFE1) { ch.push("LFE1"); }
+                                    if sa.channels.contains(SpeakerAllocationFlags::FC) { ch.push("FC"); }
+                                    if sa.channels.contains(SpeakerAllocationFlags::BL_BR) { ch.push("BL/BR"); }
+                                    if sa.channels.contains(SpeakerAllocationFlags::BC) { ch.push("BC"); }
+                                    if sa.channels.contains(SpeakerAllocationFlags::FLC_FRC) { ch.push("FLC/FRC"); }
+                                    if sa.channels.contains(SpeakerAllocationFlags::RLC_RRC) { ch.push("RLC/RRC"); }
+                                    if sa.channels.contains(SpeakerAllocationFlags::FLW_FRW) { ch.push("FLW/FRW"); }
+                                    if sa.channels_2.contains(SpeakerAllocationFlags2::TP_FL_FR) { ch.push("TpFL/TpFR"); }
+                                    if sa.channels_2.contains(SpeakerAllocationFlags2::TP_C) { ch.push("TpC"); }
+                                    if sa.channels_2.contains(SpeakerAllocationFlags2::TP_FC) { ch.push("TpFC"); }
+                                    if sa.channels_2.contains(SpeakerAllocationFlags2::LS_RS) { ch.push("LS/RS"); }
+                                    if sa.channels_2.contains(SpeakerAllocationFlags2::LFE2) { ch.push("LFE2"); }
+                                    if sa.channels_2.contains(SpeakerAllocationFlags2::TP_BC) { ch.push("TpBC"); }
+                                    if sa.channels_2.contains(SpeakerAllocationFlags2::SI_L_SI_R) { ch.push("SiL/SiR"); }
+                                    if sa.channels_2.contains(SpeakerAllocationFlags2::TP_SI_L_TP_SI_R) { ch.push("TpSiL/TpSiR"); }
+                                    if sa.channels_3.contains(SpeakerAllocationFlags3::TP_BL_TP_BR) { ch.push("TpBL/TpBR"); }
+                                    if sa.channels_3.contains(SpeakerAllocationFlags3::BT_FC) { ch.push("BtFC"); }
+                                    if sa.channels_3.contains(SpeakerAllocationFlags3::BT_FL_BT_FR) { ch.push("BtFL/BtFR"); }
+                                    if sa.channels_3.contains(SpeakerAllocationFlags3::TP_LS_TP_RS) { ch.push("TpLS/TpRS"); }
+                                    if !ch.is_empty() {
+                                        println!("  Speakers:     {}", ch.join(", "));
+                                    }
+                                }
+                                if let Some(dtc) = &cea.vesa_transfer_characteristic {
+                                    let enc = match dtc.encoding {
+                                        DtcPointEncoding::Bits8 => "8-bit",
+                                        DtcPointEncoding::Bits10 => "10-bit",
+                                        DtcPointEncoding::Bits12 => "12-bit",
+                                    };
+                                    println!("  VESA DTC:     {} encoding, {} points", enc, dtc.points.len());
+                                }
+                                if !cea.hdr_dynamic_metadata.is_empty() {
+                                    println!("  HDR Dynamic Metadata ({}):", cea.hdr_dynamic_metadata.len());
+                                    for d in &cea.hdr_dynamic_metadata {
+                                        println!("    type={} version={}", d.application_type, d.application_version);
+                                    }
+                                }
+                                if !cea.video_format_preferences.is_empty() {
+                                    let svrs: Vec<String> = cea.video_format_preferences.iter().map(|b| format!("0x{:02X}", b)).collect();
+                                    println!("  Video format preferences: {}", svrs.join(", "));
+                                }
+                                if !cea.y420_vics.is_empty() {
+                                    let vics: Vec<String> = cea.y420_vics.iter().map(|v| v.to_string()).collect();
+                                    println!("  Y420-only VICs: {}", vics.join(", "));
+                                }
+                                if !cea.y420_capability_map.is_empty() {
+                                    let bytes: Vec<String> = cea.y420_capability_map.iter().map(|b| format!("0x{:02X}", b)).collect();
+                                    println!("  Y420 cap map: {}", bytes.join(" "));
+                                }
+                                if let Some(ha) = &cea.hdmi_audio {
+                                    println!(
+                                        "  HDMI Audio:   MSA={}, {} SAD(s)",
+                                        ha.multi_stream_audio,
+                                        ha.audio_descriptors.len()
+                                    );
+                                }
+                                if !cea.infoframe_descriptors.is_empty() {
+                                    println!("  InfoFrames ({}):", cea.infoframe_descriptors.len());
+                                    for d in &cea.infoframe_descriptors {
+                                        let name = match d.type_code {
+                                            infoframe_type::VENDOR_SPECIFIC => "VSI",
+                                            infoframe_type::AVI => "AVI",
+                                            infoframe_type::SOURCE_PRODUCT_DESCRIPTOR => "SPD",
+                                            infoframe_type::AUDIO => "Audio",
+                                            infoframe_type::MPEG_SOURCE => "MPEG Source",
+                                            infoframe_type::NTSC_VBI => "NTSC VBI",
+                                            infoframe_type::DYNAMIC_RANGE_MASTERING => "DRM",
+                                            _ => "Unknown",
+                                        };
+                                        if let Some(oui) = d.vendor_oui {
+                                            println!("    {} (OUI=0x{:06X})", name, oui);
+                                        } else {
+                                            println!("    {}", name);
+                                        }
+                                    }
+                                }
+                                if let Some(rc) = &cea.room_configuration {
+                                    println!(
+                                        "  Room config:  {} speakers, has_locations={}",
+                                        rc.speaker_count, rc.has_speaker_locations
+                                    );
+                                }
+                                if !cea.speaker_locations.is_empty() {
+                                    println!("  Speaker locations ({}):", cea.speaker_locations.len());
+                                    for loc in &cea.speaker_locations {
+                                        println!("    ch={} dist={}", loc.channel_assignment, loc.distance);
                                     }
                                 }
                             }
