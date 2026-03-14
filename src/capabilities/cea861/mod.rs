@@ -10,8 +10,9 @@ mod vic_table;
 pub use audio::{AudioFormat, AudioFormatInfo, AudioSampleRates, ShortAudioDescriptor};
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use extended_blocks::{
-    ColorimetryBlock, ColorimetryFlags, HdrEotf, HdrStaticMetadata, VideoCapability,
-    VideoCapabilityFlags,
+    ColorimetryBlock, ColorimetryFlags, HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata,
+    SpeakerAllocation, SpeakerAllocationFlags, SpeakerAllocationFlags2, SpeakerAllocationFlags3,
+    VideoCapability, VideoCapabilityFlags,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use hdmi_vsdb::{HdmiVsdb, HdmiVsdbFlags};
@@ -29,8 +30,11 @@ use crate::model::prelude::Vec;
 use audio::parse_audio_data_block;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use extended_blocks::{
-    parse_colorimetry, parse_hdr_static_metadata, parse_video_capability, EXT_TAG_COLORIMETRY,
-    EXT_TAG_HDR_STATIC_METADATA, EXT_TAG_VIDEO_CAPABILITY,
+    parse_colorimetry, parse_hdr_dynamic_metadata, parse_hdr_static_metadata,
+    parse_speaker_allocation, parse_video_capability, parse_video_format_preferences,
+    parse_y420_capability_map, parse_y420_vdb, EXT_TAG_COLORIMETRY, EXT_TAG_HDR_DYNAMIC_METADATA,
+    EXT_TAG_HDR_STATIC_METADATA, EXT_TAG_VIDEO_CAPABILITY, EXT_TAG_VIDEO_FORMAT_PREFERENCE,
+    EXT_TAG_Y420_CAPABILITY_MAP, EXT_TAG_Y420_VIDEO,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use hdmi_vsdb::parse_hdmi_vsdb;
@@ -86,6 +90,31 @@ pub struct Cea861Capabilities {
     pub colorimetry: Option<ColorimetryBlock>,
     /// Decoded HDR Static Metadata Data Block (extended tag `0x06`), if present.
     pub hdr_static_metadata: Option<HdrStaticMetadata>,
+    /// Decoded Speaker Allocation Data Block (standard tag `0x04`), if present.
+    pub speaker_allocation: Option<SpeakerAllocation>,
+    /// HDR Dynamic Metadata application descriptors (extended tag `0x07`).
+    ///
+    /// One entry per application type found (e.g. HDR10+, Dolby Vision).
+    pub hdr_dynamic_metadata: Vec<HdrDynamicMetadataDescriptor>,
+    /// Raw Short Video References from the Video Format Preference Data Block
+    /// (extended tag `0x0D`), if present.
+    ///
+    /// Each byte encodes a preferred format: `1`–`127` = VIC reference,
+    /// `129`–`144` = DTD reference, `145`–`160` = Y420 VDB reference.
+    pub video_format_preferences: Vec<u8>,
+    /// VICs from the YCbCr 4:2:0 Video Data Block (extended tag `0x0E`).
+    ///
+    /// These modes are **only** supported in 4:2:0 colour format.
+    /// The corresponding [`VideoMode`][crate::VideoMode] entries are also added to
+    /// [`DisplayCapabilities::supported_modes`] when the VIC is in the lookup table.
+    pub y420_vics: Vec<u8>,
+    /// Raw capability bitmap from the YCbCr 4:2:0 Capability Map Data Block
+    /// (extended tag `0x0F`).
+    ///
+    /// Bit `n` (0-indexed, LSB-first across bytes) corresponds to the `(n+1)`-th
+    /// Short Video Descriptor in the standard Video Data Block. A set bit means
+    /// that mode also supports YCbCr 4:2:0.
+    pub y420_capability_map: Vec<u8>,
 }
 
 /// Processes a CEA-861 extension block (tag `0x02`).
@@ -112,6 +141,11 @@ impl ExtensionHandler for Cea861Handler {
             video_capability: None,
             colorimetry: None,
             hdr_static_metadata: None,
+            speaker_allocation: None,
+            hdr_dynamic_metadata: Vec::new(),
+            video_format_preferences: Vec::new(),
+            y420_vics: Vec::new(),
+            y420_capability_map: Vec::new(),
         };
 
         // Parse the data block collection: bytes 4 through dtd_offset-1.
@@ -151,20 +185,31 @@ impl ExtensionHandler for Cea861Handler {
                     cea_caps
                         .audio_descriptors
                         .extend(parse_audio_data_block(block_data));
-                } else if tag == 0x03 {
-                    // Vendor-Specific Data Block: check for HDMI OUI.
-                    if cea_caps.hdmi_vsdb.is_none() {
-                        cea_caps.hdmi_vsdb = parse_hdmi_vsdb(block_data);
-                    }
                 } else if tag == 0x02 {
-                    // Video Data Block: each byte is a Short Video Descriptor.
-                    for &svd in block_data {
-                        let native = (svd & 0x80) != 0;
-                        let vic = svd & 0x7F;
+                    // Video Data Block: Short Video Descriptors.
+                    // Standard SVD: 1 byte; bits 6:0 = VIC (1–127), bit 7 = native.
+                    // Extended SVD (CTA-861-G+): if bits 6:0 == 0, the *next* byte
+                    // is the full VIC number (128–255); bit 7 of the first byte = native.
+                    let mut j = 0;
+                    while j < block_data.len() {
+                        let b = block_data[j];
+                        let native = (b & 0x80) != 0;
+                        let vic_low = b & 0x7F;
 
-                        if vic == 0 {
-                            continue; // VIC 0 is reserved
-                        }
+                        let vic = if vic_low == 0 {
+                            // Extended SVD — consume one more byte.
+                            j += 1;
+                            match block_data.get(j).copied() {
+                                Some(0) | None => {
+                                    j += 1;
+                                    continue; // VIC 0 reserved
+                                }
+                                Some(v) => v,
+                            }
+                        } else {
+                            vic_low
+                        };
+                        j += 1;
 
                         cea_caps.vics.push((vic, native));
 
@@ -180,6 +225,16 @@ impl ExtensionHandler for Cea861Handler {
                             }
                         }
                     }
+                } else if tag == 0x03 {
+                    // Vendor-Specific Data Block: check for HDMI OUI.
+                    if cea_caps.hdmi_vsdb.is_none() {
+                        cea_caps.hdmi_vsdb = parse_hdmi_vsdb(block_data);
+                    }
+                } else if tag == 0x04 {
+                    // Speaker Allocation Data Block.
+                    if cea_caps.speaker_allocation.is_none() {
+                        cea_caps.speaker_allocation = parse_speaker_allocation(block_data);
+                    }
                 } else if tag == 0x07 {
                     // Extended Tag Data Block: first payload byte is the extended tag.
                     match block_data.first().copied() {
@@ -194,10 +249,42 @@ impl ExtensionHandler for Cea861Handler {
                         {
                             cea_caps.hdr_static_metadata = parse_hdr_static_metadata(block_data);
                         }
+                        Some(EXT_TAG_HDR_DYNAMIC_METADATA) => {
+                            cea_caps
+                                .hdr_dynamic_metadata
+                                .extend(parse_hdr_dynamic_metadata(block_data));
+                        }
+                        Some(EXT_TAG_VIDEO_FORMAT_PREFERENCE)
+                            if cea_caps.video_format_preferences.is_empty() =>
+                        {
+                            cea_caps.video_format_preferences =
+                                parse_video_format_preferences(block_data);
+                        }
+                        Some(EXT_TAG_Y420_VIDEO) => {
+                            let vics = parse_y420_vdb(block_data);
+                            for &vic in &vics {
+                                if let Some(mode) = vic_to_mode(vic) {
+                                    let already_present = caps.supported_modes.iter().any(|m| {
+                                        m.width == mode.width
+                                            && m.height == mode.height
+                                            && m.refresh_rate == mode.refresh_rate
+                                            && m.interlaced == mode.interlaced
+                                    });
+                                    if !already_present {
+                                        caps.supported_modes.push(mode);
+                                    }
+                                }
+                            }
+                            cea_caps.y420_vics.extend(vics);
+                        }
+                        Some(EXT_TAG_Y420_CAPABILITY_MAP)
+                            if cea_caps.y420_capability_map.is_empty() =>
+                        {
+                            cea_caps.y420_capability_map = parse_y420_capability_map(block_data);
+                        }
                         _ => {}
                     }
                 }
-                // Other block types (speaker allocation, …) will be handled in future iterations.
 
                 i += length;
             }
@@ -385,5 +472,60 @@ mod tests {
         Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
 
         assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_speaker_allocation_parsed() {
+        let mut ext = [0u8; 128];
+        // Speaker Allocation Data Block: tag=4, length=3 → header = (4 << 5) | 3 = 0x83
+        ext[2] = 8;
+        ext[4] = (4 << 5) | 3;
+        ext[5] = 0x07; // FL_FR | LFE1 | FC
+        ext[6] = 0x00;
+        ext[7] = 0x00;
+
+        let mut caps = DisplayCapabilities::default();
+        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+
+        let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
+        let sa = cea.speaker_allocation.unwrap();
+        assert!(sa.channels.contains(SpeakerAllocationFlags::FL_FR));
+        assert!(sa.channels.contains(SpeakerAllocationFlags::LFE1));
+        assert!(sa.channels.contains(SpeakerAllocationFlags::FC));
+    }
+
+    #[test]
+    fn test_y420_vdb_adds_modes_and_vics() {
+        let mut ext = [0u8; 128];
+        // Y420 VDB extended block: outer tag=7, length=2 → header = (7 << 5) | 2 = 0xE2
+        // payload: extended tag 0x0E, VIC 96 (2160p50)
+        ext[2] = 8;
+        ext[4] = (7 << 5) | 2;
+        ext[5] = 0x0E; // EXT_TAG_Y420_VIDEO
+        ext[6] = 96;   // VIC 96
+
+        let mut caps = DisplayCapabilities::default();
+        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+
+        let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
+        assert_eq!(cea.y420_vics, vec![96]);
+        // VIC 96 = 3840×2160@50Hz — should appear in supported_modes
+        assert!(caps.supported_modes.iter().any(|m| m.width == 3840 && m.height == 2160 && m.refresh_rate == 50));
+    }
+
+    #[test]
+    fn test_y420_capability_map_stored() {
+        let mut ext = [0u8; 128];
+        // Y420 Capability Map: outer tag=7, length=2 → 0xE2; ext tag 0x0F, bitmap 0b00000101
+        ext[2] = 8;
+        ext[4] = (7 << 5) | 2;
+        ext[5] = 0x0F; // EXT_TAG_Y420_CAPABILITY_MAP
+        ext[6] = 0b0000_0101;
+
+        let mut caps = DisplayCapabilities::default();
+        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+
+        let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
+        assert_eq!(cea.y420_capability_map, vec![0b0000_0101]);
     }
 }

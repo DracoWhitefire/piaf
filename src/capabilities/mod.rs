@@ -7,8 +7,9 @@ pub use cea861::Cea861Flags;
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use cea861::{
     AudioFormat, AudioFormatInfo, AudioSampleRates, Cea861Capabilities, Cea861Handler,
-    ColorimetryBlock, ColorimetryFlags, HdmiVsdb, HdmiVsdbFlags, HdrEotf, HdrStaticMetadata,
-    ShortAudioDescriptor, VideoCapability, VideoCapabilityFlags,
+    ColorimetryBlock, ColorimetryFlags, HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata,
+    HdmiVsdb, HdmiVsdbFlags, ShortAudioDescriptor, SpeakerAllocation, SpeakerAllocationFlags,
+    SpeakerAllocationFlags2, SpeakerAllocationFlags3, VideoCapability, VideoCapabilityFlags,
 };
 
 use crate::model::capabilities::DisplayCapabilities;
