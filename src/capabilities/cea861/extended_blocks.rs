@@ -10,6 +10,7 @@ pub(super) const EXT_TAG_Y420_CAPABILITY_MAP: u8 = 0x0F;
 pub(super) const EXT_TAG_HDMI_AUDIO: u8 = 0x12;
 pub(super) const EXT_TAG_ROOM_CONFIGURATION: u8 = 0x13;
 pub(super) const EXT_TAG_SPEAKER_LOCATION: u8 = 0x14;
+pub(super) const EXT_TAG_INFOFRAME: u8 = 0x20;
 
 // ---------------------------------------------------------------------------
 // Video Capability Data Block (extended tag 0x00)
@@ -553,6 +554,83 @@ pub(super) fn parse_speaker_location(block_data: &[u8]) -> Vec<SpeakerLocationEn
         .collect()
 }
 
+// ---------------------------------------------------------------------------
+// InfoFrame Data Block (extended tag 0x20)
+// ---------------------------------------------------------------------------
+
+/// Well-known InfoFrame type codes from the InfoFrame Data Block (extended tag `0x20`).
+///
+/// These correspond to the InfoFrame types defined in HDMI and CTA-861.
+pub mod infoframe_type {
+    /// Vendor-Specific InfoFrame (VSI). The associated OUI identifies the vendor.
+    pub const VENDOR_SPECIFIC: u8 = 0x01;
+    /// AVI InfoFrame — active video format, colorimetry, aspect ratio.
+    pub const AVI: u8 = 0x02;
+    /// Source Product Descriptor InfoFrame.
+    pub const SOURCE_PRODUCT_DESCRIPTOR: u8 = 0x03;
+    /// Audio InfoFrame.
+    pub const AUDIO: u8 = 0x04;
+    /// MPEG Source InfoFrame.
+    pub const MPEG_SOURCE: u8 = 0x05;
+    /// NTSC VBI InfoFrame.
+    pub const NTSC_VBI: u8 = 0x06;
+    /// Dynamic Range and Mastering InfoFrame (HDR10 static metadata).
+    pub const DYNAMIC_RANGE_MASTERING: u8 = 0x07;
+}
+
+/// One entry from an InfoFrame Data Block (extended tag `0x20`).
+///
+/// Each descriptor identifies an InfoFrame type that the sink is capable of
+/// receiving. For Vendor-Specific InfoFrames (`type_code == 0x01`) the IEEE OUI
+/// of the vendor is also present.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InfoFrameDescriptor {
+    /// InfoFrame type code (bits 4:0 of the SID byte).
+    ///
+    /// See the constants in [`infoframe_type`] for the well-known values.
+    pub type_code: u8,
+    /// IEEE OUI for Vendor-Specific InfoFrames (`type_code == 0x01`).
+    ///
+    /// Stored as `(byte0 << 16) | (byte1 << 8) | byte2` following the byte
+    /// order used in CTA-861.  `None` for all other types.
+    pub vendor_oui: Option<u32>,
+}
+
+pub(super) fn parse_infoframe_db(block_data: &[u8]) -> Vec<InfoFrameDescriptor> {
+    // block_data[0] = extended tag; SIDs start at [1].
+    // Each SID: bits 7:5 = additional bytes after this byte, bits 4:0 = type.
+    let mut out = Vec::new();
+    let payload = &block_data[1..];
+    let mut i = 0;
+
+    while i < payload.len() {
+        let b = payload[i];
+        let type_code = b & 0x1F;
+        let extra = ((b >> 5) & 0x07) as usize;
+        i += 1;
+
+        let vendor_oui = if type_code == infoframe_type::VENDOR_SPECIFIC && extra >= 3 {
+            let oui = ((payload.get(i).copied().unwrap_or(0) as u32) << 16)
+                | ((payload.get(i + 1).copied().unwrap_or(0) as u32) << 8)
+                | (payload.get(i + 2).copied().unwrap_or(0) as u32);
+            Some(oui)
+        } else {
+            None
+        };
+
+        out.push(InfoFrameDescriptor {
+            type_code,
+            vendor_oui,
+        });
+
+        // Advance past the extra bytes, clamping to remaining payload.
+        i += extra.min(payload.len().saturating_sub(i));
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -811,5 +889,48 @@ mod tests {
     fn test_speaker_location_empty_block() {
         let data = [EXT_TAG_SPEAKER_LOCATION];
         assert!(parse_speaker_location(&data).is_empty());
+    }
+
+    // --- InfoFrame Data Block tests ---
+
+    #[test]
+    fn test_infoframe_avi_and_audio() {
+        // Two standard SIDs (no extra bytes): AVI (0x02) and Audio (0x04).
+        // SID byte format: bits 7:5 = extra byte count (0), bits 4:0 = type.
+        let data = [EXT_TAG_INFOFRAME, 0x02, 0x04];
+        let descs = parse_infoframe_db(&data);
+        assert_eq!(descs.len(), 2);
+        assert_eq!(descs[0].type_code, infoframe_type::AVI);
+        assert!(descs[0].vendor_oui.is_none());
+        assert_eq!(descs[1].type_code, infoframe_type::AUDIO);
+        assert!(descs[1].vendor_oui.is_none());
+    }
+
+    #[test]
+    fn test_infoframe_vendor_specific_with_oui() {
+        // VSI SID: type=0x01, extra=3 → byte = (3 << 5) | 0x01 = 0x61; OUI = 0x000C03 (HDMI)
+        let data = [EXT_TAG_INFOFRAME, 0x61, 0x00, 0x0C, 0x03];
+        let descs = parse_infoframe_db(&data);
+        assert_eq!(descs.len(), 1);
+        assert_eq!(descs[0].type_code, infoframe_type::VENDOR_SPECIFIC);
+        assert_eq!(descs[0].vendor_oui, Some(0x000C03));
+    }
+
+    #[test]
+    fn test_infoframe_mixed_vsi_and_standard() {
+        // VSI (3 extra bytes) followed by HDR (0 extra bytes).
+        let data = [EXT_TAG_INFOFRAME, 0x61, 0x00, 0x0C, 0x03, 0x07];
+        let descs = parse_infoframe_db(&data);
+        assert_eq!(descs.len(), 2);
+        assert_eq!(descs[0].type_code, infoframe_type::VENDOR_SPECIFIC);
+        assert_eq!(descs[0].vendor_oui, Some(0x000C03));
+        assert_eq!(descs[1].type_code, infoframe_type::DYNAMIC_RANGE_MASTERING);
+        assert!(descs[1].vendor_oui.is_none());
+    }
+
+    #[test]
+    fn test_infoframe_empty_block() {
+        let data = [EXT_TAG_INFOFRAME];
+        assert!(parse_infoframe_db(&data).is_empty());
     }
 }

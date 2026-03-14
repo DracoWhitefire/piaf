@@ -10,10 +10,11 @@ mod vic_table;
 pub use audio::{AudioFormat, AudioFormatInfo, AudioSampleRates, ShortAudioDescriptor};
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use extended_blocks::{
-    ColorimetryBlock, ColorimetryFlags, DtcPointEncoding, HdrDynamicMetadataDescriptor, HdrEotf,
-    HdrStaticMetadata, RoomConfigurationBlock, SpeakerAllocation, SpeakerAllocationFlags,
-    SpeakerAllocationFlags2, SpeakerAllocationFlags3, SpeakerLocationEntry,
-    VesaTransferCharacteristic, VideoCapability, VideoCapabilityFlags,
+    infoframe_type, ColorimetryBlock, ColorimetryFlags, DtcPointEncoding,
+    HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata, InfoFrameDescriptor,
+    RoomConfigurationBlock, SpeakerAllocation, SpeakerAllocationFlags, SpeakerAllocationFlags2,
+    SpeakerAllocationFlags3, SpeakerLocationEntry, VesaTransferCharacteristic, VideoCapability,
+    VideoCapabilityFlags,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use hdmi_vsdb::{HdmiVsdb, HdmiVsdbFlags};
@@ -31,13 +32,13 @@ use crate::model::prelude::Vec;
 use audio::parse_audio_data_block;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use extended_blocks::{
-    parse_colorimetry, parse_hdr_dynamic_metadata, parse_hdr_static_metadata,
+    parse_colorimetry, parse_hdr_dynamic_metadata, parse_hdr_static_metadata, parse_infoframe_db,
     parse_room_configuration, parse_speaker_allocation, parse_speaker_location,
     parse_vesa_transfer_characteristic, parse_video_capability, parse_video_format_preferences,
     parse_y420_capability_map, parse_y420_vdb, EXT_TAG_COLORIMETRY, EXT_TAG_HDMI_AUDIO,
-    EXT_TAG_HDR_DYNAMIC_METADATA, EXT_TAG_HDR_STATIC_METADATA, EXT_TAG_ROOM_CONFIGURATION,
-    EXT_TAG_SPEAKER_LOCATION, EXT_TAG_VIDEO_CAPABILITY, EXT_TAG_VIDEO_FORMAT_PREFERENCE,
-    EXT_TAG_Y420_CAPABILITY_MAP, EXT_TAG_Y420_VIDEO,
+    EXT_TAG_HDR_DYNAMIC_METADATA, EXT_TAG_HDR_STATIC_METADATA, EXT_TAG_INFOFRAME,
+    EXT_TAG_ROOM_CONFIGURATION, EXT_TAG_SPEAKER_LOCATION, EXT_TAG_VIDEO_CAPABILITY,
+    EXT_TAG_VIDEO_FORMAT_PREFERENCE, EXT_TAG_Y420_CAPABILITY_MAP, EXT_TAG_Y420_VIDEO,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use hdmi_vsdb::parse_hdmi_vsdb;
@@ -109,6 +110,11 @@ pub struct Cea861Capabilities {
     pub hdr_static_metadata: Option<HdrStaticMetadata>,
     /// Decoded HDMI Audio Data Block (extended tag `0x12`), if present.
     pub hdmi_audio: Option<HdmiAudioBlock>,
+    /// InfoFrame descriptors from the InfoFrame Data Block (extended tag `0x20`).
+    ///
+    /// Each entry identifies an InfoFrame type the sink can receive. For
+    /// Vendor-Specific InfoFrames the IEEE OUI is also decoded.
+    pub infoframe_descriptors: Vec<InfoFrameDescriptor>,
     /// Decoded Room Configuration Data Block (extended tag `0x13`), if present.
     pub room_configuration: Option<RoomConfigurationBlock>,
     /// Speaker location entries from the Speaker Location Data Block (extended tag `0x14`).
@@ -169,6 +175,7 @@ impl ExtensionHandler for Cea861Handler {
             colorimetry: None,
             hdr_static_metadata: None,
             hdmi_audio: None,
+            infoframe_descriptors: Vec::new(),
             room_configuration: None,
             speaker_locations: Vec::new(),
             vesa_transfer_characteristic: None,
@@ -318,6 +325,11 @@ impl ExtensionHandler for Cea861Handler {
                             if cea_caps.y420_capability_map.is_empty() =>
                         {
                             cea_caps.y420_capability_map = parse_y420_capability_map(block_data);
+                        }
+                        Some(EXT_TAG_INFOFRAME) => {
+                            cea_caps
+                                .infoframe_descriptors
+                                .extend(parse_infoframe_db(block_data));
                         }
                         Some(EXT_TAG_ROOM_CONFIGURATION)
                             if cea_caps.room_configuration.is_none() =>
