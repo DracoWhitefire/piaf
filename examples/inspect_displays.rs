@@ -611,6 +611,49 @@ fn main() {
                                         count
                                     );
                                 }
+                                if let Some(ref scdb) = cea.hf_scdb {
+                                    println!("  HF-SCDB (HDMI 2.1 sink capabilities):");
+                                    if scdb.max_tmds_rate_mhz > 0 {
+                                        println!(
+                                            "    Max TMDS rate: {} MHz",
+                                            scdb.max_tmds_rate_mhz
+                                        );
+                                    } else {
+                                        println!("    Max TMDS rate: ≤340 MHz");
+                                    }
+                                    println!("    Max FRL rate: {:?}", scdb.max_frl_rate);
+                                    let mut flags = Vec::new();
+                                    if scdb.scdc_present {
+                                        flags.push("SCDC");
+                                    }
+                                    if scdb.allm {
+                                        flags.push("ALLM");
+                                    }
+                                    if scdb.fva {
+                                        flags.push("FVA");
+                                    }
+                                    if scdb.qms {
+                                        flags.push("QMS");
+                                    }
+                                    if !flags.is_empty() {
+                                        println!("    Flags: {}", flags.join(", "));
+                                    }
+                                    if let (Some(min), Some(max)) =
+                                        (scdb.vrr_min_hz, scdb.vrr_max_hz)
+                                    {
+                                        if max > 0 {
+                                            println!("    VRR range: {}–{} Hz", min, max);
+                                        }
+                                    }
+                                    if let Some(ref dsc) = scdb.dsc {
+                                        if dsc.dsc_1p2 {
+                                            println!(
+                                                "    DSC 1.2: max {:?}, {:?}",
+                                                dsc.max_frl_rate, dsc.max_slices
+                                            );
+                                        }
+                                    }
+                                }
                                 if !cea.vtb_ext.is_empty() {
                                     let total: usize =
                                         cea.vtb_ext.iter().map(|v| v.timings.len()).sum();

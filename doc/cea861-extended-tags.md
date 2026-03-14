@@ -34,7 +34,7 @@ Extended tag data blocks use outer CTA tag `0x07`, with the first payload byte a
 | `0x2A` | DisplayID Type X Video Timing Data Block (T10VTDB) | ✓ implemented (`T10VtdbBlock`) |
 | `0x2B`–`0x77` | Reserved | — reserved |
 | `0x78` | HDMI Forum EDID Extension Override Data Block | ✓ implemented (`hf_eeodb_extension_count`) |
-| `0x79` | HDMI Forum Sink Capability Data Block | — not yet |
+| `0x79` | HDMI Forum Sink Capability Data Block (HF-SCDB) | ✓ implemented (`HdmiForumSinkCap`) |
 | `0x7A`–`0x7F` | Reserved for HDMI | — reserved |
 | `0x80`–`0xFF` | Reserved | — reserved |
 
@@ -118,5 +118,32 @@ exceeds what the base EDID byte can represent. Exposed as
 
 ### HDMI Forum Sink Capability Data Block (`0x79`)
 
-Source: HDMI Forum EDID Extension Specification (not publicly available without HDMI Forum
-membership). Deferred until the spec can be sourced.
+Source: HDMI 2.1a section 10.3.6 (structure reconstructed from Linux kernel `drm_edid.c`,
+edid-decode, and libdisplay-info).
+
+```
+Byte 1:  Tag Code (0x07) | Length
+Byte 2:  Extended Tag Code (0x79)
+Byte 3:  Reserved = 0x00
+Byte 4:  Reserved = 0x00
+  -- SCDS (Sink Capability Data Structure) --
+Byte 5:  Version (expected 1)
+Byte 6:  Max_TMDS_Character_Rate / 5  (MHz; 0 → ≤340 MHz)
+Byte 7:  SCDC_Present[7] | RR_Capable[6] | Cable_Status[5] | CCBPCI[4]
+         | LTE_340Scramble[3] | Independent_View[2] | Dual_View[1] | OSD_Disparity[0]
+Byte 8:  Max_FRL_Rate[7:4] | UHD_VIC[3] | DC_48b_420[2] | DC_36b_420[1] | DC_30b_420[0]
+  -- optional extended section (bytes 9–11) --
+Byte 9:  FAPA_End_Ext[7] | QMS[6] | M_Delta[5] | CinemaVRR[4](deprecated)
+         | Neg_MVRR[3] | FVA[2] | ALLM[1] | FAPA_Start[0]
+Byte 10: VRRmax[9:8][7:6] | VRRmin[5:0]
+Byte 11: VRRmax[7:0]
+  -- optional DSC section (bytes 12–14) --
+Byte 12: DSC_1p2[7] | DSC_Native_420[6] | QMS_TFRmax[5] | QMS_TFRmin[4]
+         | DSC_All_BPC[3] | Reserved[2] | DSC_12bpc[1] | DSC_10bpc[0]
+Byte 13: DSC_Max_FRL_Rate[7:4] | DSC_MaxSlices[3:0]
+Byte 14: Reserved[7:6] | DSC_MaxTotalChunkBytes[5:0]  (1024×(1+field); 0=not reported)
+```
+
+Exposed as `Cea861Capabilities::hf_scdb: Option<HdmiForumSinkCap>` with nested
+`HdmiForumDsc` for the DSC section. Enums: `HdmiForumFrl` (Max_FRL_Rate values),
+`HdmiDscMaxSlices` (DSC slice count levels).

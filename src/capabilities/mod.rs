@@ -7,8 +7,9 @@ pub use cea861::Cea861Flags;
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use cea861::{
     infoframe_type, AudioFormat, AudioFormatInfo, AudioSampleRates, Cea861Capabilities,
-    Cea861Handler, ColorimetryBlock, ColorimetryFlags, DtcPointEncoding, HdmiAudioBlock, HdmiVsdb,
-    HdmiVsdbFlags, HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata, InfoFrameDescriptor,
+    Cea861Handler, ColorimetryBlock, ColorimetryFlags, DtcPointEncoding, HdmiAudioBlock,
+    HdmiDscMaxSlices, HdmiForumDsc, HdmiForumFrl, HdmiForumSinkCap, HdmiVsdb, HdmiVsdbFlags,
+    HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata, InfoFrameDescriptor,
     RoomConfigurationBlock, ShortAudioDescriptor, SpeakerAllocation, SpeakerAllocationFlags,
     SpeakerAllocationFlags2, SpeakerAllocationFlags3, SpeakerLocationEntry, T10VtdbBlock,
     T10VtdbEntry, T7VtdbBlock, T8VtdbBlock, VendorSpecificBlock, VesaDisplayDeviceBlock,

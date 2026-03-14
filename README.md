@@ -120,6 +120,7 @@ CEA-861 data blocks decoded by `Cea861Handler`:
 | `0x07` ext `0x23` | DisplayID Type VIII Video Timing Data Block | VESA DMT ID codes decoded via built-in 0x01–0x58 lookup table |
 | `0x07` ext `0x2A` | DisplayID Type X Video Timing Data Block | CVT formula-based timings; 6/7/8-byte descriptors; refresh up to 1024 Hz |
 | `0x07` ext `0x78` | HDMI Forum EDID Extension Override Data Block | 1-byte extension count override for HDMI 2.1 sinks |
+| `0x07` ext `0x79` | HDMI Forum Sink Capability Data Block | FRL rate, SCDC, Deep Color 4:2:0, ALLM, VRR range, DSC capabilities |
 | `0x07` ext `0x20` | InfoFrame Data Block | Short InfoFrame Descriptors with OUI for VSI |
 
 Remaining work before a 0.1 release: HDMI 2.0 VSDB (OUI `0xC45DD8`), broader fixture coverage, and DisplayID support.
