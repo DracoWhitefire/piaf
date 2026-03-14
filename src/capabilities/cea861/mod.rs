@@ -502,7 +502,7 @@ mod tests {
         ext[2] = 8;
         ext[4] = (7 << 5) | 2;
         ext[5] = 0x0E; // EXT_TAG_Y420_VIDEO
-        ext[6] = 96;   // VIC 96
+        ext[6] = 96; // VIC 96
 
         let mut caps = DisplayCapabilities::default();
         Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
@@ -510,7 +510,64 @@ mod tests {
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         assert_eq!(cea.y420_vics, vec![96]);
         // VIC 96 = 3840×2160@50Hz — should appear in supported_modes
-        assert!(caps.supported_modes.iter().any(|m| m.width == 3840 && m.height == 2160 && m.refresh_rate == 50));
+        assert!(caps
+            .supported_modes
+            .iter()
+            .any(|m| m.width == 3840 && m.height == 2160 && m.refresh_rate == 50));
+    }
+
+    #[test]
+    fn test_extended_svd_vic193() {
+        // Extended SVD encoding for VIC 193 (5120×2160p120):
+        // first byte D6:D0 = 0 (native flag in D7), second byte = 193.
+        let mut ext = [0u8; 128];
+        // Video Data Block: tag=2, length=2 → header = 0x42
+        ext[2] = 8;
+        ext[4] = (2 << 5) | 2;
+        ext[5] = 0x00; // bits 6:0 = 0 → extended SVD; native = false
+        ext[6] = 193; // full VIC
+
+        let mut caps = DisplayCapabilities::default();
+        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+
+        let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
+        assert_eq!(cea.vics, vec![(193, false)]);
+        // VIC 193 = 5120×2160p120 — should appear in supported_modes
+        assert!(caps
+            .supported_modes
+            .iter()
+            .any(|m| m.width == 5120 && m.height == 2160 && m.refresh_rate == 120));
+    }
+
+    #[test]
+    fn test_extended_svd_native_flag() {
+        // Extended SVD with native flag set: first byte = 0x80 (native=true, VIC bits=0).
+        let mut ext = [0u8; 128];
+        ext[2] = 8;
+        ext[4] = (2 << 5) | 2;
+        ext[5] = 0x80; // native=true, bits 6:0 = 0 → extended SVD
+        ext[6] = 196; // VIC 196
+
+        let mut caps = DisplayCapabilities::default();
+        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+
+        let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
+        assert_eq!(cea.vics, vec![(196, true)]);
+    }
+
+    #[test]
+    fn test_extended_svd_truncated_is_skipped() {
+        // Extended SVD marker as the very last byte — second byte missing.
+        let mut ext = [0u8; 128];
+        ext[2] = 6;
+        ext[4] = (2 << 5) | 1; // tag=2, length=1 — only the marker byte, no VIC byte
+        ext[5] = 0x00; // extended SVD marker with no following byte
+
+        let mut caps = DisplayCapabilities::default();
+        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+
+        let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
+        assert!(cea.vics.is_empty());
     }
 
     #[test]

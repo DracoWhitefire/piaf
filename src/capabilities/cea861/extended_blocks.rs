@@ -288,13 +288,15 @@ pub struct SpeakerAllocation {
 
 pub(super) fn parse_speaker_allocation(block_data: &[u8]) -> Option<SpeakerAllocation> {
     let channels = SpeakerAllocationFlags::from_bits_truncate(*block_data.first()?);
-    let channels_2 = SpeakerAllocationFlags2::from_bits_truncate(
-        block_data.get(1).copied().unwrap_or(0),
-    );
-    let channels_3 = SpeakerAllocationFlags3::from_bits_truncate(
-        block_data.get(2).copied().unwrap_or(0),
-    );
-    Some(SpeakerAllocation { channels, channels_2, channels_3 })
+    let channels_2 =
+        SpeakerAllocationFlags2::from_bits_truncate(block_data.get(1).copied().unwrap_or(0));
+    let channels_3 =
+        SpeakerAllocationFlags3::from_bits_truncate(block_data.get(2).copied().unwrap_or(0));
+    Some(SpeakerAllocation {
+        channels,
+        channels_2,
+        channels_3,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -316,9 +318,7 @@ pub struct HdrDynamicMetadataDescriptor {
     pub application_version: u8,
 }
 
-pub(super) fn parse_hdr_dynamic_metadata(
-    block_data: &[u8],
-) -> Vec<HdrDynamicMetadataDescriptor> {
+pub(super) fn parse_hdr_dynamic_metadata(block_data: &[u8]) -> Vec<HdrDynamicMetadataDescriptor> {
     // block_data[0] = extended tag; descriptors start at [1].
     // Each descriptor is one byte (type + version); type-specific trailing
     // bytes are not parsed — we advance one byte at a time.
@@ -359,16 +359,33 @@ pub(super) fn parse_video_format_preferences(block_data: &[u8]) -> Vec<u8> {
 /// Returns VIC numbers from a YCbCr 4:2:0 Video Data Block (extended tag `0x0E`).
 ///
 /// These VICs are **only** supported in the YCbCr 4:2:0 colour format.
-/// Each byte is a Short Video Descriptor using the same encoding as the standard
-/// Video Data Block (bit 7 = native, bits 6–0 = VIC). VIC 0 is reserved and
-/// is excluded from the returned list.
+/// Uses the same Short Video Descriptor encoding as the standard Video Data Block,
+/// including the CTA-861-G extended SVD format for VICs 128–255 (a byte with
+/// bits 6:0 == 0 followed by a byte with the full VIC number). VIC 0 is reserved
+/// and is excluded from the returned list.
 pub(super) fn parse_y420_vdb(block_data: &[u8]) -> Vec<u8> {
     // block_data[0] = extended tag; SVDs start at [1].
-    block_data[1..]
-        .iter()
-        .map(|&b| b & 0x7F)
-        .filter(|&vic| vic != 0)
-        .collect()
+    let svds = &block_data[1..];
+    let mut out = Vec::new();
+    let mut j = 0;
+    while j < svds.len() {
+        let vic_low = svds[j] & 0x7F;
+        let vic = if vic_low == 0 {
+            j += 1;
+            match svds.get(j).copied() {
+                Some(0) | None => {
+                    j += 1;
+                    continue;
+                }
+                Some(v) => v,
+            }
+        } else {
+            vic_low
+        };
+        j += 1;
+        out.push(vic);
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------

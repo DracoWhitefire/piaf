@@ -55,7 +55,7 @@ pub use capabilities::Cea861Flags;
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use capabilities::{
     AudioFormat, AudioFormatInfo, AudioSampleRates, Cea861Capabilities, Cea861Handler,
-    ColorimetryBlock, ColorimetryFlags, HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata,
-    HdmiVsdb, HdmiVsdbFlags, ShortAudioDescriptor, SpeakerAllocation, SpeakerAllocationFlags,
+    ColorimetryBlock, ColorimetryFlags, HdmiVsdb, HdmiVsdbFlags, HdrDynamicMetadataDescriptor,
+    HdrEotf, HdrStaticMetadata, ShortAudioDescriptor, SpeakerAllocation, SpeakerAllocationFlags,
     SpeakerAllocationFlags2, SpeakerAllocationFlags3, VideoCapability, VideoCapabilityFlags,
 };
