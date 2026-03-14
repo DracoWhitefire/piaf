@@ -3,7 +3,7 @@ use piaf::{
     DisplayFeatureFlags, DisplayGamma, EdidVersion, ExtensionLibrary, ExtensionTagRegistry,
     ManufactureDate, ScreenSize, VideoInterface,
 };
-use piaf::{AudioFormat, AudioSampleRates, Cea861Capabilities, Cea861Flags};
+use piaf::{AudioFormat, AudioSampleRates, Cea861Capabilities, Cea861Flags, HdmiVsdbFlags};
 
 fn load(path: &str) -> Vec<u8> {
     std::fs::read(path).unwrap_or_else(|e| panic!("Failed to read fixture {path}: {e}"))
@@ -137,6 +137,31 @@ fn lg_ultragear_audio_descriptors() {
     assert!(lpcm.is_some(), "expected at least one LPCM SAD");
     let lpcm = lpcm.unwrap();
     assert!(lpcm.sample_rates.contains(AudioSampleRates::HZ_48000));
+}
+
+#[test]
+fn lg_ultragear_hdmi_vsdb() {
+    let bytes = load("testdata/valid/lg_ultragear_gsm.bin");
+    let library = ExtensionLibrary::with_standard_handlers();
+    let parsed = parse_edid(&bytes, &library).unwrap();
+    let caps = capabilities_from_edid(&parsed, &library);
+
+    let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
+    let vsdb = cea
+        .hdmi_vsdb
+        .as_ref()
+        .expect("LG UltraGear should have an HDMI VSDB");
+
+    // LG UltraGear is an HDMI display — expect deep color and a reasonable TMDS clock.
+    assert!(
+        vsdb.flags.contains(HdmiVsdbFlags::DC_36BIT)
+            || vsdb.flags.contains(HdmiVsdbFlags::DC_30BIT),
+        "expected at least one deep color flag"
+    );
+    assert!(
+        vsdb.max_tmds_clock_mhz.is_some_and(|c| c >= 300),
+        "expected max TMDS clock >= 300 MHz"
+    );
 }
 
 #[test]
@@ -306,5 +331,5 @@ fn caps_have_no_audio(bytes: &[u8]) -> bool {
     let parsed = parse_edid(bytes, &library).unwrap();
     let caps = capabilities_from_edid(&parsed, &library);
     caps.get_extension_data::<Cea861Capabilities>(0x02)
-        .map_or(true, |cea| !cea.flags.contains(Cea861Flags::BASIC_AUDIO))
+        .is_none_or(|cea| !cea.flags.contains(Cea861Flags::BASIC_AUDIO))
 }

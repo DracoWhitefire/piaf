@@ -1,7 +1,7 @@
 use piaf::{
     capabilities_from_edid, parse_edid, AudioFormat, AudioFormatInfo, Cea861Capabilities,
     Cea861Flags, Cea861Handler, DisplayCapabilities, EdidWarning, ExtensionHandler,
-    ExtensionLibrary,
+    ExtensionLibrary, HdmiVsdbFlags,
 };
 use std::fs;
 use std::path::Path;
@@ -242,6 +242,35 @@ fn main() {
                                             AudioFormatInfo::Raw(b) => format!("byte3=0x{:02X}", b),
                                         };
                                         println!("    {} {}ch  {}", fmt, sad.max_channels, info);
+                                    }
+                                }
+                                if let Some(vsdb) = &cea.hdmi_vsdb {
+                                    let spa = vsdb.source_physical_address;
+                                    println!(
+                                        "  HDMI SPA:     {}.{}.{}.{}",
+                                        (spa >> 12) & 0xF,
+                                        (spa >> 8) & 0xF,
+                                        (spa >> 4) & 0xF,
+                                        spa & 0xF,
+                                    );
+                                    if let Some(clk) = vsdb.max_tmds_clock_mhz {
+                                        println!("  Max TMDS:     {} MHz", clk);
+                                    }
+                                    let mut dc = Vec::new();
+                                    if vsdb.flags.contains(HdmiVsdbFlags::DC_30BIT) {
+                                        dc.push("30-bit");
+                                    }
+                                    if vsdb.flags.contains(HdmiVsdbFlags::DC_36BIT) {
+                                        dc.push("36-bit");
+                                    }
+                                    if vsdb.flags.contains(HdmiVsdbFlags::DC_48BIT) {
+                                        dc.push("48-bit");
+                                    }
+                                    if vsdb.flags.contains(HdmiVsdbFlags::DC_Y444) {
+                                        dc.push("Y444");
+                                    }
+                                    if !dc.is_empty() {
+                                        println!("  Deep color:   {}", dc.join(", "));
                                     }
                                 }
                             }

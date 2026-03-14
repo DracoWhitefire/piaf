@@ -311,8 +311,8 @@ mod tests {
         base[0x19] =
             (((655u16 & 3) << 6) | ((338u16 & 3) << 4) | ((307u16 & 3) << 2) | (614u16 & 3)) as u8;
         // LSB byte 0x1A: Bx[1:0] | By[1:0] | Wx[1:0] | Wy[1:0]
-        base[0x1A] =
-            (((154u16 & 3) << 6) | ((61u16 & 3) << 4) | ((320u16 & 3) << 2) | (337u16 & 3)) as u8;
+        // 320 & 3 == 0, 337 & 3 == 1 — low two bits only
+        base[0x1A] = (((154u16 & 3) << 6) | ((61u16 & 3) << 4) | (337u16 & 3)) as u8;
 
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
@@ -420,9 +420,7 @@ mod tests {
         base[0x36..0x3B].copy_from_slice(&[0x00, 0x00, 0x00, 0xFC, 0x00]);
         base[0x3B..0x3F].copy_from_slice(b"PIAF");
         base[0x3F] = 0x0A;
-        for i in 0x40..0x48 {
-            base[i] = 0x20;
-        }
+        base[0x40..0x48].fill(0x20);
 
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());

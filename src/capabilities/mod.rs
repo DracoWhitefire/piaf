@@ -6,8 +6,8 @@ pub use base::BaseBlockHandler;
 pub use cea861::Cea861Flags;
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use cea861::{
-    AudioFormat, AudioFormatInfo, AudioSampleRates, Cea861Capabilities, Cea861Handler,
-    ShortAudioDescriptor,
+    AudioFormat, AudioFormatInfo, AudioSampleRates, Cea861Capabilities, Cea861Handler, HdmiVsdb,
+    HdmiVsdbFlags, ShortAudioDescriptor,
 };
 
 use crate::model::capabilities::DisplayCapabilities;
@@ -98,8 +98,8 @@ mod tests {
         bytes[0x14] = 0x80; // Digital input flag
 
         let mut sum = 0u8;
-        for i in 0..127 {
-            sum = sum.wrapping_add(bytes[i]);
+        for &b in bytes[..127].iter() {
+            sum = sum.wrapping_add(b);
         }
         bytes[127] = 0u8.wrapping_sub(sum);
 

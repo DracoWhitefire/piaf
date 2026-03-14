@@ -1,9 +1,13 @@
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod audio;
+#[cfg(any(feature = "alloc", feature = "std"))]
+mod hdmi_vsdb;
 mod vic_table;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use audio::{AudioFormat, AudioFormatInfo, AudioSampleRates, ShortAudioDescriptor};
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use hdmi_vsdb::{HdmiVsdb, HdmiVsdbFlags};
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::capabilities::base::timings::decode_dtd_slot;
@@ -16,6 +20,8 @@ use crate::model::extension::ExtensionHandler;
 use crate::model::prelude::Vec;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use audio::parse_audio_data_block;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use hdmi_vsdb::parse_hdmi_vsdb;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use vic_table::vic_to_mode;
 
@@ -60,6 +66,8 @@ pub struct Cea861Capabilities {
     pub vics: Vec<(u8, bool)>,
     /// Short Audio Descriptors from the CEA Audio Data Block (tag `0x01`).
     pub audio_descriptors: Vec<ShortAudioDescriptor>,
+    /// Decoded HDMI 1.x Vendor-Specific Data Block (OUI `0x000C03`), if present.
+    pub hdmi_vsdb: Option<HdmiVsdb>,
 }
 
 /// Processes a CEA-861 extension block (tag `0x02`).
@@ -82,6 +90,7 @@ impl ExtensionHandler for Cea861Handler {
             flags,
             vics: Vec::new(),
             audio_descriptors: Vec::new(),
+            hdmi_vsdb: None,
         };
 
         // Parse the data block collection: bytes 4 through dtd_offset-1.
@@ -121,6 +130,11 @@ impl ExtensionHandler for Cea861Handler {
                     cea_caps
                         .audio_descriptors
                         .extend(parse_audio_data_block(block_data));
+                } else if tag == 0x03 {
+                    // Vendor-Specific Data Block: check for HDMI OUI.
+                    if cea_caps.hdmi_vsdb.is_none() {
+                        cea_caps.hdmi_vsdb = parse_hdmi_vsdb(block_data);
+                    }
                 } else if tag == 0x02 {
                     // Video Data Block: each byte is a Short Video Descriptor.
                     for &svd in block_data {
@@ -296,13 +310,13 @@ mod tests {
         // hactive=2560, hblank=160
         ext[offset + 2] = (2560 & 0xFF) as u8; // hactive low
         ext[offset + 3] = (160 & 0xFF) as u8; // hblank low
-        ext[offset + 4] = (((2560 >> 4) & 0xF0) | ((160 >> 8) & 0x0F)) as u8;
-        // vactive=1440, vblank=41
+        ext[offset + 4] = ((2560 >> 4) & 0xF0) as u8; // hblank high nibble = 0 (160 < 256)
+                                                      // vactive=1440, vblank=41
         ext[offset + 5] = (1440 & 0xFF) as u8; // vactive low
         ext[offset + 6] = (41 & 0xFF) as u8; // vblank low
-        ext[offset + 7] = (((1440 >> 4) & 0xF0) | ((41 >> 8) & 0x0F)) as u8;
-        // bytes 8-16: sync/image (leave zero — minimal)
-        // byte 17: digital separate sync, both polarities positive
+        ext[offset + 7] = ((1440 >> 4) & 0xF0) as u8; // vblank high nibble = 0 (41 < 256)
+                                                      // bytes 8-16: sync/image (leave zero — minimal)
+                                                      // byte 17: digital separate sync, both polarities positive
         ext[offset + 17] = 0x1E; // bit4=digital, bit3=separate, bit2=Vpos, bit1=Hpos
     }
 

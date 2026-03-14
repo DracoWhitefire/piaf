@@ -52,5 +52,5 @@ pub use parser::parse_edid;
 pub mod capabilities;
 pub use capabilities::{
     capabilities_from_edid, AudioFormat, AudioFormatInfo, AudioSampleRates, Cea861Capabilities,
-    Cea861Flags, Cea861Handler, ShortAudioDescriptor,
+    Cea861Flags, Cea861Handler, HdmiVsdb, HdmiVsdbFlags, ShortAudioDescriptor,
 };
