@@ -61,7 +61,7 @@ bitflags::bitflags! {
     /// | 7   | `0x80` | Underscan support        |
     /// | 6   | `0x40` | Basic audio support      |
     /// | 5   | `0x20` | YCbCr 4:4:4 support      |
-    /// | 4   | `0x10` | YCbCr 4:2:0 support      |
+    /// | 4   | `0x10` | YCbCr 4:2:2 support      |
     #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct Cea861Flags: u8 {
@@ -71,7 +71,7 @@ bitflags::bitflags! {
         const BASIC_AUDIO = 0x40;
         /// The display supports YCbCr 4:4:4 color encoding.
         const YCBCR_444   = 0x20;
-        /// The display supports YCbCr 4:2:0 color encoding.
+        /// The display supports YCbCr 4:2:2 color encoding.
         const YCBCR_422   = 0x10;
     }
 }
