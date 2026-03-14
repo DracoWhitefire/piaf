@@ -148,6 +148,20 @@ fn lg_ultragear_cea_vics() {
         .supported_modes
         .iter()
         .any(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 120 && !m.interlaced)); // VIC 63
+
+    // 4K UHD VICs are now in the extended table (VICs 93–97)
+    assert!(caps
+        .supported_modes
+        .iter()
+        .any(|m| m.width == 3840 && m.height == 2160 && m.refresh_rate == 24)); // VIC 93
+    assert!(caps
+        .supported_modes
+        .iter()
+        .any(|m| m.width == 3840 && m.height == 2160 && m.refresh_rate == 30)); // VIC 95
+    assert!(caps
+        .supported_modes
+        .iter()
+        .any(|m| m.width == 3840 && m.height == 2160 && m.refresh_rate == 60)); // VIC 97
 }
 
 #[test]

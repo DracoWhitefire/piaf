@@ -75,7 +75,11 @@ impl ExtensionHandler for Cea861Handler {
         // Parse the data block collection: bytes 4 through dtd_offset-1.
         // When dtd_offset == 0 the spec says no DTDs are present, so data blocks
         // may fill the rest of the block (bytes 4–127).
-        let collection_end = if dtd_offset == 0 { 128 } else { dtd_offset.min(128) };
+        let collection_end = if dtd_offset == 0 {
+            128
+        } else {
+            dtd_offset.min(128)
+        };
 
         if collection_end > 4 {
             let collection = &ext[4..collection_end];
@@ -236,19 +240,20 @@ mod tests {
     }
 
     #[test]
-    fn test_vic_beyond_table_recorded_but_no_mode() {
-        // VIC 93 (4K UHD, not in the 1-64 table) should appear in vics but
-        // not produce a VideoMode entry.
+    fn test_svd_byte_0x80_is_skipped() {
+        // A standard SVD byte uses bit 7 as the native flag and bits 6-0 as the
+        // VIC number. Byte 0x80 → native=true, vic=0. VIC 0 is reserved and must
+        // be skipped: it should not appear in vics and must not produce a mode.
         let mut ext = [0u8; 128];
         ext[2] = 6;
         ext[4] = (2 << 5) | 1; // tag=2, length=1
-        ext[5] = 93;
+        ext[5] = 0x80; // native flag set, vic=0
 
         let mut caps = DisplayCapabilities::default();
         Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
 
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
-        assert_eq!(cea.vics, vec![(93, false)]);
+        assert!(cea.vics.is_empty());
         assert!(caps.supported_modes.is_empty());
     }
 }
