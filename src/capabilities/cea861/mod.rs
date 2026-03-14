@@ -10,9 +10,9 @@ mod vic_table;
 pub use audio::{AudioFormat, AudioFormatInfo, AudioSampleRates, ShortAudioDescriptor};
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use extended_blocks::{
-    ColorimetryBlock, ColorimetryFlags, HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata,
-    SpeakerAllocation, SpeakerAllocationFlags, SpeakerAllocationFlags2, SpeakerAllocationFlags3,
-    VideoCapability, VideoCapabilityFlags,
+    ColorimetryBlock, ColorimetryFlags, DtcPointEncoding, HdrDynamicMetadataDescriptor, HdrEotf,
+    HdrStaticMetadata, SpeakerAllocation, SpeakerAllocationFlags, SpeakerAllocationFlags2,
+    SpeakerAllocationFlags3, VesaTransferCharacteristic, VideoCapability, VideoCapabilityFlags,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use hdmi_vsdb::{HdmiVsdb, HdmiVsdbFlags};
@@ -31,10 +31,10 @@ use audio::parse_audio_data_block;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use extended_blocks::{
     parse_colorimetry, parse_hdr_dynamic_metadata, parse_hdr_static_metadata,
-    parse_speaker_allocation, parse_video_capability, parse_video_format_preferences,
-    parse_y420_capability_map, parse_y420_vdb, EXT_TAG_COLORIMETRY, EXT_TAG_HDR_DYNAMIC_METADATA,
-    EXT_TAG_HDR_STATIC_METADATA, EXT_TAG_VIDEO_CAPABILITY, EXT_TAG_VIDEO_FORMAT_PREFERENCE,
-    EXT_TAG_Y420_CAPABILITY_MAP, EXT_TAG_Y420_VIDEO,
+    parse_speaker_allocation, parse_vesa_transfer_characteristic, parse_video_capability,
+    parse_video_format_preferences, parse_y420_capability_map, parse_y420_vdb, EXT_TAG_COLORIMETRY,
+    EXT_TAG_HDR_DYNAMIC_METADATA, EXT_TAG_HDR_STATIC_METADATA, EXT_TAG_VIDEO_CAPABILITY,
+    EXT_TAG_VIDEO_FORMAT_PREFERENCE, EXT_TAG_Y420_CAPABILITY_MAP, EXT_TAG_Y420_VIDEO,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use hdmi_vsdb::parse_hdmi_vsdb;
@@ -90,6 +90,10 @@ pub struct Cea861Capabilities {
     pub colorimetry: Option<ColorimetryBlock>,
     /// Decoded HDR Static Metadata Data Block (extended tag `0x06`), if present.
     pub hdr_static_metadata: Option<HdrStaticMetadata>,
+    /// Decoded VESA Display Transfer Characteristic Data Block (standard tag `0x05`), if present.
+    ///
+    /// Encodes the display's luminance transfer function as normalized sample points.
+    pub vesa_transfer_characteristic: Option<VesaTransferCharacteristic>,
     /// Decoded Speaker Allocation Data Block (standard tag `0x04`), if present.
     pub speaker_allocation: Option<SpeakerAllocation>,
     /// HDR Dynamic Metadata application descriptors (extended tag `0x07`).
@@ -141,6 +145,7 @@ impl ExtensionHandler for Cea861Handler {
             video_capability: None,
             colorimetry: None,
             hdr_static_metadata: None,
+            vesa_transfer_characteristic: None,
             speaker_allocation: None,
             hdr_dynamic_metadata: Vec::new(),
             video_format_preferences: Vec::new(),
@@ -234,6 +239,12 @@ impl ExtensionHandler for Cea861Handler {
                     // Speaker Allocation Data Block.
                     if cea_caps.speaker_allocation.is_none() {
                         cea_caps.speaker_allocation = parse_speaker_allocation(block_data);
+                    }
+                } else if tag == 0x05 {
+                    // VESA Display Transfer Characteristic Data Block.
+                    if cea_caps.vesa_transfer_characteristic.is_none() {
+                        cea_caps.vesa_transfer_characteristic =
+                            parse_vesa_transfer_characteristic(block_data);
                     }
                 } else if tag == 0x07 {
                     // Extended Tag Data Block: first payload byte is the extended tag.

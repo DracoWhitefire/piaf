@@ -181,6 +181,88 @@ pub(super) fn parse_hdr_static_metadata(block_data: &[u8]) -> Option<HdrStaticMe
 // Speaker Allocation Data Block (standard tag 0x04)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// VESA Display Transfer Characteristic Data Block (standard tag 0x05)
+// ---------------------------------------------------------------------------
+
+/// Point encoding precision for the VESA Display Transfer Characteristic Data Block.
+///
+/// Encoded in bits 7:6 of the first payload byte.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DtcPointEncoding {
+    /// 8 bits per luminance point.
+    Bits8,
+    /// 10 bits per luminance point (packed, 5 bytes per 4 points).
+    Bits10,
+    /// 12 bits per luminance point (packed, 3 bytes per 2 points).
+    Bits12,
+}
+
+/// Decoded VESA Display Transfer Characteristic Data Block (standard tag `0x05`).
+///
+/// Encodes the display's luminance transfer function as a sequence of sample
+/// points at evenly-spaced input levels from 0 (black) to 1 (white).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq)] // no Eq: contains f32
+pub struct VesaTransferCharacteristic {
+    /// Bit depth used to encode each luminance point.
+    pub encoding: DtcPointEncoding,
+    /// Luminance values, normalized to [0.0, 1.0].
+    pub points: Vec<f32>,
+}
+
+pub(super) fn parse_vesa_transfer_characteristic(
+    block_data: &[u8],
+) -> Option<VesaTransferCharacteristic> {
+    let first = *block_data.first()?;
+    let encoding = match (first >> 6) & 0x03 {
+        0x00 => DtcPointEncoding::Bits8,
+        0x01 => DtcPointEncoding::Bits10,
+        0x02 => DtcPointEncoding::Bits12,
+        _ => return None, // reserved
+    };
+
+    let data = &block_data[1..];
+    let points = match encoding {
+        DtcPointEncoding::Bits8 => data.iter().map(|&b| b as f32 / 255.0).collect(),
+        DtcPointEncoding::Bits10 => {
+            let mut pts = Vec::new();
+            let mut i = 0;
+            while i + 5 <= data.len() {
+                // 5 bytes encode 4 × 10-bit values, packed MSB-first.
+                let [b0, b1, b2, b3, b4] = [
+                    data[i] as u16,
+                    data[i + 1] as u16,
+                    data[i + 2] as u16,
+                    data[i + 3] as u16,
+                    data[i + 4] as u16,
+                ];
+                pts.push(((b0 << 2) | (b1 >> 6)) as f32 / 1023.0);
+                pts.push((((b1 & 0x3F) << 4) | (b2 >> 4)) as f32 / 1023.0);
+                pts.push((((b2 & 0x0F) << 6) | (b3 >> 2)) as f32 / 1023.0);
+                pts.push((((b3 & 0x03) << 8) | b4) as f32 / 1023.0);
+                i += 5;
+            }
+            pts
+        }
+        DtcPointEncoding::Bits12 => {
+            let mut pts = Vec::new();
+            let mut i = 0;
+            while i + 3 <= data.len() {
+                // 3 bytes encode 2 × 12-bit values, packed MSB-first.
+                let [b0, b1, b2] = [data[i] as u16, data[i + 1] as u16, data[i + 2] as u16];
+                pts.push(((b0 << 4) | (b1 >> 4)) as f32 / 4095.0);
+                pts.push((((b1 & 0x0F) << 8) | b2) as f32 / 4095.0);
+                i += 3;
+            }
+            pts
+        }
+    };
+
+    Some(VesaTransferCharacteristic { encoding, points })
+}
+
 bitflags::bitflags! {
     /// Speaker channel presence flags, byte 1 of the Speaker Allocation Data Block.
     ///
@@ -537,5 +619,75 @@ mod tests {
         let data = [EXT_TAG_Y420_CAPABILITY_MAP, 0b0000_0101, 0xFF];
         let bitmap = parse_y420_capability_map(&data);
         assert_eq!(bitmap, vec![0b0000_0101, 0xFF]);
+    }
+
+    // --- VESA Display Transfer Characteristic tests ---
+
+    #[test]
+    fn test_vesa_dtc_8bit() {
+        // 8-bit encoding: bits 7:6 = 0b00; payload = [0x00, 0x80, 0xFF] (black, mid, white)
+        let data = [0x00u8, 0x00, 0x80, 0xFF];
+        let dtc = parse_vesa_transfer_characteristic(&data).unwrap();
+        assert_eq!(dtc.encoding, DtcPointEncoding::Bits8);
+        assert_eq!(dtc.points.len(), 3);
+        assert!((dtc.points[0] - 0.0).abs() < 0.001);
+        assert!((dtc.points[1] - 0x80 as f32 / 255.0).abs() < 0.001);
+        assert!((dtc.points[2] - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_vesa_dtc_10bit() {
+        // 10-bit encoding: bits 7:6 = 0b01; encode 4 points packed in 5 bytes.
+        // Point 0 = 0x3FF (max), Point 1 = 0x000, Point 2 = 0x200, Point 3 = 0x155
+        // Pack: b0[9:2]=0xFF b1[9:8|7:4]=0xC0|0x00=0xC0 b2[3:0|9:6]=0x08 b3[5:0|9:8]=0x00|0x01 b4[7:0]=0x55
+        // Simpler: use 0x000 and 0x3FF for easy verification.
+        // Pack 0x3FF, 0x000, 0x000, 0x000:
+        // bits: 11_1111_1111 00_0000_0000 00_0000_0000 00_0000_0000
+        // byte0 = 1111_1111 = 0xFF
+        // byte1 = 11_000000 = 0xC0
+        // byte2 = 00_0000_00 = 0x00
+        // byte3 = 00_000000 = 0x00
+        // byte4 = 0000_0000 = 0x00
+        let data = [0x40u8, 0xFF, 0xC0, 0x00, 0x00, 0x00]; // 0x40 = 01_000000 = 10-bit
+        let dtc = parse_vesa_transfer_characteristic(&data).unwrap();
+        assert_eq!(dtc.encoding, DtcPointEncoding::Bits10);
+        assert_eq!(dtc.points.len(), 4);
+        assert!(
+            (dtc.points[0] - 1.0).abs() < 0.001,
+            "point0={}",
+            dtc.points[0]
+        );
+        assert!((dtc.points[1] - 0.0).abs() < 0.001);
+        assert!((dtc.points[2] - 0.0).abs() < 0.001);
+        assert!((dtc.points[3] - 0.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_vesa_dtc_12bit() {
+        // 12-bit encoding: bits 7:6 = 0b10; encode 2 points packed in 3 bytes.
+        // Point 0 = 0xFFF, Point 1 = 0x000
+        // byte0 = 0xFF, byte1 = 0xF0, byte2 = 0x00
+        let data = [0x80u8, 0xFF, 0xF0, 0x00]; // 0x80 = 10_000000 = 12-bit
+        let dtc = parse_vesa_transfer_characteristic(&data).unwrap();
+        assert_eq!(dtc.encoding, DtcPointEncoding::Bits12);
+        assert_eq!(dtc.points.len(), 2);
+        assert!(
+            (dtc.points[0] - 1.0).abs() < 0.001,
+            "point0={}",
+            dtc.points[0]
+        );
+        assert!((dtc.points[1] - 0.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_vesa_dtc_reserved_encoding_returns_none() {
+        // bits 7:6 = 0b11 → reserved → None
+        let data = [0xC0u8, 0x00];
+        assert!(parse_vesa_transfer_characteristic(&data).is_none());
+    }
+
+    #[test]
+    fn test_vesa_dtc_empty_returns_none() {
+        assert!(parse_vesa_transfer_characteristic(&[]).is_none());
     }
 }
