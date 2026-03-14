@@ -564,6 +564,27 @@ fn main() {
                                         );
                                     }
                                 }
+                                if !cea.t8_vtdb.is_empty() {
+                                    let total: usize =
+                                        cea.t8_vtdb.iter().map(|t| t.timings.len()).sum();
+                                    println!(
+                                        "  T8VTDB ({} block(s), {} timing(s)):",
+                                        cea.t8_vtdb.len(),
+                                        total
+                                    );
+                                    for t8 in &cea.t8_vtdb {
+                                        for mode in &t8.timings {
+                                            println!(
+                                                "    {}x{}@{}Hz{}{}",
+                                                mode.width,
+                                                mode.height,
+                                                mode.refresh_rate,
+                                                if mode.interlaced { "i" } else { "" },
+                                                if t8.y420 { " (Y420)" } else { "" }
+                                            );
+                                        }
+                                    }
+                                }
                                 if !cea.vtb_ext.is_empty() {
                                     let total: usize =
                                         cea.vtb_ext.iter().map(|v| v.timings.len()).sum();

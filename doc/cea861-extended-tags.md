@@ -29,7 +29,7 @@ Extended tag data blocks use outer CTA tag `0x07`, with the first payload byte a
 | `0x20` | InfoFrame Data Block (IFDB) | ✓ implemented |
 | `0x21` | Reserved | — reserved |
 | `0x22` | DisplayID Type VII Video Timing Data Block (T7VTDB) | ✓ implemented (`T7VtdbBlock`) |
-| `0x23` | DisplayID Type VIII Video Timing Data Block (T8VTDB) | — not yet |
+| `0x23` | DisplayID Type VIII Video Timing Data Block (T8VTDB) | ✓ implemented (`T8VtdbBlock`) |
 | `0x24`–`0x29` | Reserved | — reserved |
 | `0x2A` | DisplayID Type X Video Timing Data Block (T10VTDB) | — not yet |
 | `0x2B`–`0x77` | Reserved | — reserved |

@@ -13,7 +13,7 @@ pub use extended_blocks::{
     infoframe_type, ColorimetryBlock, ColorimetryFlags, DtcPointEncoding,
     HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata, InfoFrameDescriptor,
     RoomConfigurationBlock, SpeakerAllocation, SpeakerAllocationFlags, SpeakerAllocationFlags2,
-    SpeakerAllocationFlags3, SpeakerLocationEntry, T7VtdbBlock, VendorSpecificBlock,
+    SpeakerAllocationFlags3, SpeakerLocationEntry, T7VtdbBlock, T8VtdbBlock, VendorSpecificBlock,
     VesaDisplayDeviceBlock, VesaTransferCharacteristic, VideoCapability, VideoCapabilityFlags,
     VtbExtBlock,
 };
@@ -35,13 +35,13 @@ use audio::parse_audio_data_block;
 use extended_blocks::{
     parse_colorimetry, parse_hdr_dynamic_metadata, parse_hdr_static_metadata, parse_infoframe_db,
     parse_room_configuration, parse_speaker_allocation, parse_speaker_location, parse_t7vtdb,
-    parse_vendor_specific_block, parse_vesa_display_device, parse_vesa_transfer_characteristic,
-    parse_video_capability, parse_video_format_preferences, parse_vtb_ext,
-    parse_y420_capability_map, parse_y420_vdb, EXT_TAG_COLORIMETRY, EXT_TAG_HDMI_AUDIO,
-    EXT_TAG_HDR_DYNAMIC_METADATA, EXT_TAG_HDR_STATIC_METADATA, EXT_TAG_INFOFRAME,
-    EXT_TAG_ROOM_CONFIGURATION, EXT_TAG_SPEAKER_LOCATION, EXT_TAG_T7VTDB, EXT_TAG_VESA_DDDB,
-    EXT_TAG_VIDEO_CAPABILITY, EXT_TAG_VIDEO_FORMAT_PREFERENCE, EXT_TAG_VSADB, EXT_TAG_VSVDB,
-    EXT_TAG_VTB_EXT, EXT_TAG_Y420_CAPABILITY_MAP, EXT_TAG_Y420_VIDEO,
+    parse_t8vtdb, parse_vendor_specific_block, parse_vesa_display_device,
+    parse_vesa_transfer_characteristic, parse_video_capability, parse_video_format_preferences,
+    parse_vtb_ext, parse_y420_capability_map, parse_y420_vdb, EXT_TAG_COLORIMETRY,
+    EXT_TAG_HDMI_AUDIO, EXT_TAG_HDR_DYNAMIC_METADATA, EXT_TAG_HDR_STATIC_METADATA,
+    EXT_TAG_INFOFRAME, EXT_TAG_ROOM_CONFIGURATION, EXT_TAG_SPEAKER_LOCATION, EXT_TAG_T7VTDB,
+    EXT_TAG_T8VTDB, EXT_TAG_VESA_DDDB, EXT_TAG_VIDEO_CAPABILITY, EXT_TAG_VIDEO_FORMAT_PREFERENCE,
+    EXT_TAG_VSADB, EXT_TAG_VSVDB, EXT_TAG_VTB_EXT, EXT_TAG_Y420_CAPABILITY_MAP, EXT_TAG_Y420_VIDEO,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use hdmi_vsdb::parse_hdmi_vsdb;
@@ -179,6 +179,12 @@ pub struct Cea861Capabilities {
     /// 20-byte timing descriptor. The decoded modes are also added to
     /// [`DisplayCapabilities::supported_modes`].
     pub t7_vtdb: Vec<T7VtdbBlock>,
+    /// DisplayID Type VIII Video Timing Data Blocks (extended tag `0x23`).
+    ///
+    /// Each entry corresponds to one T8VTDB block, carrying a list of VESA DMT
+    /// timing codes. The decoded modes are also added to
+    /// [`DisplayCapabilities::supported_modes`].
+    pub t8_vtdb: Vec<T8VtdbBlock>,
 }
 
 /// Processes a CEA-861 extension block (tag `0x02`).
@@ -220,6 +226,7 @@ impl ExtensionHandler for Cea861Handler {
             vendor_specific_video: Vec::new(),
             vendor_specific_audio: Vec::new(),
             t7_vtdb: Vec::new(),
+            t8_vtdb: Vec::new(),
         };
 
         // Parse the data block collection: bytes 4 through dtd_offset-1.
@@ -419,6 +426,22 @@ impl ExtensionHandler for Cea861Handler {
                                     caps.supported_modes.push(t7.mode.clone());
                                 }
                                 cea_caps.t7_vtdb.push(t7);
+                            }
+                        }
+                        Some(EXT_TAG_T8VTDB) => {
+                            if let Some(t8) = parse_t8vtdb(&block_data[1..]) {
+                                for mode in &t8.timings {
+                                    let already_present = caps.supported_modes.iter().any(|m| {
+                                        m.width == mode.width
+                                            && m.height == mode.height
+                                            && m.refresh_rate == mode.refresh_rate
+                                            && m.interlaced == mode.interlaced
+                                    });
+                                    if !already_present {
+                                        caps.supported_modes.push(mode.clone());
+                                    }
+                                }
+                                cea_caps.t8_vtdb.push(t8);
                             }
                         }
                         Some(EXT_TAG_HDMI_AUDIO) if cea_caps.hdmi_audio.is_none() => {

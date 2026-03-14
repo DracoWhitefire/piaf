@@ -11,8 +11,8 @@ pub use cea861::{
     HdmiVsdbFlags, HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata, InfoFrameDescriptor,
     RoomConfigurationBlock, ShortAudioDescriptor, SpeakerAllocation, SpeakerAllocationFlags,
     SpeakerAllocationFlags2, SpeakerAllocationFlags3, SpeakerLocationEntry, T7VtdbBlock,
-    VendorSpecificBlock, VesaDisplayDeviceBlock, VesaTransferCharacteristic, VideoCapability,
-    VideoCapabilityFlags, VtbExtBlock,
+    T8VtdbBlock, VendorSpecificBlock, VesaDisplayDeviceBlock, VesaTransferCharacteristic,
+    VideoCapability, VideoCapabilityFlags, VtbExtBlock,
 };
 
 use crate::model::capabilities::DisplayCapabilities;

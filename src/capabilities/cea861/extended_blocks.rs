@@ -8,6 +8,7 @@ pub(super) const EXT_TAG_VTB_EXT: u8 = 0x03;
 pub(super) const EXT_TAG_VIDEO_CAPABILITY: u8 = 0x00;
 pub(super) const EXT_TAG_VSADB: u8 = 0x11;
 pub(super) const EXT_TAG_T7VTDB: u8 = 0x22;
+pub(super) const EXT_TAG_T8VTDB: u8 = 0x23;
 pub(super) const EXT_TAG_COLORIMETRY: u8 = 0x05;
 pub(super) const EXT_TAG_HDR_STATIC_METADATA: u8 = 0x06;
 pub(super) const EXT_TAG_HDR_DYNAMIC_METADATA: u8 = 0x07;
@@ -758,6 +759,191 @@ pub(super) fn parse_t7vtdb(block_data: &[u8]) -> Option<T7VtdbBlock> {
         version,
         mode,
         y420,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// DisplayID Type VIII Video Timing Data Block (extended tag 0x23)
+// ---------------------------------------------------------------------------
+
+/// A decoded DisplayID Type VIII Video Timing Data Block (T8VTDB, extended tag `0x23`).
+///
+/// Contains a list of VESA DMT (Display Monitor Timings) ID codes referencing
+/// standardised monitor timings. Only `Code_Type = 0x00` (DMT) is defined by
+/// CTA-861; other code types are returned as `None` by the parser.
+///
+/// Codes whose DMT IDs are not in the standard table are stored in `codes` but
+/// omitted from `timings`.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq)]
+pub struct T8VtdbBlock {
+    /// Block revision (`Block_Rev` field, bits 2:0).
+    pub version: u8,
+    /// When `true`, all timings also support YCbCr 4:2:0 sampling (T8Y420 flag).
+    pub y420: bool,
+    /// Raw DMT timing codes as they appear in the block (1-byte or 2-byte each).
+    pub codes: Vec<u16>,
+    /// `VideoMode` values resolved from the DMT codes. Entries for unrecognised
+    /// or reserved DMT IDs are omitted.
+    pub timings: Vec<VideoMode>,
+}
+
+/// Look up a VESA DMT ID and return the corresponding `VideoMode`, or `None`
+/// if the ID is not in the standard table.
+///
+/// Source: VESA DMT v1.13, Table 2-1 (cross-referenced against Linux kernel
+/// `drivers/gpu/drm/drm_edid.c`).
+///
+/// When two DMT IDs share the same resolution and refresh rate (one Reduced
+/// Blanking variant, one standard), both map to the same `VideoMode`.
+/// The interlaced 1024×768@43 Hz entry (0x0F) is included; 0x58 (4096×2160 @
+/// 59.94 Hz) is stored as 60 Hz because `VideoMode` uses integer refresh rates.
+pub(super) fn dmt_to_mode(id: u16) -> Option<VideoMode> {
+    let (width, height, refresh_rate, interlaced): (u16, u16, u8, bool) = match id {
+        0x01 => (640, 350, 85, false),
+        0x02 => (640, 400, 85, false),
+        0x03 => (720, 400, 85, false),
+        0x04 => (640, 480, 60, false),
+        0x05 => (640, 480, 72, false),
+        0x06 => (640, 480, 75, false),
+        0x07 => (640, 480, 85, false),
+        0x08 => (800, 600, 56, false),
+        0x09 => (800, 600, 60, false),
+        0x0A => (800, 600, 72, false),
+        0x0B => (800, 600, 75, false),
+        0x0C => (800, 600, 85, false),
+        0x0D => (800, 600, 120, false),
+        0x0E => (848, 480, 60, false),
+        0x0F => (1024, 768, 43, true), // interlaced (1024×768i @ 43 Hz)
+        0x10 => (1024, 768, 60, false),
+        0x11 => (1024, 768, 70, false),
+        0x12 => (1024, 768, 75, false),
+        0x13 => (1024, 768, 85, false),
+        0x14 => (1024, 768, 120, false),
+        0x15 => (1152, 864, 75, false),
+        0x16 => (1280, 768, 60, false), // reduced blanking
+        0x17 => (1280, 768, 60, false),
+        0x18 => (1280, 768, 75, false),
+        0x19 => (1280, 768, 85, false),
+        0x1A => (1280, 768, 120, false),
+        0x1B => (1280, 800, 60, false), // reduced blanking
+        0x1C => (1280, 800, 60, false),
+        0x1D => (1280, 800, 75, false),
+        0x1E => (1280, 800, 85, false),
+        0x1F => (1280, 800, 120, false),
+        0x20 => (1280, 960, 60, false),
+        0x21 => (1280, 960, 85, false),
+        0x22 => (1280, 960, 120, false),
+        0x23 => (1280, 1024, 60, false),
+        0x24 => (1280, 1024, 75, false),
+        0x25 => (1280, 1024, 85, false),
+        0x26 => (1280, 1024, 120, false),
+        0x27 => (1360, 768, 60, false),
+        0x28 => (1360, 768, 120, false),
+        0x29 => (1400, 1050, 60, false), // reduced blanking
+        0x2A => (1400, 1050, 60, false),
+        0x2B => (1400, 1050, 75, false),
+        0x2C => (1400, 1050, 85, false),
+        0x2D => (1400, 1050, 120, false),
+        0x2E => (1440, 900, 60, false), // reduced blanking
+        0x2F => (1440, 900, 60, false),
+        0x30 => (1440, 900, 75, false),
+        0x31 => (1440, 900, 85, false),
+        0x32 => (1440, 900, 120, false),
+        0x33 => (1600, 1200, 60, false),
+        0x34 => (1600, 1200, 65, false),
+        0x35 => (1600, 1200, 70, false),
+        0x36 => (1600, 1200, 75, false),
+        0x37 => (1600, 1200, 85, false),
+        0x38 => (1600, 1200, 120, false),
+        0x39 => (1680, 1050, 60, false), // reduced blanking
+        0x3A => (1680, 1050, 60, false),
+        0x3B => (1680, 1050, 75, false),
+        0x3C => (1680, 1050, 85, false),
+        0x3D => (1680, 1050, 120, false),
+        0x3E => (1792, 1344, 60, false),
+        0x3F => (1792, 1344, 75, false),
+        0x40 => (1792, 1344, 120, false),
+        0x41 => (1856, 1392, 60, false),
+        0x42 => (1856, 1392, 75, false),
+        0x43 => (1856, 1392, 120, false),
+        0x44 => (1920, 1200, 60, false), // reduced blanking
+        0x45 => (1920, 1200, 60, false),
+        0x46 => (1920, 1200, 75, false),
+        0x47 => (1920, 1200, 85, false),
+        0x48 => (1920, 1200, 120, false),
+        0x49 => (1920, 1440, 60, false),
+        0x4A => (1920, 1440, 75, false),
+        0x4B => (1920, 1440, 120, false),
+        0x4C => (2560, 1600, 60, false), // reduced blanking
+        0x4D => (2560, 1600, 60, false),
+        0x4E => (2560, 1600, 75, false),
+        0x4F => (2560, 1600, 85, false),
+        0x50 => (2560, 1600, 120, false),
+        0x51 => (1366, 768, 60, false),
+        0x52 => (1920, 1080, 60, false),
+        0x53 => (1600, 900, 60, false),
+        0x54 => (2048, 1152, 60, false),
+        0x55 => (1280, 720, 60, false),
+        0x56 => (1366, 768, 60, false),
+        0x57 => (4096, 2160, 60, false),
+        0x58 => (4096, 2160, 60, false), // 59.94 Hz, stored as 60 (integer field)
+        _ => return None,
+    };
+    Some(VideoMode {
+        width,
+        height,
+        refresh_rate,
+        interlaced,
+        ..Default::default()
+    })
+}
+
+/// Parse a T8VTDB payload (`block_data` starts after the extended tag byte).
+///
+/// Returns `None` for an empty payload or a non-DMT `Code_Type` (CTA-861 only
+/// defines `Code_Type = 0x00` for DMT).
+pub(super) fn parse_t8vtdb(block_data: &[u8]) -> Option<T8VtdbBlock> {
+    // block_data[0]: Code_Type[7:6] | T8Y420[5] | F34[4]=0 | TCS[3] | Block_Rev[2:0]
+    let header = *block_data.first()?;
+    let code_type = (header >> 6) & 0x03;
+    if code_type != 0x00 {
+        return None; // only DMT is defined for CTA-861
+    }
+    let y420 = (header >> 5) & 1 != 0;
+    let tcs = (header >> 3) & 1 != 0; // false = 1-byte codes, true = 2-byte codes
+    let version = header & 0x07;
+
+    let payload = &block_data[1..];
+    let mut codes: Vec<u16> = Vec::new();
+    let mut timings: Vec<VideoMode> = Vec::new();
+
+    if tcs {
+        // 2-byte codes stored LSB-first; trailing incomplete pairs are ignored.
+        let mut i = 0;
+        while i + 2 <= payload.len() {
+            let code = u16::from_le_bytes([payload[i], payload[i + 1]]);
+            codes.push(code);
+            if let Some(mode) = dmt_to_mode(code) {
+                timings.push(mode);
+            }
+            i += 2;
+        }
+    } else {
+        for &byte in payload {
+            let code = byte as u16;
+            codes.push(code);
+            if let Some(mode) = dmt_to_mode(code) {
+                timings.push(mode);
+            }
+        }
+    }
+
+    Some(T8VtdbBlock {
+        version,
+        y420,
+        codes,
+        timings,
     })
 }
 
@@ -1748,5 +1934,108 @@ mod tests {
         assert_eq!(t7.mode.width, 1280);
         assert_eq!(t7.mode.height, 720);
         assert_eq!(t7.mode.refresh_rate, 60);
+    }
+
+    // T8VTDB tests
+
+    #[test]
+    fn test_t8vtdb_single_1080p60() {
+        // header: Code_Type=0, y420=0, TCS=0, Rev=0 → 0x00; code 0x52 = 1920×1080@60
+        let data = [0x00u8, 0x52];
+        let t8 = parse_t8vtdb(&data).unwrap();
+        assert_eq!(t8.version, 0);
+        assert!(!t8.y420);
+        assert_eq!(t8.codes, vec![0x52]);
+        assert_eq!(t8.timings.len(), 1);
+        assert_eq!(t8.timings[0].width, 1920);
+        assert_eq!(t8.timings[0].height, 1080);
+        assert_eq!(t8.timings[0].refresh_rate, 60);
+        assert!(!t8.timings[0].interlaced);
+    }
+
+    #[test]
+    fn test_t8vtdb_multiple_codes() {
+        // codes 0x04 (640×480@60), 0x09 (800×600@60), 0x10 (1024×768@60)
+        let data = [0x00u8, 0x04, 0x09, 0x10];
+        let t8 = parse_t8vtdb(&data).unwrap();
+        assert_eq!(t8.codes, vec![0x04, 0x09, 0x10]);
+        assert_eq!(t8.timings.len(), 3);
+        assert_eq!(t8.timings[0].width, 640);
+        assert_eq!(t8.timings[1].width, 800);
+        assert_eq!(t8.timings[2].width, 1024);
+    }
+
+    #[test]
+    fn test_t8vtdb_interlaced_0x0f() {
+        // 0x0F = 1024×768@43 Hz, interlaced
+        let data = [0x00u8, 0x0F];
+        let t8 = parse_t8vtdb(&data).unwrap();
+        assert_eq!(t8.timings[0].width, 1024);
+        assert_eq!(t8.timings[0].height, 768);
+        assert_eq!(t8.timings[0].refresh_rate, 43);
+        assert!(t8.timings[0].interlaced);
+    }
+
+    #[test]
+    fn test_t8vtdb_two_byte_codes() {
+        // TCS=1: header bit 3 set → 0x08; code 0x0052 = 1920×1080@60 stored LSB-first
+        let data = [0x08u8, 0x52, 0x00];
+        let t8 = parse_t8vtdb(&data).unwrap();
+        assert_eq!(t8.codes, vec![0x0052]);
+        assert_eq!(t8.timings[0].width, 1920);
+        assert_eq!(t8.timings[0].refresh_rate, 60);
+    }
+
+    #[test]
+    fn test_t8vtdb_two_byte_codes_odd_trailing_byte_ignored() {
+        // TCS=1; 3 payload bytes → one complete 2-byte code plus one orphan byte
+        let data = [0x08u8, 0x52, 0x00, 0x55];
+        let t8 = parse_t8vtdb(&data).unwrap();
+        assert_eq!(t8.codes, vec![0x0052]); // trailing 0x55 ignored
+    }
+
+    #[test]
+    fn test_t8vtdb_unknown_code_in_codes_but_not_timings() {
+        // 0xFF is not a defined DMT ID
+        let data = [0x00u8, 0xFF];
+        let t8 = parse_t8vtdb(&data).unwrap();
+        assert_eq!(t8.codes, vec![0xFF]);
+        assert!(t8.timings.is_empty());
+    }
+
+    #[test]
+    fn test_t8vtdb_y420_flag() {
+        // T8Y420 = bit 5 of header → 0x20
+        let data = [0x20u8, 0x52];
+        let t8 = parse_t8vtdb(&data).unwrap();
+        assert!(t8.y420);
+    }
+
+    #[test]
+    fn test_t8vtdb_non_dmt_returns_none() {
+        // Code_Type = 0x01 (bits 7:6 = 01) → not DMT → None
+        let data = [0x40u8, 0x52];
+        assert!(parse_t8vtdb(&data).is_none());
+    }
+
+    #[test]
+    fn test_t8vtdb_empty_returns_none() {
+        assert!(parse_t8vtdb(&[]).is_none());
+    }
+
+    #[test]
+    fn test_dmt_to_mode_spot_checks() {
+        let m = dmt_to_mode(0x55).unwrap();
+        assert_eq!(m.width, 1280);
+        assert_eq!(m.height, 720);
+        assert_eq!(m.refresh_rate, 60);
+        assert!(!m.interlaced);
+
+        let m = dmt_to_mode(0x0F).unwrap();
+        assert!(m.interlaced);
+        assert_eq!(m.refresh_rate, 43);
+
+        assert!(dmt_to_mode(0x00).is_none());
+        assert!(dmt_to_mode(0x59).is_none());
     }
 }
