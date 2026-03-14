@@ -123,7 +123,7 @@ CEA-861 data blocks decoded by `Cea861Handler`:
 | `0x07` ext `0x79` | HDMI Forum Sink Capability Data Block | FRL rate, SCDC, Deep Color 4:2:0, ALLM, VRR range, DSC capabilities |
 | `0x07` ext `0x20` | InfoFrame Data Block | Short InfoFrame Descriptors with OUI for VSI |
 
-Remaining work before a 0.1 release: broader fixture coverage and DisplayID support.
+Remaining work before a 0.1 release: broader fixture coverage. DisplayID extension support is deferred to 0.2.
 
 ## Documentation
 
