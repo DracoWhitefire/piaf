@@ -25,7 +25,7 @@ This structure is useful for:
 ## Capability representation
 
 `DisplayCapabilities` is the consumer-facing output. Fields are `Option` where the source
-data may be absent or undecodable. The `extension_data` map allows handlers to attach
+data may be absent or undecodable. The `extension_data` field allows handlers to attach
 typed custom data without modifying the struct.
 
 ```rust
@@ -65,7 +65,7 @@ pub struct DisplayCapabilities {
     pub supported_modes: Vec<VideoMode>,
     // Extensions
     pub warnings: Vec<EdidWarning>,
-    pub extension_data: HashMap<u8, Arc<dyn ExtensionData>>,
+    pub extension_data: Vec<(u8, Arc<dyn ExtensionData>)>,
 }
 ```
 
