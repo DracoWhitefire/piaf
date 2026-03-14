@@ -1,6 +1,6 @@
 use piaf::{
-    capabilities_from_edid, parse_edid, Cea861Capabilities, Cea861Flags, DisplayCapabilities,
-    EdidWarning, ExtensionHandler, ExtensionLibrary,
+    capabilities_from_edid, parse_edid, Cea861Capabilities, Cea861Flags, Cea861Handler,
+    DisplayCapabilities, EdidWarning, ExtensionHandler, ExtensionLibrary,
 };
 use std::fs;
 use std::path::Path;
@@ -29,19 +29,12 @@ impl ExtensionHandler for CeaDetailsHandler {
         &self,
         ext: &[u8; 128],
         caps: &mut DisplayCapabilities,
-        _warnings: &mut Vec<EdidWarning>,
+        warnings: &mut Vec<EdidWarning>,
     ) {
-        // Store the standard CEA-861 capabilities under tag 0x02
-        let flags = Cea861Flags::from_bits_truncate(ext[3]);
-        caps.set_extension_data(
-            0x02,
-            Cea861Capabilities {
-                flags,
-                vics: Vec::new(),
-            },
-        );
+        // Run the built-in handler first so VICs and modes are populated normally.
+        Cea861Handler.process(ext, caps, warnings);
 
-        // Store additional typed data under a custom key
+        // Then overlay additional typed data under a custom key.
         caps.set_extension_data(
             0xF2,
             CeaDetails {
@@ -182,6 +175,24 @@ fn main() {
                                         "No"
                                     }
                                 );
+                                if !cea.vics.is_empty() {
+                                    let vic_strs: Vec<String> = cea
+                                        .vics
+                                        .iter()
+                                        .map(|(v, native)| {
+                                            if *native {
+                                                format!("{}*", v)
+                                            } else {
+                                                v.to_string()
+                                            }
+                                        })
+                                        .collect();
+                                    println!(
+                                        "  CEA VICs ({}): {}",
+                                        cea.vics.len(),
+                                        vic_strs.join(", ")
+                                    );
+                                }
                             }
 
                             if let (Some(min_v), Some(max_v)) = (caps.min_v_rate, caps.max_v_rate) {
