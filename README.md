@@ -116,6 +116,7 @@ CEA-861 data blocks decoded by `Cea861Handler`:
 | `0x07` ext `0x13` | Room Configuration Data Block | Speaker count and location availability |
 | `0x07` ext `0x14` | Speaker Location Data Block | Per-channel assignment and distance |
 | `0x07` ext `0x11` | Vendor-Specific Audio Data Block | IEEE OUI + opaque vendor payload |
+| `0x07` ext `0x22` | DisplayID Type VII Video Timing Data Block | Single 20-byte DisplayID timing descriptor decoded to `VideoMode` |
 | `0x07` ext `0x20` | InfoFrame Data Block | Short InfoFrame Descriptors with OUI for VSI |
 
 Remaining work before a 0.1 release: HDMI 2.0 VSDB (OUI `0xC45DD8`), broader fixture coverage, and DisplayID support.

@@ -7,6 +7,7 @@ pub(super) const EXT_TAG_VESA_DDDB: u8 = 0x02;
 pub(super) const EXT_TAG_VTB_EXT: u8 = 0x03;
 pub(super) const EXT_TAG_VIDEO_CAPABILITY: u8 = 0x00;
 pub(super) const EXT_TAG_VSADB: u8 = 0x11;
+pub(super) const EXT_TAG_T7VTDB: u8 = 0x22;
 pub(super) const EXT_TAG_COLORIMETRY: u8 = 0x05;
 pub(super) const EXT_TAG_HDR_STATIC_METADATA: u8 = 0x06;
 pub(super) const EXT_TAG_HDR_DYNAMIC_METADATA: u8 = 0x07;
@@ -673,6 +674,91 @@ pub(super) fn parse_vendor_specific_block(block_data: &[u8]) -> Option<VendorSpe
         ((block_data[2] as u32) << 16) | ((block_data[1] as u32) << 8) | (block_data[0] as u32);
     let payload = block_data[3..].to_vec();
     Some(VendorSpecificBlock { oui, payload })
+}
+
+// ---------------------------------------------------------------------------
+// DisplayID Type VII Video Timing Data Block (extended tag 0x22)
+// ---------------------------------------------------------------------------
+
+/// A decoded DisplayID Type VII Video Timing Data Block (T7VTDB, extended tag `0x22`).
+///
+/// Each CTA T7VTDB carries exactly one 20-byte DisplayID-style timing descriptor.
+/// Unlike an 18-byte EDID DTD, the pixel clock is expressed in kHz (not 10 kHz units)
+/// and all horizontal/vertical fields are 16-bit rather than packed.
+///
+/// Multiple T7VTDBs are permitted per CTA extension block (one timing per block).
+/// Per CTA-861, `interlaced` shall always be `false`; `y420` reflects the T7Y420 flag.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq)]
+pub struct T7VtdbBlock {
+    /// Block revision (`Block_Rev` field, bits 2:0 of the descriptor header byte).
+    /// CTA-861 expects revision `0x02`.
+    pub version: u8,
+    /// Decoded video timing for this descriptor.
+    pub mode: VideoMode,
+    /// When `true`, this timing also supports YCbCr 4:2:0 sampling (T7Y420 flag).
+    pub y420: bool,
+}
+
+/// Parse a T7VTDB payload (`block_data` starts after the extended tag byte, at the descriptor
+/// header). Returns `None` for payloads shorter than 22 bytes, zero pixel clock, or geometry
+/// that would produce a refresh rate outside the range of `u8`.
+pub(super) fn parse_t7vtdb(block_data: &[u8]) -> Option<T7VtdbBlock> {
+    // Layout (offsets after the ext tag byte, i.e. starting at the descriptor header):
+    //   [0]      T7_M[7:5] | DSC_PT[4] | reserved[3] | Block_Rev[2:0]
+    //   [1]      F37[7]=0  | T7Y420[6] | T7HSP[5] | T7VSP[4] | reserved[3:0]
+    //   [2..4]   Pixel clock in kHz (24-bit LE)
+    //   [5]      3D_Support[7:6] | reserved[5] | T7IL[4] | T7_Aspect_Ratio[3:0]
+    //   [6..7]   H Active (16-bit LE)
+    //   [8..9]   H Blank  (16-bit LE)
+    //   [10..11] H Offset / Front Porch (15-bit: low byte + high byte bits[6:0])
+    //   [12..13] H Sync Width (16-bit LE)
+    //   [14..15] V Active (16-bit LE)
+    //   [16..17] V Blank  (16-bit LE)
+    //   [18..19] V Offset / Front Porch (15-bit)
+    //   [20..21] V Sync Width (16-bit LE)
+    if block_data.len() < 22 {
+        return None;
+    }
+
+    let version = block_data[0] & 0x07;
+    let y420 = (block_data[1] >> 6) & 1 != 0;
+
+    let pixel_clock_khz =
+        (block_data[2] as u32) | ((block_data[3] as u32) << 8) | ((block_data[4] as u32) << 16);
+    if pixel_clock_khz == 0 {
+        return None;
+    }
+
+    let interlaced = (block_data[5] >> 4) & 1 != 0;
+
+    let hactive = u16::from_le_bytes([block_data[6], block_data[7]]);
+    let hblank = u16::from_le_bytes([block_data[8], block_data[9]]);
+    let vactive = u16::from_le_bytes([block_data[14], block_data[15]]);
+    let vblank = u16::from_le_bytes([block_data[16], block_data[17]]);
+
+    if hactive == 0 || vactive == 0 || hblank == 0 || vblank == 0 {
+        return None;
+    }
+
+    let h_total = hactive as u64 + hblank as u64;
+    let v_total = vactive as u64 + vblank as u64;
+    let refresh_hz = (pixel_clock_khz as u64 * 1000) / (h_total * v_total);
+    let refresh_rate = u8::try_from(refresh_hz).ok()?;
+
+    let mode = VideoMode {
+        width: hactive,
+        height: vactive,
+        refresh_rate,
+        interlaced,
+        ..Default::default()
+    };
+
+    Some(T7VtdbBlock {
+        version,
+        mode,
+        y420,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1547,5 +1633,120 @@ mod tests {
         let b = parse_vendor_specific_block(&payload).unwrap();
         assert_eq!(b.oui, 0x90848B);
         assert_eq!(b.payload, vec![0x01]);
+    }
+
+    // --- DisplayID Type VII Video Timing Data Block (T7VTDB) tests ---
+
+    /// Build a minimal valid 22-byte T7VTDB descriptor payload (after ext tag).
+    ///
+    /// Encodes 1920x1080@60Hz:
+    ///   pixel_clock = 148500 kHz = 0x024414 → LE bytes [0x14, 0x44, 0x02]
+    ///   H active = 1920 = 0x0780 → [0x80, 0x07]
+    ///   H blank  =  280 = 0x0118 → [0x18, 0x01]
+    ///   V active = 1080 = 0x0438 → [0x38, 0x04]
+    ///   V blank  =   45 = 0x002D → [0x2D, 0x00]
+    ///   refresh  = 148500000 / (2200 × 1125) = 60 Hz
+    fn t7_1080p60() -> [u8; 22] {
+        let mut d = [0u8; 22];
+        d[0] = 0x02; // Block_Rev = 010b
+        d[1] = 0x00; // T7Y420=0, T7HSP=0, T7VSP=0
+                     // Pixel clock: 148500 kHz
+        d[2] = 0x14;
+        d[3] = 0x44;
+        d[4] = 0x02;
+        d[5] = 0x00; // 3D_Support=00, T7IL=0, T7_Aspect_Ratio=0
+                     // H Active: 1920
+        d[6] = 0x80;
+        d[7] = 0x07;
+        // H Blank: 280
+        d[8] = 0x18;
+        d[9] = 0x01;
+        // H Offset + H Sync: zeros (don't affect VideoMode)
+        // V Active: 1080
+        d[14] = 0x38;
+        d[15] = 0x04;
+        // V Blank: 45
+        d[16] = 0x2D;
+        d[17] = 0x00;
+        d
+    }
+
+    #[test]
+    fn test_t7vtdb_1080p60() {
+        let d = t7_1080p60();
+        let t7 = parse_t7vtdb(&d).unwrap();
+        assert_eq!(t7.version, 2);
+        assert_eq!(t7.mode.width, 1920);
+        assert_eq!(t7.mode.height, 1080);
+        assert_eq!(t7.mode.refresh_rate, 60);
+        assert!(!t7.mode.interlaced);
+        assert!(!t7.y420);
+    }
+
+    #[test]
+    fn test_t7vtdb_y420_flag() {
+        let mut d = t7_1080p60();
+        d[1] = 0x40; // T7Y420 = bit 6
+        let t7 = parse_t7vtdb(&d).unwrap();
+        assert!(t7.y420);
+    }
+
+    #[test]
+    fn test_t7vtdb_interlaced_flag() {
+        let mut d = t7_1080p60();
+        d[5] = 0x10; // T7IL = bit 4
+        let t7 = parse_t7vtdb(&d).unwrap();
+        assert!(t7.mode.interlaced);
+    }
+
+    #[test]
+    fn test_t7vtdb_too_short_returns_none() {
+        let d = [0u8; 21];
+        assert!(parse_t7vtdb(&d).is_none());
+    }
+
+    #[test]
+    fn test_t7vtdb_zero_pixel_clock_returns_none() {
+        let mut d = t7_1080p60();
+        d[2] = 0;
+        d[3] = 0;
+        d[4] = 0;
+        assert!(parse_t7vtdb(&d).is_none());
+    }
+
+    #[test]
+    fn test_t7vtdb_zero_hactive_returns_none() {
+        let mut d = t7_1080p60();
+        d[6] = 0;
+        d[7] = 0;
+        assert!(parse_t7vtdb(&d).is_none());
+    }
+
+    #[test]
+    fn test_t7vtdb_720p60() {
+        // 1280x720@60Hz: pixel_clock = 74250 kHz, H blank = 370, V blank = 30
+        // h_total = 1650, v_total = 750
+        // refresh = 74250000 / (1650 * 750) = 74250000 / 1237500 = 60 Hz
+        // 74250 = 0x012 24A → LE [0x4A, 0x22, 0x01]
+        // 1280 = 0x0500 → [0x00, 0x05]
+        // 370  = 0x0172 → [0x72, 0x01]
+        // 720  = 0x02D0 → [0xD0, 0x02]
+        // 30   = 0x001E → [0x1E, 0x00]
+        let mut d = [0u8; 22];
+        d[0] = 0x02;
+        d[2] = 0x4A;
+        d[3] = 0x22;
+        d[4] = 0x01;
+        d[6] = 0x00;
+        d[7] = 0x05;
+        d[8] = 0x72;
+        d[9] = 0x01;
+        d[14] = 0xD0;
+        d[15] = 0x02;
+        d[16] = 0x1E;
+        let t7 = parse_t7vtdb(&d).unwrap();
+        assert_eq!(t7.mode.width, 1280);
+        assert_eq!(t7.mode.height, 720);
+        assert_eq!(t7.mode.refresh_rate, 60);
     }
 }

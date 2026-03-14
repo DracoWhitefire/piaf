@@ -552,6 +552,18 @@ fn main() {
                                         );
                                     }
                                 }
+                                if !cea.t7_vtdb.is_empty() {
+                                    println!("  T7VTDB ({}):", cea.t7_vtdb.len());
+                                    for t7 in &cea.t7_vtdb {
+                                        println!(
+                                            "    {}x{}@{}Hz{}",
+                                            t7.mode.width,
+                                            t7.mode.height,
+                                            t7.mode.refresh_rate,
+                                            if t7.y420 { " (Y420)" } else { "" }
+                                        );
+                                    }
+                                }
                                 if !cea.vtb_ext.is_empty() {
                                     let total: usize =
                                         cea.vtb_ext.iter().map(|v| v.timings.len()).sum();
