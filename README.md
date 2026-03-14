@@ -89,11 +89,37 @@ See [`examples/inspect_displays.rs`](examples/inspect_displays.rs) for a complet
 | `alloc` | no      | Enables dynamic allocation without `std` |
 | `serde` | no      | Derives `Serialize`/`Deserialize` on public types |
 
-## Status
+## Base block decoding
 
-The core pipeline is complete and tested against real hardware captures. The base block is fully decoded. The CEA-861 extension handler covers all major data block types. The extension system is stable and open for consumer use.
+Fields decoded by `BaseBlockHandler`:
 
-CEA-861 data blocks decoded by `Cea861Handler`:
+| Field | Source | Notes |
+|-------|--------|-------|
+| Manufacturer ID | bytes `0x08`–`0x09` | Three-character PNP code; `InvalidManufacturerId` warning if out of range |
+| Product code | bytes `0x0A`–`0x0B` | 16-bit little-endian |
+| Serial number | bytes `0x0C`–`0x0F` | 32-bit little-endian |
+| Manufacture date | bytes `0x10`–`0x11` | Week + year, model year, or unspecified |
+| EDID version | bytes `0x12`–`0x13` | Version and revision |
+| Input type | byte `0x14` | Digital/analog flag; interface type, color bit depth (digital); sync level (analog) |
+| Screen size | bytes `0x15`–`0x16` | Physical dimensions in cm, or landscape/portrait aspect ratio |
+| Chromaticity | bytes `0x19`–`0x22` | 10-bit CIE xy coordinates for R, G, B, and white point |
+| Display gamma | byte `0x17` | Encoded as `(value + 100) / 100`; absent if byte is `0xFF` |
+| Display features | byte `0x18` | DPMS states, preferred timing mode, sRGB default, continuous timings |
+| Color encoding | byte `0x18` bits 4–3 | RGB/YCbCr variants for EDID 1.4+ digital; analog color type otherwise |
+| Established timings I/II | bytes `0x23`–`0x25` | Bitmap of 17 legacy modes decoded as `VideoMode` entries |
+| Established timings III | descriptor `0xF7` | Extended bitmap of 44 additional VESA modes |
+| Standard timings | bytes `0x26`–`0x35` | Up to 8 resolution + refresh rate pairs decoded as `VideoMode` entries |
+| Detailed timing descriptors | slots `0x36`, `0x48`, `0x5A`, `0x6C` | Full DTD parameters decoded as `VideoMode`; first non-zero image size sets `preferred_image_size_mm` |
+| Monitor name | descriptor `0xFC` | Display name string |
+| Serial number string | descriptor `0xFF` | Serial number as text |
+| Unspecified text | descriptor `0xFE` | Manufacturer-defined ASCII string |
+| Display range limits | descriptor `0xFD` | Min/max H and V rates, max pixel clock, GTF/CVT timing formula |
+| Additional white points | descriptor `0xFB` | Up to two additional white point entries with optional gamma |
+| Color management data | descriptor `0xF9` | DCM polynomial coefficients for R, G, and B channels |
+
+## CEA-861 coverage
+
+Data blocks decoded by `Cea861Handler`:
 
 | Tag | Block | Notes |
 |-----|-------|-------|
@@ -123,8 +149,6 @@ CEA-861 data blocks decoded by `Cea861Handler`:
 | `0x07` ext `0x79` | HDMI Forum Sink Capability Data Block | FRL rate, SCDC, Deep Color 4:2:0, ALLM, VRR range, DSC capabilities |
 | `0x07` ext `0x20` | InfoFrame Data Block | Short InfoFrame Descriptors with OUI for VSI |
 
-Remaining work before a 0.1 release: broader fixture coverage. DisplayID extension support is deferred to 0.2.
-
 ## Documentation
 
 Design and architecture notes live under [`doc/`](doc/):
@@ -136,3 +160,4 @@ Design and architecture notes live under [`doc/`](doc/):
 - [`doc/testing.md`](doc/testing.md) — testing strategy and fuzzing
 - [`doc/cea861-vsdb.md`](doc/cea861-vsdb.md) — VSDB wire formats (HDMI 1.x and HDMI Forum)
 - [`doc/cea861-extended-tags.md`](doc/cea861-extended-tags.md) — extended tag block wire formats
+- [`doc/roadmap.md`](doc/roadmap.md) — planned features and future work

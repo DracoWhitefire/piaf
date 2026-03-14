@@ -4,16 +4,16 @@ This document describes the intended scope of PIAF and, just as importantly, wha
 
 ## Current scope
 
-The first phase of PIAF focuses on reading and interpreting EDID data as an input to capability discovery.
+PIAF reads and interprets EDID data as an input to display capability discovery.
 
-Specifically, early work covers:
+The library covers:
 
-- raw byte input,
-- validation of basic structure,
-- checksum verification,
-- parsing of the EDID base block,
+- parsing and validation of raw byte slices — header verification, checksum, and block structure,
+- full decoding of the EDID base block into typed fields,
 - extension block dispatch via a pluggable handler system,
-- conversion into a typed capability model.
+- full CEA-861 extension decoding covering all major data block types,
+- conversion into a stable `DisplayCapabilities` consumer model,
+- structured diagnostics: hard errors for structurally invalid input; warnings for malformed, unknown, or suspicious content.
 
 ## Out of scope for early versions
 
@@ -37,18 +37,6 @@ EDID is a good foundational module because it is:
 
 A successful EDID parser creates a stable base for later work on metadata handling, packet construction, and related modules.
 
-## Evolution strategy
-
-PIAF should evolve in small, independent steps:
-
-1. ✅ parse and validate,
-2. ✅ expose a structured intermediate model,
-3. ✅ normalize into `DisplayCapabilities`,
-4. ✅ open the extension system for modular consumer use,
-5. ✅ full EDID base block decoding,
-6. ✅ improve robustness and diagnostics (invalid IDs, size mismatches, fixture tests),
-7. ✅ full CEA-861 implementation (SVDs, SADs, speaker allocation, and remaining data blocks),
-8. 🔲 DisplayID implementation (fragment reassembly, logical block parsing),
-9. 🔲 derived-value helpers as a separate module.
+## Constraints
 
 All development must maintain `no_std` compatibility for core modules. Optional features such as `serde` support and diagnostic pretty-printing can be enabled via crate features.
