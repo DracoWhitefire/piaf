@@ -1,7 +1,7 @@
 use piaf::{
     capabilities_from_edid, parse_edid, AudioFormat, AudioFormatInfo, Cea861Capabilities,
-    Cea861Flags, Cea861Handler, DisplayCapabilities, EdidWarning, ExtensionHandler,
-    ExtensionLibrary, HdmiVsdbFlags,
+    Cea861Flags, Cea861Handler, ColorimetryFlags, DisplayCapabilities, EdidWarning,
+    ExtensionHandler, ExtensionLibrary, HdmiVsdbFlags, HdrEotf,
 };
 use std::fs;
 use std::path::Path;
@@ -271,6 +271,71 @@ fn main() {
                                     }
                                     if !dc.is_empty() {
                                         println!("  Deep color:   {}", dc.join(", "));
+                                    }
+                                }
+                                if let Some(vc) = &cea.video_capability {
+                                    println!(
+                                        "  Video cap:    QS={} QY={} PT={} IT={} CE={}",
+                                        vc.flags.contains(piaf::VideoCapabilityFlags::QS) as u8,
+                                        vc.flags.contains(piaf::VideoCapabilityFlags::QY) as u8,
+                                        vc.pt_behaviour,
+                                        vc.it_behaviour,
+                                        vc.ce_behaviour,
+                                    );
+                                }
+                                if let Some(cm) = &cea.colorimetry {
+                                    let mut standards = Vec::new();
+                                    if cm.colorimetry.contains(ColorimetryFlags::XVYCC601) {
+                                        standards.push("xvYCC601");
+                                    }
+                                    if cm.colorimetry.contains(ColorimetryFlags::XVYCC709) {
+                                        standards.push("xvYCC709");
+                                    }
+                                    if cm.colorimetry.contains(ColorimetryFlags::SYCC601) {
+                                        standards.push("sYCC601");
+                                    }
+                                    if cm.colorimetry.contains(ColorimetryFlags::OPYCC601) {
+                                        standards.push("opYCC601");
+                                    }
+                                    if cm.colorimetry.contains(ColorimetryFlags::OPRGB) {
+                                        standards.push("opRGB");
+                                    }
+                                    if cm.colorimetry.contains(ColorimetryFlags::BT2020CYCC) {
+                                        standards.push("BT.2020cYCC");
+                                    }
+                                    if cm.colorimetry.contains(ColorimetryFlags::BT2020YCC) {
+                                        standards.push("BT.2020YCC");
+                                    }
+                                    if cm.colorimetry.contains(ColorimetryFlags::BT2020RGB) {
+                                        standards.push("BT.2020RGB");
+                                    }
+                                    if !standards.is_empty() {
+                                        println!("  Colorimetry:  {}", standards.join(", "));
+                                    }
+                                }
+                                if let Some(hdr) = &cea.hdr_static_metadata {
+                                    let mut eotfs = Vec::new();
+                                    if hdr.eotf.contains(HdrEotf::SDR) {
+                                        eotfs.push("SDR");
+                                    }
+                                    if hdr.eotf.contains(HdrEotf::HDR) {
+                                        eotfs.push("HDR");
+                                    }
+                                    if hdr.eotf.contains(HdrEotf::ST2084) {
+                                        eotfs.push("PQ/HDR10");
+                                    }
+                                    if hdr.eotf.contains(HdrEotf::HLG) {
+                                        eotfs.push("HLG");
+                                    }
+                                    println!("  HDR EOTFs:    {}", eotfs.join(", "));
+                                    if let Some(max) = hdr.max_luminance {
+                                        println!("  Max lum:      {:.0} cd/m²", max);
+                                    }
+                                    if let Some(min) = hdr.min_luminance {
+                                        println!("  Min lum:      {:.4} cd/m²", min);
+                                    }
+                                    if let Some(fall) = hdr.max_fall {
+                                        println!("  MaxFALL:      {:.0} cd/m²", fall);
                                     }
                                 }
                             }

@@ -1,11 +1,18 @@
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod audio;
 #[cfg(any(feature = "alloc", feature = "std"))]
+mod extended_blocks;
+#[cfg(any(feature = "alloc", feature = "std"))]
 mod hdmi_vsdb;
 mod vic_table;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use audio::{AudioFormat, AudioFormatInfo, AudioSampleRates, ShortAudioDescriptor};
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use extended_blocks::{
+    ColorimetryBlock, ColorimetryFlags, HdrEotf, HdrStaticMetadata, VideoCapability,
+    VideoCapabilityFlags,
+};
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use hdmi_vsdb::{HdmiVsdb, HdmiVsdbFlags};
 
@@ -20,6 +27,11 @@ use crate::model::extension::ExtensionHandler;
 use crate::model::prelude::Vec;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use audio::parse_audio_data_block;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use extended_blocks::{
+    parse_colorimetry, parse_hdr_static_metadata, parse_video_capability, EXT_TAG_COLORIMETRY,
+    EXT_TAG_HDR_STATIC_METADATA, EXT_TAG_VIDEO_CAPABILITY,
+};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use hdmi_vsdb::parse_hdmi_vsdb;
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -54,7 +66,7 @@ bitflags::bitflags! {
 /// Retrieve it with `caps.get_extension_data::<Cea861Capabilities>(0x02)`.
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)] // no Eq: HdrStaticMetadata contains f32
 pub struct Cea861Capabilities {
     /// Capability flags from byte 3 of the CEA-861 header.
     pub flags: Cea861Flags,
@@ -68,6 +80,12 @@ pub struct Cea861Capabilities {
     pub audio_descriptors: Vec<ShortAudioDescriptor>,
     /// Decoded HDMI 1.x Vendor-Specific Data Block (OUI `0x000C03`), if present.
     pub hdmi_vsdb: Option<HdmiVsdb>,
+    /// Decoded Video Capability Data Block (extended tag `0x00`), if present.
+    pub video_capability: Option<VideoCapability>,
+    /// Decoded Colorimetry Data Block (extended tag `0x05`), if present.
+    pub colorimetry: Option<ColorimetryBlock>,
+    /// Decoded HDR Static Metadata Data Block (extended tag `0x06`), if present.
+    pub hdr_static_metadata: Option<HdrStaticMetadata>,
 }
 
 /// Processes a CEA-861 extension block (tag `0x02`).
@@ -91,6 +109,9 @@ impl ExtensionHandler for Cea861Handler {
             vics: Vec::new(),
             audio_descriptors: Vec::new(),
             hdmi_vsdb: None,
+            video_capability: None,
+            colorimetry: None,
+            hdr_static_metadata: None,
         };
 
         // Parse the data block collection: bytes 4 through dtd_offset-1.
@@ -159,9 +180,24 @@ impl ExtensionHandler for Cea861Handler {
                             }
                         }
                     }
+                } else if tag == 0x07 {
+                    // Extended Tag Data Block: first payload byte is the extended tag.
+                    match block_data.first().copied() {
+                        Some(EXT_TAG_VIDEO_CAPABILITY) if cea_caps.video_capability.is_none() => {
+                            cea_caps.video_capability = parse_video_capability(block_data);
+                        }
+                        Some(EXT_TAG_COLORIMETRY) if cea_caps.colorimetry.is_none() => {
+                            cea_caps.colorimetry = parse_colorimetry(block_data);
+                        }
+                        Some(EXT_TAG_HDR_STATIC_METADATA)
+                            if cea_caps.hdr_static_metadata.is_none() =>
+                        {
+                            cea_caps.hdr_static_metadata = parse_hdr_static_metadata(block_data);
+                        }
+                        _ => {}
+                    }
                 }
-                // Other block types (audio, speaker allocation, vendor-specific, …)
-                // will be handled in future iterations.
+                // Other block types (speaker allocation, …) will be handled in future iterations.
 
                 i += length;
             }
