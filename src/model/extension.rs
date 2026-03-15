@@ -88,11 +88,16 @@ impl ExtensionTagRegistry {
         }
     }
 
-    /// Adds `tag` to the set of known tags. Duplicate registrations are silently ignored.
-    pub fn register(&mut self, tag: u8) {
+    /// Adds `tag` to the set of known tags.
+    ///
+    /// Returns `true` if the tag was added or was already present, `false` if the registry
+    /// is full. In `alloc`/`std` builds the registry is unbounded so this always returns
+    /// `true`.
+    pub fn register(&mut self, tag: u8) -> bool {
         if !self.known_tags.contains(&tag) {
             self.known_tags.push(tag);
         }
+        true
     }
 
     /// Returns `true` if `tag` has been registered.
@@ -102,6 +107,13 @@ impl ExtensionTagRegistry {
 }
 
 /// A fixed-capacity set of known extension tag bytes (`no_std` build, capacity 16).
+///
+/// # Capacity limit
+///
+/// This registry can hold at most 16 tags. Attempting to register a 17th distinct tag
+/// returns `false` from [`register`][Self::register] and triggers a `debug_assert!` in
+/// debug builds. In `alloc`/`std` builds the registry is backed by a `Vec` and has no
+/// fixed limit.
 #[cfg(not(any(feature = "alloc", feature = "std")))]
 pub struct ExtensionTagRegistry {
     tags: [u8; 16],
@@ -126,11 +138,24 @@ impl ExtensionTagRegistry {
     }
 
     /// Adds `tag` to the set of known tags.
-    /// Duplicate registrations and overflow (capacity 16) are silently ignored.
-    pub fn register(&mut self, tag: u8) {
-        if self.len < 16 && !self.is_known(tag) {
+    ///
+    /// Returns `true` if the tag was added, or `false` if it was already present or the
+    /// registry is full (capacity 16). Triggers a `debug_assert!` on overflow so that
+    /// firmware that registers too many tags fails loudly in debug builds.
+    pub fn register(&mut self, tag: u8) -> bool {
+        if self.is_known(tag) {
+            return true; // already registered — not an error
+        }
+        debug_assert!(
+            self.len < 16,
+            "ExtensionTagRegistry is full (capacity 16); tag {tag:#04x} was not registered"
+        );
+        if self.len < 16 {
             self.tags[self.len] = tag;
             self.len += 1;
+            true
+        } else {
+            false
         }
     }
 
