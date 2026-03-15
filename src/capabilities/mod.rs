@@ -25,7 +25,7 @@ pub use displayid::{DISPLAYID_HANDLER, DisplayIdHandler};
 /// (CEA-861 and DisplayID).
 ///
 /// Pass to [`parse_edid`][crate::parse_edid] and
-/// [`capabilities_from_edid_static`][crate::capabilities_from_edid_static] for the
+/// [`capabilities_from_edid_static`] for the
 /// common case where no custom extension handlers are needed:
 ///
 /// ```no_run

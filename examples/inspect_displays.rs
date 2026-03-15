@@ -689,7 +689,9 @@ fn main() {
                                 }
                             }
 
-                            if let Some(did) = caps.get_extension_data::<DisplayIdCapabilities>(0x70) {
+                            if let Some(did) =
+                                caps.get_extension_data::<DisplayIdCapabilities>(0x70)
+                            {
                                 println!(
                                     "  DisplayID:    version=0x{:02X} product_type={}",
                                     did.version, did.product_type
