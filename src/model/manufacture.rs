@@ -36,3 +36,30 @@ impl ManufactureDate {
         }
     }
 }
+
+/// A three-character PNP manufacturer identifier, decoded from EDID base block bytes `0x08`–`0x09`.
+///
+/// Each character is an ASCII uppercase letter (A–Z). Valid IDs are registered with the IANA
+/// PNP registry. Well-known examples: `GSM` (LG), `SAM` (Samsung), `DEL` (Dell).
+///
+/// Available in all build configurations including bare `no_std`. The `Display` impl renders
+/// the three-character string directly, so `format!("{}", id)` and `id.to_string()` both work
+/// wherever a `Display` bound is satisfied.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ManufacturerId(pub [u8; 3]);
+
+impl ManufacturerId {
+    /// Returns the ID as a `&str` slice.
+    ///
+    /// The bytes are always valid ASCII uppercase letters, so this never fails.
+    pub fn as_str(&self) -> &str {
+        core::str::from_utf8(&self.0).unwrap_or("???")
+    }
+}
+
+impl core::fmt::Display for ManufacturerId {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}

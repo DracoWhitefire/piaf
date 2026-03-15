@@ -10,6 +10,19 @@ mod descriptors;
 mod header;
 pub(crate) mod timings;
 
+/// Decodes the base block fields that are available in all build configurations,
+/// including bare `no_std` without `alloc`.
+///
+/// Called by [`capabilities_from_edid`][crate::capabilities_from_edid] in `no_std` builds
+/// where the handler pipeline is unavailable. In `std`/`alloc` builds the full
+/// [`BaseBlockHandler`] is used instead, which additionally decodes variable-length fields
+/// and emits diagnostics.
+#[cfg(not(any(feature = "alloc", feature = "std")))]
+pub(super) fn decode_base_block(base: &[u8; 128], caps: &mut DisplayCapabilities) {
+    let _ = header::decode_header_fields(base, caps);
+    descriptors::decode_descriptors(base, caps);
+}
+
 /// Decodes the EDID base block into [`DisplayCapabilities`].
 ///
 /// Extracts manufacturer ID, product code, serial number, input type, physical dimensions,
@@ -26,7 +39,9 @@ impl ExtensionHandler for BaseBlockHandler {
         caps: &mut DisplayCapabilities,
         warnings: &mut Vec<EdidWarning>,
     ) {
-        header::decode_header_fields(base, caps, warnings);
+        if !header::decode_header_fields(base, caps) {
+            warnings.push(EdidWarning::InvalidManufacturerId);
+        }
         descriptors::decode_descriptors(base, caps);
         timings::decode_established_timings(base, caps);
         timings::decode_standard_timings(base, caps);

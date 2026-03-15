@@ -40,8 +40,9 @@ pub use model::{
     ColorManagementData, CvtAspectRatio, CvtAspectRatios, CvtScaling, CvtSupportParams, DcmChannel,
     DigitalColorEncoding, DisplayCapabilities, DisplayFeatureFlags, DisplayGamma, EdidError,
     EdidVersion, EdidWarning, ExtensionLibrary, ExtensionMetadata, ExtensionTagRegistry,
-    GtfSecondaryParams, KnownExtensions, ManufactureDate, ParsedEdid, ScreenSize, StereoMode,
-    SyncDefinition, TimingFormula, VideoInputFlags, VideoInterface, VideoMode, WhitePoint,
+    GtfSecondaryParams, KnownExtensions, ManufactureDate, ManufacturerId, ParsedEdid, ScreenSize,
+    StereoMode, SyncDefinition, TimingFormula, VideoInputFlags, VideoInterface, VideoMode,
+    WhitePoint,
 };
 
 /// EDID byte-level parser.

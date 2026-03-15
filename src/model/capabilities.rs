@@ -1,5 +1,6 @@
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
+use crate::model::manufacture::ManufacturerId;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::Arc;
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -120,9 +121,8 @@ pub struct VideoMode {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Default)]
 pub struct DisplayCapabilities {
-    /// Three-character PNP manufacturer ID (e.g. `"GSM"` for LG, `"SAM"` for Samsung).
-    #[cfg(any(feature = "alloc", feature = "std"))]
-    pub manufacturer: Option<String>,
+    /// Three-character PNP manufacturer ID (e.g. `GSM` for LG, `SAM` for Samsung).
+    pub manufacturer: Option<ManufacturerId>,
     /// Manufacture date or model year, decoded from bytes 16–17.
     pub manufacture_date: Option<crate::model::manufacture::ManufactureDate>,
     /// EDID specification version and revision, decoded from bytes 18–19.
@@ -140,9 +140,11 @@ pub struct DisplayCapabilities {
     /// Unspecified ASCII text strings from `0xFE` descriptors, in slot order.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub unspecified_text: Vec<String>,
-    /// Additional white points from the `0xFB` descriptor, if present.
-    #[cfg(any(feature = "alloc", feature = "std"))]
-    pub white_points: Vec<crate::model::color::WhitePoint>,
+    /// Additional white points from the `0xFB` descriptor.
+    ///
+    /// Up to two entries (the EDID `0xFB` descriptor has two fixed slots). Each slot is
+    /// `None` if the corresponding entry was unused (index byte `0x00`).
+    pub white_points: [Option<crate::model::color::WhitePoint>; 2],
     /// `true` if the display uses a digital input interface.
     pub digital: bool,
     /// Color bit depth per primary channel, decoded from byte `0x14` bits 6–4.

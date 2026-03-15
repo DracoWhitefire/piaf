@@ -51,7 +51,7 @@ pub fn capabilities_from_edid(
     #[cfg(any(feature = "alloc", feature = "std"))]
     let mut caps = DisplayCapabilities::default();
     #[cfg(not(any(feature = "alloc", feature = "std")))]
-    let caps = DisplayCapabilities::default();
+    let mut caps = DisplayCapabilities::default();
 
     #[cfg(any(feature = "alloc", feature = "std"))]
     {
@@ -78,8 +78,8 @@ pub fn capabilities_from_edid(
 
     #[cfg(not(any(feature = "alloc", feature = "std")))]
     {
-        let _ = edid;
         let _ = library;
+        base::decode_base_block(&edid.base_block, &mut caps);
     }
 
     caps

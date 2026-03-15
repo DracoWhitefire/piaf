@@ -94,7 +94,10 @@ fn main() {
                             }
                             println!(
                                 "  Manufacturer: {:?}",
-                                caps.manufacturer.as_deref().unwrap_or("Unknown")
+                                caps.manufacturer
+                                    .as_ref()
+                                    .map(|m| m.as_str())
+                                    .unwrap_or("Unknown")
                             );
                             match caps.manufacture_date {
                                 Some(piaf::ManufactureDate::Manufactured {
@@ -691,17 +694,24 @@ fn main() {
                                 println!("  CEA DTD Offset: {}", cea.dtd_offset);
                             }
 
-                            if !caps.white_points.is_empty() {
-                                println!("  White points ({}):", caps.white_points.len());
-                                for wp in &caps.white_points {
-                                    let g = wp.gamma.map(|g| g.value());
-                                    println!(
-                                        "    [{}] ({:.4},{:.4}) gamma={:?}",
-                                        wp.index,
-                                        wp.chromaticity.x(),
-                                        wp.chromaticity.y(),
-                                        g,
-                                    );
+                            {
+                                let active: Vec<_> = caps
+                                    .white_points
+                                    .iter()
+                                    .filter_map(|wp| wp.as_ref())
+                                    .collect();
+                                if !active.is_empty() {
+                                    println!("  White points ({}):", active.len());
+                                    for wp in active {
+                                        let g = wp.gamma.map(|g: piaf::DisplayGamma| g.value());
+                                        println!(
+                                            "    [{}] ({:.4},{:.4}) gamma={:?}",
+                                            wp.index,
+                                            wp.chromaticity.x(),
+                                            wp.chromaticity.y(),
+                                            g,
+                                        );
+                                    }
                                 }
                             }
                             if !caps.warnings.is_empty() {

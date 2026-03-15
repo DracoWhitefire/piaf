@@ -86,3 +86,37 @@ and avoids encoding policy or heuristics into what is fundamentally a decoded re
 - **`no_std` compatibility**: The core library avoids the Rust standard library to remain usable in firmware, bootloaders, and embedded systems. `alloc` may be used where dynamic allocation is required (e.g., for extension block storage and the dynamic handler pipeline).
 - **Zero-copy (where possible)**: The parser should aim to avoid unnecessary allocations, working directly with input byte slices.
 - **Dead-code warnings in bare `no_std` builds**: Without `alloc` or `std`, the handler layer is absent and the `pub(crate)` decode functions on model types (e.g. `ManufactureDate::from_edid_bytes`) appear unused. These functions are intentionally left available — a consumer with no handler pipeline can still call them directly. A blanket `#![cfg_attr(not(any(feature = "alloc", feature = "std")), allow(dead_code, unused_imports))]` in `lib.rs` suppresses the noise without removing the items.
+
+### Fixed-capacity types for `no_std` field availability
+
+When a field has a fixed maximum size, represent it with a fixed-capacity type rather than
+a heap-allocated one. This makes the field available in all build configurations, including
+bare `no_std` without `alloc`.
+
+The preferred approach for a bounded string is a newtype over a fixed-size byte array with
+a `Display` impl:
+
+```rust
+pub struct ManufacturerId(pub [u8; 3]);
+
+impl ManufacturerId {
+    pub fn as_str(&self) -> &str {
+        core::str::from_utf8(&self.0).unwrap_or("???")
+    }
+}
+
+impl core::fmt::Display for ManufacturerId {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+```
+
+This gives consumers the same ergonomics as a `String` field — `format!("{}", id)`,
+`id.as_str()`, `id.to_string()` — without requiring heap allocation.
+
+Fields with a small fixed bound (like `white_points`, which the EDID `0xFB` descriptor
+limits to two entries) use `[Option<T>; N]` directly.
+
+Fields that are genuinely variable in length (display name strings, timing mode lists,
+warnings) remain `#[cfg(any(feature = "alloc", feature = "std"))]` gated.

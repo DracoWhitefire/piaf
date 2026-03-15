@@ -31,7 +31,7 @@ typed custom data without modifying the struct.
 ```rust
 pub struct DisplayCapabilities {
     // Identity
-    pub manufacturer: Option<String>,
+    pub manufacturer: Option<ManufacturerId>,
     pub manufacture_date: Option<ManufactureDate>,
     pub edid_version: Option<EdidVersion>,
     pub product_code: Option<u16>,
@@ -51,7 +51,7 @@ pub struct DisplayCapabilities {
     pub digital_color_encoding: Option<DigitalColorEncoding>,
     pub analog_color_type: Option<AnalogColorType>,
     pub color_management: Option<ColorManagementData>,
-    pub white_points: Vec<WhitePoint>,
+    pub white_points: [Option<WhitePoint>; 2],
     // Physical
     pub screen_size: Option<ScreenSize>,
     pub preferred_image_size_mm: Option<(u16, u16)>,
@@ -109,6 +109,9 @@ pub enum EdidWarning {
     /// Byte slice length differs from `(1 + extension_count) × 128`.
     /// Extra bytes are ignored; too few is a hard `EdidError::InvalidLength`.
     SizeMismatch { expected: usize, actual: usize },
+    /// A data block inside an extension block declared a length that extends past the
+    /// end of the data block collection. Remaining data blocks are skipped.
+    MalformedDataBlock,
 }
 ```
 

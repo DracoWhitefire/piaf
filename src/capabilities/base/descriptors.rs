@@ -8,8 +8,6 @@ use crate::model::prelude::String;
 use crate::model::timing::TimingFormula;
 
 /// Decodes the four 18-byte monitor descriptor slots (offsets 0x36, 0x48, 0x5A, 0x6C).
-/// Handles monitor name (0xFC) and range limits (0xFD) descriptor types.
-#[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilities) {
     for i in 0..4 {
         let offset = 0x36 + (i * 18);
@@ -19,7 +17,7 @@ pub(super) fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilitie
         // Contains up to two white point entries at byte offsets 5 and 12.
         // Each entry: index (1), lsb (1), x_msb (1), y_msb (1), gamma (1). Index 0 = unused.
         if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFB] {
-            for entry_off in [5usize, 12usize] {
+            for (slot, &entry_off) in [5usize, 12usize].iter().enumerate() {
                 let index = descriptor[entry_off];
                 if index == 0 {
                     continue;
@@ -27,7 +25,7 @@ pub(super) fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilitie
                 let lsb = descriptor[entry_off + 1];
                 let x_raw = ((descriptor[entry_off + 2] as u16) << 2) | ((lsb >> 2) & 0x03) as u16;
                 let y_raw = ((descriptor[entry_off + 3] as u16) << 2) | (lsb & 0x03) as u16;
-                caps.white_points.push(WhitePoint {
+                caps.white_points[slot] = Some(WhitePoint {
                     index,
                     chromaticity: ChromaticityPoint { x_raw, y_raw },
                     gamma: DisplayGamma::from_edid_byte(descriptor[entry_off + 4]),
@@ -37,6 +35,7 @@ pub(super) fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilitie
 
         // Established Timings III Descriptor: tag 0xF7
         // Byte 5 must be revision 0x0A. Bytes 6-11 are a 44-bit timing bitmap.
+        #[cfg(any(feature = "alloc", feature = "std"))]
         if descriptor[0..5] == [0x00, 0x00, 0x00, 0xF7, 0x00] && descriptor[5] == 0x0A {
             const ET3: &[(usize, u8, u16, u16, u8)] = &[
                 // Byte 6
@@ -109,6 +108,7 @@ pub(super) fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilitie
         // CVT 3 Byte Code Descriptor: tag 0xF8
         // Byte 5 must be version 0x01. Bytes 6-17 hold up to 4 entries of 3 bytes each.
         // An entry of (00 00 00) is unused. Byte 0 of an entry = 0x00 is reserved.
+        #[cfg(any(feature = "alloc", feature = "std"))]
         if descriptor[0..5] == [0x00, 0x00, 0x00, 0xF8, 0x00] && descriptor[5] == 0x01 {
             for entry in 0..4usize {
                 let off = 6 + entry * 3;
@@ -164,6 +164,7 @@ pub(super) fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilitie
 
         // Additional Standard Timing Descriptor: tag 0xFA
         // Bytes 5-16 contain up to 6 standard timing entries (2 bytes each).
+        #[cfg(any(feature = "alloc", feature = "std"))]
         if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFA] {
             for j in 0..6 {
                 let base_off = 5 + (j * 2);
@@ -179,6 +180,7 @@ pub(super) fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilitie
         }
 
         // Serial Number Descriptor: tag 0xFF
+        #[cfg(any(feature = "alloc", feature = "std"))]
         if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFF] {
             let s = String::from_utf8_lossy(&descriptor[5..18]);
             let trimmed = s.trim().to_string();
@@ -188,6 +190,7 @@ pub(super) fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilitie
         }
 
         // Unspecified ASCII Text Descriptor: tag 0xFE
+        #[cfg(any(feature = "alloc", feature = "std"))]
         if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFE] {
             let s = String::from_utf8_lossy(&descriptor[5..18]);
             let trimmed = s.trim().to_string();
@@ -217,6 +220,7 @@ pub(super) fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilitie
         }
 
         // Monitor Name Descriptor: tag 0xFC
+        #[cfg(any(feature = "alloc", feature = "std"))]
         if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFC] {
             let name_bytes = &descriptor[5..18];
             let name = String::from_utf8_lossy(name_bytes);
@@ -281,28 +285,29 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
 
-        assert_eq!(caps.white_points.len(), 2);
-        assert_eq!(caps.white_points[0].index, 1);
+        assert!(caps.white_points[0].is_some());
+        assert!(caps.white_points[1].is_some());
+        assert_eq!(caps.white_points[0].unwrap().index, 1);
         assert_eq!(
-            caps.white_points[0].chromaticity,
+            caps.white_points[0].unwrap().chromaticity,
             ChromaticityPoint {
                 x_raw: 321,
                 y_raw: 337
             }
         );
         assert_eq!(
-            caps.white_points[0].gamma,
+            caps.white_points[0].unwrap().gamma,
             DisplayGamma::from_edid_byte(120)
         );
-        assert_eq!(caps.white_points[1].index, 2);
+        assert_eq!(caps.white_points[1].unwrap().index, 2);
         assert_eq!(
-            caps.white_points[1].chromaticity,
+            caps.white_points[1].unwrap().chromaticity,
             ChromaticityPoint {
                 x_raw: 384,
                 y_raw: 128
             }
         );
-        assert_eq!(caps.white_points[1].gamma, None);
+        assert_eq!(caps.white_points[1].unwrap().gamma, None);
     }
 
     #[test]

@@ -27,7 +27,7 @@ fn lg_ultragear_identification() {
     let parsed = parse_edid(&bytes, &library).unwrap();
     let caps = capabilities_from_edid(&parsed, &library);
 
-    assert_eq!(caps.manufacturer.as_deref(), Some("GSM"));
+    assert_eq!(caps.manufacturer.as_ref().map(|m| m.as_str()), Some("GSM"));
     assert_eq!(caps.display_name.as_deref(), Some("LG ULTRAGEAR"));
     assert_eq!(
         caps.manufacture_date,
@@ -236,7 +236,7 @@ fn auo_edp_identification() {
     let parsed = parse_edid(&bytes, &library).unwrap();
     let caps = capabilities_from_edid(&parsed, &library);
 
-    assert_eq!(caps.manufacturer.as_deref(), Some("AUO"));
+    assert_eq!(caps.manufacturer.as_ref().map(|m| m.as_str()), Some("AUO"));
     assert_eq!(
         caps.manufacture_date,
         Some(ManufactureDate::Manufactured {

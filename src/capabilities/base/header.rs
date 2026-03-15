@@ -2,38 +2,31 @@ use crate::model::capabilities::DisplayCapabilities;
 use crate::model::color::{
     AnalogColorType, Chromaticity, ColorBitDepth, DigitalColorEncoding, DisplayGamma,
 };
-#[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::diagnostics::EdidWarning;
 use crate::model::edid::EdidVersion;
 use crate::model::features::DisplayFeatureFlags;
 use crate::model::input::{AnalogSyncLevel, VideoInputFlags, VideoInterface};
-use crate::model::manufacture::ManufactureDate;
-#[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::{String, Vec};
+use crate::model::manufacture::{ManufactureDate, ManufacturerId};
 use crate::model::screen::ScreenSize;
 
-/// Decodes fixed-position header fields: manufacturer, dates, version, product code,
-/// serial number, video input definition, and physical dimensions.
-#[cfg(any(feature = "alloc", feature = "std"))]
-pub(super) fn decode_header_fields(
-    base: &[u8; 128],
-    caps: &mut DisplayCapabilities,
-    warnings: &mut Vec<EdidWarning>,
-) {
+/// Decodes fixed-position header fields and returns `true` if the manufacturer ID was valid.
+///
+/// The caller is responsible for emitting [`EdidWarning::InvalidManufacturerId`][crate::EdidWarning]
+/// when this returns `false`.
+pub(super) fn decode_header_fields(base: &[u8; 128], caps: &mut DisplayCapabilities) -> bool {
     // Manufacturer ID (offsets 0x08-0x09)
     // 2 bytes, 3 characters, 5 bits per character (00001=A, ..., 11010=Z)
     let id_raw = ((base[0x08] as u16) << 8) | (base[0x09] as u16);
     let char1 = ((id_raw >> 10) & 0x1F) as u8;
     let char2 = ((id_raw >> 5) & 0x1F) as u8;
     let char3 = (id_raw & 0x1F) as u8;
-    if (1..=26).contains(&char1) && (1..=26).contains(&char2) && (1..=26).contains(&char3) {
-        let mut mfg = String::new();
-        mfg.push((char1 + b'A' - 1) as char);
-        mfg.push((char2 + b'A' - 1) as char);
-        mfg.push((char3 + b'A' - 1) as char);
-        caps.manufacturer = Some(mfg);
-    } else {
-        warnings.push(EdidWarning::InvalidManufacturerId);
+    let manufacturer_valid =
+        (1..=26).contains(&char1) && (1..=26).contains(&char2) && (1..=26).contains(&char3);
+    if manufacturer_valid {
+        caps.manufacturer = Some(ManufacturerId([
+            char1 + b'A' - 1,
+            char2 + b'A' - 1,
+            char3 + b'A' - 1,
+        ]));
     }
 
     // Product code (offsets 0x0A-0x0B, little-endian)
@@ -91,6 +84,8 @@ pub(super) fn decode_header_fields(
 
     // Screen size or aspect ratio (bytes 0x15-0x16)
     caps.screen_size = ScreenSize::from_edid_bytes(base[0x15], base[0x16]);
+
+    manufacturer_valid
 }
 
 #[cfg(test)]
@@ -106,7 +101,7 @@ mod tests {
     use crate::model::extension::ExtensionHandler;
     use crate::model::features::DisplayFeatureFlags;
     use crate::model::input::{AnalogSyncLevel, VideoInterface};
-    use crate::model::manufacture::ManufactureDate;
+    use crate::model::manufacture::{ManufactureDate, ManufacturerId};
     use crate::model::prelude::Vec;
     use crate::model::screen::ScreenSize;
 
@@ -293,25 +288,16 @@ mod tests {
     fn test_chromaticity() {
         let mut base = [0u8; 128];
 
-        // Encode R=(0.640, 0.330), G=(0.300, 0.600), B=(0.150, 0.060), W=(0.3127, 0.3290)
-        // as 10-bit raw values: multiply by 1024 and round
-        // R: x=655 (0x28F), y=338 (0x152)
-        // G: x=307 (0x133), y=614 (0x266)
-        // B: x=154 (0x09A), y=61  (0x03D)
-        // W: x=320 (0x140), y=337 (0x151)
-        base[0x1B] = (655u16 >> 2) as u8; // R x MSB
-        base[0x1C] = (338u16 >> 2) as u8; // R y MSB
-        base[0x1D] = (307u16 >> 2) as u8; // G x MSB
-        base[0x1E] = (614u16 >> 2) as u8; // G y MSB
-        base[0x1F] = (154u16 >> 2) as u8; // B x MSB
-        base[0x20] = (61u16 >> 2) as u8; // B y MSB
-        base[0x21] = (320u16 >> 2) as u8; // W x MSB
-        base[0x22] = (337u16 >> 2) as u8; // W y MSB
-                                          // LSB byte 0x19: Rx[1:0] | Ry[1:0] | Gx[1:0] | Gy[1:0]
+        base[0x1B] = (655u16 >> 2) as u8;
+        base[0x1C] = (338u16 >> 2) as u8;
+        base[0x1D] = (307u16 >> 2) as u8;
+        base[0x1E] = (614u16 >> 2) as u8;
+        base[0x1F] = (154u16 >> 2) as u8;
+        base[0x20] = (61u16 >> 2) as u8;
+        base[0x21] = (320u16 >> 2) as u8;
+        base[0x22] = (337u16 >> 2) as u8;
         base[0x19] =
             (((655u16 & 3) << 6) | ((338u16 & 3) << 4) | ((307u16 & 3) << 2) | (614u16 & 3)) as u8;
-        // LSB byte 0x1A: Bx[1:0] | By[1:0] | Wx[1:0] | Wy[1:0]
-        // 320 & 3 == 0, 337 & 3 == 1 — low two bits only
         base[0x1A] = (((154u16 & 3) << 6) | ((61u16 & 3) << 4) | (337u16 & 3)) as u8;
 
         let mut caps = DisplayCapabilities::default();
@@ -425,7 +411,7 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
 
-        assert_eq!(caps.manufacturer, Some("SAM".to_string()));
+        assert_eq!(caps.manufacturer, Some(ManufacturerId([b'S', b'A', b'M'])));
         assert_eq!(caps.product_code, Some(0x1234));
         assert_eq!(caps.serial_number, Some(0x12345678));
         assert!(caps.digital);
