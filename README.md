@@ -1,6 +1,8 @@
 # PIAF
 
 [![CI](https://github.com/DracoWhitefire/piaf/actions/workflows/ci.yml/badge.svg)](https://github.com/DracoWhitefire/piaf/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/piaf.svg)](https://crates.io/crates/piaf)
+[![docs.rs](https://docs.rs/piaf/badge.svg)](https://docs.rs/piaf)
 [![License: MPL-2.0](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](https://github.com/DracoWhitefire/piaf/blob/main/LICENSE)
 [![Rust 1.85+](https://img.shields.io/badge/rustc-1.85+-orange.svg)](https://blog.rust-lang.org/2025/02/20/Rust-1.85.0.html)
 
