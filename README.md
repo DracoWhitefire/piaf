@@ -68,13 +68,13 @@ your own typed data attached to `DisplayCapabilities`.
 Register a handler for any extension block tag:
 
 ```rust
-use piaf::{ExtensionHandler, DisplayCapabilities, EdidWarning, ExtensionLibrary};
+use piaf::{ExtensionHandler, DisplayCapabilities, ParseWarning, ExtensionLibrary};
 
 #[derive(Debug)]
 struct MyHandler;
 
 impl ExtensionHandler for MyHandler {
-    fn process(&self, block: &[u8; 128], caps: &mut DisplayCapabilities, warnings: &mut Vec<EdidWarning>) {
+    fn process(&self, block: &[u8; 128], caps: &mut DisplayCapabilities, warnings: &mut Vec<ParseWarning>) {
         // inspect block, set fields on caps
     }
 }
@@ -147,7 +147,7 @@ Fields requiring `alloc` or `std`:
 |-------|--------|
 | `supported_modes` | Variable-length list of video modes |
 | `extension_data` | Type-erased handler data via `Arc<dyn ExtensionData>` |
-| `warnings` (full) | `Vec<EdidWarning>` in alloc builds; use `iter_warnings()` for portable access |
+| `warnings` (full) | `Vec<ParseWarning>` in alloc builds; use `iter_warnings()` for portable access |
 
 Fixed-length string fields (`MonitorString`, `ManufacturerId`) use fixed-size byte
 array newtypes with `Display` and `Deref<Target = str>` impls, so they behave like
