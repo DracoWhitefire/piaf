@@ -7,8 +7,7 @@ use crate::model::diagnostics::EdidWarning;
 ///
 /// Each bit maps to a fixed resolution and refresh rate. Byte 0x25 bits 6–0 are
 /// manufacturer-specific and are not decoded here.
-#[cfg(any(feature = "alloc", feature = "std"))]
-pub(super) fn decode_established_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) {
+pub(super) fn decode_established_timings(base: &[u8; 128], sink: &mut dyn ModeSink) {
     // (byte offset, bit mask, width, height, refresh_rate)
     // Note: 1024x768@87 is interlaced in the EDID spec; stored as-is since VideoMode
     // has no interlace field.
@@ -34,16 +33,13 @@ pub(super) fn decode_established_timings(base: &[u8; 128], caps: &mut DisplayCap
 
     for &(byte_off, mask, w, h, rate) in TIMINGS {
         if base[byte_off] & mask != 0 {
-            let mode = VideoMode {
+            sink.push_mode(VideoMode {
                 width: w,
                 height: h,
                 refresh_rate: rate,
                 interlaced: false,
                 ..Default::default()
-            };
-            if !caps.supported_modes.contains(&mode) {
-                caps.supported_modes.push(mode);
-            }
+            });
         }
     }
 }
@@ -51,7 +47,6 @@ pub(super) fn decode_established_timings(base: &[u8; 128], caps: &mut DisplayCap
 /// Decodes a single 2-byte standard timing entry into a [`VideoMode`].
 ///
 /// Returns `None` for unused entries (`0x01 0x01` or a zero first byte).
-#[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn decode_standard_timing_entry(b1: u8, b2: u8) -> Option<VideoMode> {
     if (b1 == 0x01 && b2 == 0x01) || b1 == 0x00 {
         return None;
@@ -73,12 +68,11 @@ pub(super) fn decode_standard_timing_entry(b1: u8, b2: u8) -> Option<VideoMode> 
 }
 
 /// Decodes the eight standard timing descriptors (offsets 0x26–0x35, 2 bytes each).
-#[cfg(any(feature = "alloc", feature = "std"))]
-pub(super) fn decode_standard_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) {
+pub(super) fn decode_standard_timings(base: &[u8; 128], sink: &mut dyn ModeSink) {
     for i in 0..8 {
         let offset = 0x26 + (i * 2);
         if let Some(mode) = decode_standard_timing_entry(base[offset], base[offset + 1]) {
-            caps.supported_modes.push(mode);
+            sink.push_mode(mode);
         }
     }
 }
@@ -240,8 +234,6 @@ pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities) {
 ///
 /// This is `pub(crate)` so that the CEA-861 handler can use it for DTDs in extension blocks
 /// in no-alloc builds.
-// Called by cea861_process_into_sink and by capabilities_from_edid_static (step 5).
-#[allow(dead_code)]
 pub(crate) fn decode_dtd_slot_into_sink(dtd: &[u8], sink: &mut dyn ModeSink) {
     match build_dtd_mode(dtd) {
         Err(w) => sink.push_warning(w),
@@ -252,11 +244,13 @@ pub(crate) fn decode_dtd_slot_into_sink(dtd: &[u8], sink: &mut dyn ModeSink) {
 
 /// Decodes the four detailed timing descriptor (DTD) slots (offsets 0x36, 0x48, 0x5A, 0x6C).
 /// Slots with a zero pixel clock are monitor descriptors and are skipped here.
-#[cfg(any(feature = "alloc", feature = "std"))]
-pub(super) fn decode_detailed_timings(base: &[u8; 128], caps: &mut DisplayCapabilities) {
+// Called by capabilities_from_edid_static (step 6). The alloc BaseBlockHandler uses
+// decode_dtd_slot directly to preserve preferred_image_size_mm and upgrade-in-place semantics.
+#[allow(dead_code)]
+pub(super) fn decode_detailed_timings(base: &[u8; 128], sink: &mut dyn ModeSink) {
     for i in 0..4 {
         let offset = 0x36 + (i * 18);
-        decode_dtd_slot(&base[offset..offset + 18], caps);
+        decode_dtd_slot_into_sink(&base[offset..offset + 18], sink);
     }
 }
 

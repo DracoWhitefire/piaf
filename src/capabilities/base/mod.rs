@@ -23,7 +23,7 @@ pub(super) fn decode_base_block(base: &[u8; 128], caps: &mut DisplayCapabilities
     if !header::decode_header_fields(base, caps) {
         caps.push_warning(EdidWarning::InvalidManufacturerId);
     }
-    descriptors::decode_descriptors(base, caps);
+    descriptors::decode_descriptors_meta(base, caps);
 }
 
 /// Decodes the EDID base block into [`DisplayCapabilities`].
@@ -45,9 +45,15 @@ impl ExtensionHandler for BaseBlockHandler {
         if !header::decode_header_fields(base, caps) {
             warnings.push(Arc::new(EdidWarning::InvalidManufacturerId));
         }
-        descriptors::decode_descriptors(base, caps);
+        descriptors::decode_descriptors_meta(base, caps);
+        descriptors::decode_descriptors_modes(base, caps);
         timings::decode_established_timings(base, caps);
         timings::decode_standard_timings(base, caps);
-        timings::decode_detailed_timings(base, caps);
+        // Use decode_dtd_slot (not decode_detailed_timings) to preserve
+        // preferred_image_size_mm population and upgrade-in-place semantics.
+        for i in 0..4 {
+            let offset = 0x36 + (i * 18);
+            timings::decode_dtd_slot(&base[offset..offset + 18], caps);
+        }
     }
 }

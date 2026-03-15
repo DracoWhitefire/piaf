@@ -1,13 +1,19 @@
 use crate::model::capabilities::DisplayCapabilities;
-#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::capabilities::ModeSink;
 use crate::model::capabilities::VideoMode;
 use crate::model::color::ChromaticityPoint;
 use crate::model::color::{ColorManagementData, DcmChannel, DisplayGamma, WhitePoint};
 use crate::model::manufacture::MonitorString;
 use crate::model::timing::TimingFormula;
 
-/// Decodes the four 18-byte monitor descriptor slots (offsets 0x36, 0x48, 0x5A, 0x6C).
-pub(super) fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilities) {
+/// Decodes the non-mode-producing monitor descriptor slots (offsets 0x36, 0x48, 0x5A, 0x6C).
+///
+/// Populates scalar and fixed-array fields: manufacturer white points (`0xFB`), serial number
+/// (`0xFF`), unspecified text (`0xFE`), color management data (`0xF9`), display name (`0xFC`),
+/// and monitor range limits (`0xFD`).
+///
+/// Mode-producing descriptors (`0xF7`, `0xF8`, `0xFA`) are handled by [`decode_descriptors_modes`].
+pub(super) fn decode_descriptors_meta(base: &[u8; 128], caps: &mut DisplayCapabilities) {
     let mut unspecified_slot = 0usize;
     for i in 0..4 {
         let offset = 0x36 + (i * 18);
@@ -34,152 +40,6 @@ pub(super) fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilitie
                     chromaticity: ChromaticityPoint { x_raw, y_raw },
                     gamma: DisplayGamma::from_edid_byte(descriptor[entry_off + 4]),
                 });
-            }
-        }
-
-        // Established Timings III Descriptor: tag 0xF7
-        // Byte 5 must be revision 0x0A. Bytes 6-11 are a 44-bit timing bitmap.
-        #[cfg(any(feature = "alloc", feature = "std"))]
-        if descriptor[0..5] == [0x00, 0x00, 0x00, 0xF7, 0x00] && descriptor[5] == 0x0A {
-            const ET3: &[(usize, u8, u16, u16, u8)] = &[
-                // Byte 6
-                (6, 0x80, 640, 350, 85),
-                (6, 0x40, 640, 400, 85),
-                (6, 0x20, 720, 400, 85),
-                (6, 0x10, 640, 480, 85),
-                (6, 0x08, 848, 480, 60),
-                (6, 0x04, 800, 600, 85),
-                (6, 0x02, 1024, 768, 85),
-                (6, 0x01, 1152, 864, 75),
-                // Byte 7
-                (7, 0x80, 1280, 768, 60), // RB — same mode as non-RB below; deduplicates
-                (7, 0x40, 1280, 768, 60),
-                (7, 0x20, 1280, 768, 75),
-                (7, 0x10, 1280, 768, 85),
-                (7, 0x08, 1280, 960, 60),
-                (7, 0x04, 1280, 960, 85),
-                (7, 0x02, 1280, 1024, 60),
-                (7, 0x01, 1280, 1024, 85),
-                // Byte 8
-                (8, 0x80, 1360, 768, 60),
-                (8, 0x40, 1440, 900, 60), // RB
-                (8, 0x20, 1440, 900, 60),
-                (8, 0x10, 1440, 900, 75),
-                (8, 0x08, 1440, 900, 85),
-                (8, 0x04, 1400, 1050, 60), // RB
-                (8, 0x02, 1400, 1050, 60),
-                (8, 0x01, 1400, 1050, 75),
-                // Byte 9
-                (9, 0x80, 1400, 1050, 85),
-                (9, 0x40, 1680, 1050, 60), // RB
-                (9, 0x20, 1680, 1050, 60),
-                (9, 0x10, 1680, 1050, 75),
-                (9, 0x08, 1680, 1050, 85),
-                (9, 0x04, 1600, 1200, 60),
-                (9, 0x02, 1600, 1200, 65),
-                (9, 0x01, 1600, 1200, 70),
-                // Byte 10
-                (10, 0x80, 1600, 1200, 75),
-                (10, 0x40, 1600, 1200, 85),
-                (10, 0x20, 1792, 1344, 60),
-                (10, 0x10, 1792, 1344, 75),
-                (10, 0x08, 1856, 1392, 60),
-                (10, 0x04, 1856, 1392, 75),
-                (10, 0x02, 1920, 1200, 60), // RB
-                (10, 0x01, 1920, 1200, 60),
-                // Byte 11 (bits 3-0 reserved)
-                (11, 0x80, 1920, 1200, 75),
-                (11, 0x40, 1920, 1200, 85),
-                (11, 0x20, 1920, 1440, 60),
-                (11, 0x10, 1920, 1440, 75),
-            ];
-            for &(byte_off, mask, w, h, rate) in ET3 {
-                if descriptor[byte_off] & mask != 0 {
-                    let mode = VideoMode {
-                        width: w,
-                        height: h,
-                        refresh_rate: rate,
-                        interlaced: false,
-                        ..Default::default()
-                    };
-                    if !caps.supported_modes.contains(&mode) {
-                        caps.supported_modes.push(mode);
-                    }
-                }
-            }
-        }
-
-        // CVT 3 Byte Code Descriptor: tag 0xF8
-        // Byte 5 must be version 0x01. Bytes 6-17 hold up to 4 entries of 3 bytes each.
-        // An entry of (00 00 00) is unused. Byte 0 of an entry = 0x00 is reserved.
-        #[cfg(any(feature = "alloc", feature = "std"))]
-        if descriptor[0..5] == [0x00, 0x00, 0x00, 0xF8, 0x00] && descriptor[5] == 0x01 {
-            for entry in 0..4usize {
-                let off = 6 + entry * 3;
-                let b0 = descriptor[off];
-                let b1 = descriptor[off + 1];
-                let b2 = descriptor[off + 2];
-
-                if b0 == 0 {
-                    continue; // unused or reserved
-                }
-
-                // Reconstruct vertical addressable lines:
-                // stored = (VAdd / 2) - 1  →  VAdd = (stored + 1) * 2
-                let lines_raw = (((b1 as u16) & 0xF0) << 4) | (b0 as u16);
-                let v_add = (lines_raw + 1) * 2;
-
-                // HAdd = 8 * floor((VAdd * AR) / 8)
-                let h_add = {
-                    let v = v_add as u32;
-                    let h = match (b1 >> 2) & 0x03 {
-                        0b00 => v * 4 / 3,   // 4:3
-                        0b01 => v * 16 / 9,  // 16:9
-                        0b10 => v * 16 / 10, // 16:10
-                        _ => v * 15 / 9,     // 15:9
-                    };
-                    ((h / 8) * 8) as u16
-                };
-
-                // Rate bits 4-0: 50Hz std, 60Hz std, 75Hz std, 85Hz std, 60Hz RB
-                // 60Hz RB deduplicates against 60Hz std since VideoMode has no RB flag.
-                for (mask, rate) in [
-                    (0x10u8, 50u8),
-                    (0x08, 60),
-                    (0x04, 75),
-                    (0x02, 85),
-                    (0x01, 60),
-                ] {
-                    if b2 & mask != 0 {
-                        let mode = VideoMode {
-                            width: h_add,
-                            height: v_add,
-                            refresh_rate: rate,
-                            interlaced: false,
-                            ..Default::default()
-                        };
-                        if !caps.supported_modes.contains(&mode) {
-                            caps.supported_modes.push(mode);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Additional Standard Timing Descriptor: tag 0xFA
-        // Bytes 5-16 contain up to 6 standard timing entries (2 bytes each).
-        #[cfg(any(feature = "alloc", feature = "std"))]
-        if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFA] {
-            for j in 0..6 {
-                let base_off = 5 + (j * 2);
-                if let Some(mode) = super::timings::decode_standard_timing_entry(
-                    descriptor[base_off],
-                    descriptor[base_off + 1],
-                ) {
-                    if !caps.supported_modes.contains(&mode) {
-                        caps.supported_modes.push(mode);
-                    }
-                }
             }
         }
 
@@ -251,6 +111,152 @@ pub(super) fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilitie
             caps.max_h_rate_khz = Some(descriptor[8] as u16 + max_h_off);
             caps.max_pixel_clock_mhz = Some((descriptor[9] as u16) * 10);
             caps.timing_formula = TimingFormula::from_descriptor_bytes(descriptor);
+        }
+    }
+}
+
+/// Decodes mode-producing monitor descriptor slots: Established Timings III (`0xF7`),
+/// CVT 3-Byte Code (`0xF8`), and Additional Standard Timing (`0xFA`).
+///
+/// Non-mode-producing descriptor types are handled by [`decode_descriptors_meta`].
+pub(super) fn decode_descriptors_modes(base: &[u8; 128], sink: &mut dyn ModeSink) {
+    for i in 0..4 {
+        let offset = 0x36 + (i * 18);
+        let descriptor = &base[offset..offset + 18];
+
+        // Established Timings III Descriptor: tag 0xF7
+        // Byte 5 must be revision 0x0A. Bytes 6-11 are a 44-bit timing bitmap.
+        if descriptor[0..5] == [0x00, 0x00, 0x00, 0xF7, 0x00] && descriptor[5] == 0x0A {
+            const ET3: &[(usize, u8, u16, u16, u8)] = &[
+                // Byte 6
+                (6, 0x80, 640, 350, 85),
+                (6, 0x40, 640, 400, 85),
+                (6, 0x20, 720, 400, 85),
+                (6, 0x10, 640, 480, 85),
+                (6, 0x08, 848, 480, 60),
+                (6, 0x04, 800, 600, 85),
+                (6, 0x02, 1024, 768, 85),
+                (6, 0x01, 1152, 864, 75),
+                // Byte 7
+                (7, 0x80, 1280, 768, 60), // RB — same mode as non-RB below; deduplicates
+                (7, 0x40, 1280, 768, 60),
+                (7, 0x20, 1280, 768, 75),
+                (7, 0x10, 1280, 768, 85),
+                (7, 0x08, 1280, 960, 60),
+                (7, 0x04, 1280, 960, 85),
+                (7, 0x02, 1280, 1024, 60),
+                (7, 0x01, 1280, 1024, 85),
+                // Byte 8
+                (8, 0x80, 1360, 768, 60),
+                (8, 0x40, 1440, 900, 60), // RB
+                (8, 0x20, 1440, 900, 60),
+                (8, 0x10, 1440, 900, 75),
+                (8, 0x08, 1440, 900, 85),
+                (8, 0x04, 1400, 1050, 60), // RB
+                (8, 0x02, 1400, 1050, 60),
+                (8, 0x01, 1400, 1050, 75),
+                // Byte 9
+                (9, 0x80, 1400, 1050, 85),
+                (9, 0x40, 1680, 1050, 60), // RB
+                (9, 0x20, 1680, 1050, 60),
+                (9, 0x10, 1680, 1050, 75),
+                (9, 0x08, 1680, 1050, 85),
+                (9, 0x04, 1600, 1200, 60),
+                (9, 0x02, 1600, 1200, 65),
+                (9, 0x01, 1600, 1200, 70),
+                // Byte 10
+                (10, 0x80, 1600, 1200, 75),
+                (10, 0x40, 1600, 1200, 85),
+                (10, 0x20, 1792, 1344, 60),
+                (10, 0x10, 1792, 1344, 75),
+                (10, 0x08, 1856, 1392, 60),
+                (10, 0x04, 1856, 1392, 75),
+                (10, 0x02, 1920, 1200, 60), // RB
+                (10, 0x01, 1920, 1200, 60),
+                // Byte 11 (bits 3-0 reserved)
+                (11, 0x80, 1920, 1200, 75),
+                (11, 0x40, 1920, 1200, 85),
+                (11, 0x20, 1920, 1440, 60),
+                (11, 0x10, 1920, 1440, 75),
+            ];
+            for &(byte_off, mask, w, h, rate) in ET3 {
+                if descriptor[byte_off] & mask != 0 {
+                    sink.push_mode(VideoMode {
+                        width: w,
+                        height: h,
+                        refresh_rate: rate,
+                        interlaced: false,
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+
+        // CVT 3 Byte Code Descriptor: tag 0xF8
+        // Byte 5 must be version 0x01. Bytes 6-17 hold up to 4 entries of 3 bytes each.
+        // An entry starting with byte 0x00 is unused/reserved.
+        if descriptor[0..5] == [0x00, 0x00, 0x00, 0xF8, 0x00] && descriptor[5] == 0x01 {
+            for entry in 0..4usize {
+                let off = 6 + entry * 3;
+                let b0 = descriptor[off];
+                let b1 = descriptor[off + 1];
+                let b2 = descriptor[off + 2];
+
+                if b0 == 0 {
+                    continue; // unused or reserved
+                }
+
+                // Reconstruct vertical addressable lines:
+                // stored = (VAdd / 2) - 1  →  VAdd = (stored + 1) * 2
+                let lines_raw = (((b1 as u16) & 0xF0) << 4) | (b0 as u16);
+                let v_add = (lines_raw + 1) * 2;
+
+                // HAdd = 8 * floor((VAdd * AR) / 8)
+                let h_add = {
+                    let v = v_add as u32;
+                    let h = match (b1 >> 2) & 0x03 {
+                        0b00 => v * 4 / 3,   // 4:3
+                        0b01 => v * 16 / 9,  // 16:9
+                        0b10 => v * 16 / 10, // 16:10
+                        _ => v * 15 / 9,     // 15:9
+                    };
+                    ((h / 8) * 8) as u16
+                };
+
+                // Rate bits 4-0: 50Hz std, 60Hz std, 75Hz std, 85Hz std, 60Hz RB
+                // 60Hz RB deduplicates against 60Hz std since VideoMode has no RB flag.
+                for (mask, rate) in [
+                    (0x10u8, 50u8),
+                    (0x08, 60),
+                    (0x04, 75),
+                    (0x02, 85),
+                    (0x01, 60),
+                ] {
+                    if b2 & mask != 0 {
+                        sink.push_mode(VideoMode {
+                            width: h_add,
+                            height: v_add,
+                            refresh_rate: rate,
+                            interlaced: false,
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+        }
+
+        // Additional Standard Timing Descriptor: tag 0xFA
+        // Bytes 5-16 contain up to 6 standard timing entries (2 bytes each).
+        if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFA] {
+            for j in 0..6 {
+                let base_off = 5 + (j * 2);
+                if let Some(mode) = super::timings::decode_standard_timing_entry(
+                    descriptor[base_off],
+                    descriptor[base_off + 1],
+                ) {
+                    sink.push_mode(mode);
+                }
+            }
         }
     }
 }
