@@ -214,8 +214,8 @@ fn lg_ultragear_has_cea_extension() {
     let library = ExtensionLibrary::with_standard_handlers();
     let parsed = parse_edid(&bytes, &library).unwrap();
 
-    assert_eq!(parsed.extensions.len(), 1);
-    assert_eq!(parsed.extensions[0][0], 0x02); // CEA-861 tag
+    assert_eq!(parsed.num_extensions, 1);
+    assert_eq!(parsed.extension_block(0).unwrap()[0], 0x02); // CEA-861 tag
 }
 
 // ---------------------------------------------------------------------------
@@ -322,7 +322,7 @@ fn auo_edp_no_extensions() {
     let registry = ExtensionTagRegistry::new();
     let parsed = parse_edid(&bytes, &registry).unwrap();
 
-    assert_eq!(parsed.extensions.len(), 0);
+    assert_eq!(parsed.num_extensions, 0);
     assert!(caps_have_no_audio(&bytes));
 }
 

@@ -20,10 +20,10 @@ pub use cea861::{Cea861Handler, CEA861_HANDLER, STANDARD_HANDLERS};
 use crate::model::capabilities::{DisplayCapabilities, ModeSink, StaticDisplayCapabilities};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::ParseWarning;
+use crate::model::edid::EdidSource;
 use crate::model::extension::{ExtensionLibrary, StaticExtensionHandler};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{Box, Vec};
-use crate::model::ParsedEdid;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl ExtensionLibrary {
@@ -42,13 +42,13 @@ impl ExtensionLibrary {
     }
 }
 
-/// Derives [`DisplayCapabilities`] from a [`ParsedEdid`] by running all registered handlers.
+/// Derives [`DisplayCapabilities`] from any [`EdidSource`] by running all registered handlers.
 ///
 /// Base handlers are called first (in registration order), then extension block handlers are
 /// called for each extension block whose tag matches a registered entry in `library`.
 /// Warnings from all handlers are collected into [`DisplayCapabilities::warnings`].
-pub fn capabilities_from_edid(
-    edid: &ParsedEdid,
+pub fn capabilities_from_edid<T: EdidSource>(
+    edid: &T,
     library: &ExtensionLibrary,
 ) -> DisplayCapabilities {
     #[cfg(any(feature = "alloc", feature = "std"))]
@@ -62,11 +62,11 @@ pub fn capabilities_from_edid(
 
         // 1. Process Base Block through all registered base handlers, in order
         for handler in &library.base_handlers {
-            handler.process(&edid.base_block, &mut caps, &mut warnings);
+            handler.process(edid.base_block(), &mut caps, &mut warnings);
         }
 
         // 2. Process Extension Blocks via registered handlers
-        for ext in &edid.extensions {
+        for ext in edid.extension_blocks() {
             let tag = ext[0];
             if let Some(metadata) = library.extensions.iter().find(|e| e.tag == tag) {
                 if let Some(handler) = &metadata.handler {
@@ -75,20 +75,20 @@ pub fn capabilities_from_edid(
             }
         }
 
-        caps.warnings.extend(edid.warnings.iter().cloned());
+        edid.propagate_parse_warnings(&mut caps);
         caps.warnings.extend(warnings);
     }
 
     #[cfg(not(any(feature = "alloc", feature = "std")))]
     {
         let _ = library;
-        base::decode_base_block(&edid.base_block, &mut caps);
+        base::decode_base_block(edid.base_block(), &mut caps);
     }
 
     caps
 }
 
-/// Derives [`StaticDisplayCapabilities`] from a [`ParsedEdid`] without heap allocation.
+/// Derives [`StaticDisplayCapabilities`] from any [`EdidSource`] without heap allocation.
 ///
 /// `N` is the maximum number of video modes the result can hold; 64 is a reasonable default
 /// for most displays. Modes beyond `N` are silently dropped, matching the 8-entry warning cap.
@@ -98,13 +98,10 @@ pub fn capabilities_from_edid(
 /// data (SVDs, DTDs, VTB-EXT timings) is extracted; rich metadata such as audio descriptors
 /// and colorimetry blocks requires the alloc pipeline.
 ///
-/// In bare `no_std` builds (without `alloc`) extension blocks are not stored in
-/// [`ParsedEdid`], so the result contains base-block data only.
-///
 /// This function is a replacement for [`capabilities_from_edid`], not a complement —
 /// calling both on the same EDID will process extension blocks twice.
-pub fn capabilities_from_edid_static<const N: usize>(
-    parsed: &ParsedEdid,
+pub fn capabilities_from_edid_static<const N: usize, T: EdidSource>(
+    parsed: &T,
     handlers: &[&dyn StaticExtensionHandler],
 ) -> StaticDisplayCapabilities<N> {
     // Step 1 — Decode the base block into a temporary DisplayCapabilities.
@@ -116,7 +113,7 @@ pub fn capabilities_from_edid_static<const N: usize>(
     {
         use crate::model::extension::ExtensionHandler;
         let mut w: Vec<ParseWarning> = Vec::new();
-        base::BaseBlockHandler.process(&parsed.base_block, &mut base_caps, &mut w);
+        base::BaseBlockHandler.process(parsed.base_block(), &mut base_caps, &mut w);
         // base_caps now holds scalar fields, preferred_image_size_mm, and supported_modes.
         // Handler-level warnings in `w` (Arc-boxed) are not copied to the static output;
         // use capabilities_from_edid if full warning detail is needed.
@@ -124,7 +121,7 @@ pub fn capabilities_from_edid_static<const N: usize>(
 
     #[cfg(not(any(feature = "alloc", feature = "std")))]
     {
-        base::decode_base_block(&parsed.base_block, &mut base_caps);
+        base::decode_base_block(parsed.base_block(), &mut base_caps);
     }
 
     // Step 2 — Copy all scalar fields from the temporary into the static output.
@@ -171,7 +168,7 @@ pub fn capabilities_from_edid_static<const N: usize>(
     #[cfg(not(any(feature = "alloc", feature = "std")))]
     {
         // No supported_modes in bare no_std DisplayCapabilities; call ungated functions directly.
-        base::decode_base_modes(&parsed.base_block, &mut caps);
+        base::decode_base_modes(parsed.base_block(), &mut caps);
     }
 
     // Step 4 — Copy base-block warnings (bare no_std only; alloc warnings are Arc-boxed).
@@ -182,19 +179,13 @@ pub fn capabilities_from_edid_static<const N: usize>(
         }
     }
 
-    // Step 5 — Dispatch extension blocks to the static handler slice (alloc/std only;
-    // bare no_std ParsedEdid does not store extension blocks).
-    #[cfg(any(feature = "alloc", feature = "std"))]
-    {
-        for ext in &parsed.extensions {
-            let tag = ext[0];
-            if let Some(handler) = handlers.iter().find(|h| h.tag() == tag) {
-                handler.process(ext, &mut caps);
-            }
+    // Step 5 — Dispatch extension blocks to the static handler slice.
+    for ext in parsed.extension_blocks() {
+        let tag = ext[0];
+        if let Some(handler) = handlers.iter().find(|h| h.tag() == tag) {
+            handler.process(ext, &mut caps);
         }
     }
-    #[cfg(not(any(feature = "alloc", feature = "std")))]
-    let _ = handlers;
 
     caps
 }

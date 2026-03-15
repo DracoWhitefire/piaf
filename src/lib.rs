@@ -2,7 +2,7 @@
 //!
 //! The core pipeline is:
 //!
-//! 1. [`parse_edid`] — validate and decode raw bytes into [`ParsedEdid`].
+//! 1. [`parse_edid`] — validate and decode raw bytes into [`ParsedEdidRef`] (zero-copy).
 //! 2. [`capabilities_from_edid`] — run extension handlers to produce [`DisplayCapabilities`].
 //!
 //! # Quick start
@@ -41,15 +41,16 @@ pub use model::{
     AnalogColorType, AnalogSyncLevel, Chromaticity, ChromaticityPoint, ColorBitDepth,
     ColorManagementData, CvtAspectRatio, CvtAspectRatios, CvtScaling, CvtSupportParams, DcmChannel,
     DigitalColorEncoding, DisplayCapabilities, DisplayFeatureFlags, DisplayGamma, EdidError,
-    EdidVersion, EdidWarning, ExtensionLibrary, ExtensionMetadata, ExtensionTagRegistry,
-    GtfSecondaryParams, KnownExtensions, ManufactureDate, ManufacturerId, ModeSink, MonitorString,
-    ParsedEdid, ScreenSize, StaticDisplayCapabilities, StaticExtensionHandler, StereoMode,
-    SyncDefinition, TimingFormula, VideoInputFlags, VideoInterface, VideoMode, WhitePoint,
+    EdidSource, EdidVersion, EdidWarning, ExtensionLibrary, ExtensionMetadata,
+    ExtensionTagRegistry, GtfSecondaryParams, KnownExtensions, ManufactureDate, ManufacturerId,
+    ModeSink, MonitorString, ParsedEdid, ParsedEdidRef, ScreenSize, StaticDisplayCapabilities,
+    StaticExtensionHandler, StereoMode, SyncDefinition, TimingFormula, VideoInputFlags,
+    VideoInterface, VideoMode, WhitePoint,
 };
 
 /// EDID byte-level parser.
 pub mod parser;
-pub use parser::parse_edid;
+pub use parser::{parse_edid, parse_edid_owned};
 
 /// Capability extraction from a [`ParsedEdid`].
 pub mod capabilities;

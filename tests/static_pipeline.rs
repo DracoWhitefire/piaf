@@ -66,7 +66,8 @@ fn test_static_base_block_modes() {
         capabilities_from_edid_static(&parsed, STANDARD_HANDLERS);
 
     assert!(
-        caps.iter_modes().any(|m| m.width == 800 && m.height == 600 && m.refresh_rate == 60),
+        caps.iter_modes()
+            .any(|m| m.width == 800 && m.height == 600 && m.refresh_rate == 60),
         "expected 800×600@60 from established timings"
     );
 }
@@ -109,7 +110,11 @@ fn test_static_mode_cap_exceeded() {
     let caps: StaticDisplayCapabilities<4> =
         capabilities_from_edid_static(&parsed, STANDARD_HANDLERS);
 
-    assert_eq!(caps.num_modes, 4, "expected exactly MAX_MODES modes, got {}", caps.num_modes);
+    assert_eq!(
+        caps.num_modes, 4,
+        "expected exactly MAX_MODES modes, got {}",
+        caps.num_modes
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -143,7 +148,8 @@ fn test_static_warning_cap() {
         capabilities_from_edid_static(&parsed, STANDARD_HANDLERS);
 
     assert!(
-        caps.iter_warnings().any(|w| *w == EdidWarning::MalformedDataBlock),
+        caps.iter_warnings()
+            .any(|w| *w == EdidWarning::MalformedDataBlock),
         "expected MalformedDataBlock warning in static caps"
     );
 }
@@ -155,7 +161,10 @@ fn test_static_warning_cap() {
 #[test]
 fn test_static_known_extensions() {
     assert!(STANDARD_HANDLERS.is_known(0x02), "CEA-861 should be known");
-    assert!(!STANDARD_HANDLERS.is_known(0x70), "DisplayID should not be known");
+    assert!(
+        !STANDARD_HANDLERS.is_known(0x70),
+        "DisplayID should not be known"
+    );
 }
 
 // ---------------------------------------------------------------------------
