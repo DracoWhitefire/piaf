@@ -29,21 +29,24 @@ struct CeaDetailsHandler;
 impl ExtensionHandler for CeaDetailsHandler {
     fn process(
         &self,
-        ext: &[u8; 128],
+        blocks: &[&[u8; 128]],
         caps: &mut DisplayCapabilities,
         warnings: &mut Vec<ParseWarning>,
     ) {
         // Run the built-in handler first so VICs and modes are populated normally.
-        Cea861Handler.process(ext, caps, warnings);
+        Cea861Handler.process(blocks, caps, warnings);
 
-        // Then overlay additional typed data under a custom key.
-        caps.set_extension_data(
-            0xF2,
-            CeaDetails {
-                version: ext[1],
-                dtd_offset: ext[2],
-            },
-        );
+        // Then overlay additional typed data under a custom key, sourced from the
+        // first block (CEA-861 extension blocks are independent; extras are rare).
+        if let Some(ext) = blocks.first() {
+            caps.set_extension_data(
+                0xF2,
+                CeaDetails {
+                    version: ext[1],
+                    dtd_offset: ext[2],
+                },
+            );
+        }
     }
 }
 

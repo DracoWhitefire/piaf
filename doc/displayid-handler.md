@@ -213,19 +213,19 @@ Steps are ordered so each builds on the last. Remove this section once all items
 ### Infrastructure
 
 - [x] Add `StaticContext<'a>` to `src/model/capabilities.rs`
-- [ ] Change `ExtensionHandler::process` in `src/model/extension.rs` to take `&[&[u8; 128]]`
+- [x] Change `ExtensionHandler::process` in `src/model/extension.rs` to take `&[&[u8; 128]]`
 - [ ] Change `StaticExtensionHandler::process` in `src/model/extension.rs` to take `(&[&[u8; 128]], &mut StaticContext<'_>)`
 
 ### Dispatch
 
-- [ ] Replace per-block dispatch in `capabilities_from_edid` with group-by-tag pre-pass (`HashMap`)
-- [ ] Update base handler call site — wrap `edid.base_block()` in a one-element slice
+- [x] Replace per-block dispatch in `capabilities_from_edid` with group-by-tag pre-pass (`HashMap`)
+- [x] Update base handler call site — wrap `edid.base_block()` in a one-element slice
 - [ ] Replace per-block dispatch in `capabilities_from_edid_static` with per-handler scan into `[MaybeUninit; MAX_EXTENSION_BLOCKS]`
 
 ### Existing handler updates
 
-- [ ] Update `BaseBlockHandler` (`src/capabilities/base/mod.rs`) — extract `blocks[0]`, rest unchanged
-- [ ] Update `Cea861Handler` dynamic impl — iterate slice, process each block as before
+- [x] Update `BaseBlockHandler` (`src/capabilities/base/mod.rs`) — extract `blocks[0]`, rest unchanged
+- [x] Update `Cea861Handler` dynamic impl — iterate slice, process each block as before
 - [ ] Update `Cea861Handler` static impl — iterate slice with `StaticContext`
 
 ### DisplayID handler

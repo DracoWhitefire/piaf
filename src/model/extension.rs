@@ -6,18 +6,25 @@ use crate::model::diagnostics::ParseWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{Box, String, Vec};
 
-/// Processes a single 128-byte EDID block and populates [`DisplayCapabilities`].
+/// Processes one or more 128-byte EDID blocks and populates [`DisplayCapabilities`].
 ///
 /// Implement this trait to add support for extension block formats or to customise
 /// base block parsing. Register handlers via [`ExtensionLibrary`].
+///
+/// The dispatch layer collects all extension blocks with the handler's registered tag in
+/// stream order and calls `process` once with the full slice. Single-block formats (such
+/// as CEA-861) receive a slice of length one per block; multi-block formats (such as
+/// DisplayID) receive all their fragments together and are responsible for reassembly.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub trait ExtensionHandler: core::fmt::Debug {
-    /// Inspect `block` and update `caps` accordingly.
+    /// Inspect `blocks` and update `caps` accordingly.
     ///
-    /// Push non-fatal issues to `warnings` rather than panicking or discarding silently.
+    /// `blocks` contains all extension blocks with this handler's registered tag, in the
+    /// order they appear in the EDID stream. Push non-fatal issues to `warnings` rather
+    /// than panicking or discarding silently.
     fn process(
         &self,
-        block: &[u8; 128],
+        blocks: &[&[u8; 128]],
         caps: &mut DisplayCapabilities,
         warnings: &mut Vec<ParseWarning>,
     );

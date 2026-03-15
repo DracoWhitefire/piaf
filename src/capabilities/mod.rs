@@ -60,17 +60,24 @@ pub fn capabilities_from_edid<T: EdidSource>(
     {
         let mut warnings: Vec<ParseWarning> = Vec::new();
 
-        // 1. Process Base Block through all registered base handlers, in order
+        // 1. Process Base Block through all registered base handlers, in order.
+        // Each handler receives a single-element slice containing the base block.
+        let base = edid.base_block();
         for handler in &library.base_handlers {
-            handler.process(edid.base_block(), &mut caps, &mut warnings);
+            handler.process(&[base], &mut caps, &mut warnings);
         }
 
-        // 2. Process Extension Blocks via registered handlers
-        for ext in edid.extension_blocks() {
-            let tag = ext[0];
-            if let Some(metadata) = library.extensions.iter().find(|e| e.tag == tag) {
-                if let Some(handler) = &metadata.handler {
-                    handler.process(ext, &mut caps, &mut warnings);
+        // 2. Dispatch extension blocks: for each registered handler, collect all
+        // blocks with its tag in stream order and call the handler once with the
+        // full slice. Handlers are responsible for any multi-block reassembly.
+        for metadata in &library.extensions {
+            if let Some(handler) = &metadata.handler {
+                let blocks: Vec<&[u8; 128]> = edid
+                    .extension_blocks()
+                    .filter(|b| b[0] == metadata.tag)
+                    .collect();
+                if !blocks.is_empty() {
+                    handler.process(&blocks, &mut caps, &mut warnings);
                 }
             }
         }
@@ -113,7 +120,7 @@ pub fn capabilities_from_edid_static<const N: usize, T: EdidSource>(
     {
         use crate::model::extension::ExtensionHandler;
         let mut w: Vec<ParseWarning> = Vec::new();
-        base::BaseBlockHandler.process(parsed.base_block(), &mut base_caps, &mut w);
+        base::BaseBlockHandler.process(&[parsed.base_block()], &mut base_caps, &mut w);
         // base_caps now holds scalar fields, preferred_image_size_mm, and supported_modes.
         // Handler-level warnings in `w` (Arc-boxed) are not copied to the static output;
         // use capabilities_from_edid if full warning detail is needed.

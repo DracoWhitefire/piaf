@@ -273,7 +273,7 @@ mod tests {
         base[0x24] |= 0x01; // 1280x1024@75
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         assert_eq!(caps.supported_modes.len(), 4);
         assert!(caps.supported_modes.contains(&VideoMode {
@@ -315,7 +315,7 @@ mod tests {
         base[0x29] = 0x8F;
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         assert_eq!(caps.supported_modes.len(), 2);
         assert_eq!(caps.supported_modes[0].width, 1920);
@@ -352,7 +352,7 @@ mod tests {
         base[0x51] = 17; // Max pixel clock (170 MHz)
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         assert_eq!(caps.supported_modes.len(), 1);
         assert_eq!(caps.supported_modes[0].width, 1920);
@@ -400,7 +400,7 @@ mod tests {
         base[0x41] = 0b10_01_11_10;
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         assert_eq!(caps.supported_modes.len(), 1);
         let mode = &caps.supported_modes[0];
@@ -434,7 +434,7 @@ mod tests {
         base[0x41] = 0x00;
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         // Should be only one entry — the DTD upgraded the standard timing entry
         assert_eq!(
@@ -488,7 +488,7 @@ mod tests {
         base[0x47] = 0x80;
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         assert_eq!(caps.supported_modes.len(), 1);
         assert!(caps.supported_modes[0].interlaced);
@@ -513,7 +513,7 @@ mod tests {
         base[0x47] = 0x00;
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         assert!(!caps.supported_modes[0].interlaced);
         assert_eq!(caps.preferred_image_size_mm, None);
@@ -535,7 +535,7 @@ mod tests {
         base[0x46] = 2; // v_border
         base[0x47] = flags;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         caps.supported_modes.into_iter().next().unwrap()
     }
 

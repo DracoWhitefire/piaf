@@ -46,8 +46,7 @@ pub use model::{
     ExtensionTagRegistry, GtfSecondaryParams, KnownExtensions, ManufactureDate, ManufacturerId,
     ModeSink, MonitorString, ParsedEdid, ParsedEdidRef, ScreenSize, StaticContext,
     StaticDisplayCapabilities, StaticExtensionHandler, StereoMode, SyncDefinition, TimingFormula,
-    VideoInputFlags,
-    VideoInterface, VideoMode, WhitePoint,
+    VideoInputFlags, VideoInterface, VideoMode, WhitePoint,
 };
 
 /// EDID byte-level parser.

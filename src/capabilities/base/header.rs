@@ -111,13 +111,13 @@ mod tests {
 
         base[0x17] = 120; // (120 + 100) / 100 = 2.20
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(caps.gamma, Some(DisplayGamma::from_edid_byte(120).unwrap()));
         assert!((caps.gamma.unwrap().value() - 2.20).abs() < 0.001);
 
         base[0x17] = 0xFF; // undefined
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(caps.gamma, None);
     }
 
@@ -127,7 +127,7 @@ mod tests {
         base[18] = 1;
         base[19] = 4;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(
             caps.edid_version,
             Some(EdidVersion {
@@ -145,7 +145,7 @@ mod tests {
         base[16] = 12;
         base[17] = 30; // 1990 + 30 = 2020
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(
             caps.manufacture_date,
             Some(ManufactureDate::Manufactured {
@@ -157,7 +157,7 @@ mod tests {
         // Week unspecified
         base[16] = 0x00;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(
             caps.manufacture_date,
             Some(ManufactureDate::Manufactured {
@@ -169,7 +169,7 @@ mod tests {
         // Model year
         base[16] = 0xFF;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(
             caps.manufacture_date,
             Some(ManufactureDate::ModelYear(2020))
@@ -184,7 +184,7 @@ mod tests {
         base[0x15] = 60;
         base[0x16] = 34;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(
             caps.screen_size,
             Some(ScreenSize::Physical {
@@ -197,7 +197,7 @@ mod tests {
         base[0x15] = 196;
         base[0x16] = 0;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(caps.screen_size, Some(ScreenSize::Landscape(196)));
         let ratio = caps.screen_size.unwrap().landscape_ratio().unwrap();
         assert!((ratio - 2.95).abs() < 0.001);
@@ -206,7 +206,7 @@ mod tests {
         base[0x15] = 0;
         base[0x16] = 101;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(caps.screen_size, Some(ScreenSize::Portrait(101)));
         let ratio = caps.screen_size.unwrap().portrait_ratio().unwrap();
         assert!((ratio - 0.5).abs() < 0.001);
@@ -215,7 +215,7 @@ mod tests {
         base[0x15] = 0;
         base[0x16] = 0;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(caps.screen_size, None);
     }
 
@@ -226,7 +226,7 @@ mod tests {
         // Analog (bit 7 = 0), bits 6-5 = 0b00 → V700_300
         base[0x14] = 0x00;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(caps.analog_sync_level, Some(AnalogSyncLevel::V700_300));
         assert_eq!(caps.color_bit_depth, None);
         assert_eq!(caps.video_interface, None);
@@ -234,25 +234,25 @@ mod tests {
         // Analog, bits 6-5 = 0b01 → V714_286
         base[0x14] = 0x20;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(caps.analog_sync_level, Some(AnalogSyncLevel::V714_286));
 
         // Analog, bits 6-5 = 0b10 → V1000_400
         base[0x14] = 0x40;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(caps.analog_sync_level, Some(AnalogSyncLevel::V1000_400));
 
         // Analog, bits 6-5 = 0b11 → V700_0
         base[0x14] = 0x60;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(caps.analog_sync_level, Some(AnalogSyncLevel::V700_0));
 
         // Digital — sync level not populated
         base[0x14] = 0x80;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(caps.analog_sync_level, None);
     }
 
@@ -263,7 +263,7 @@ mod tests {
         // Digital, 8 bpc (bits 6-4 = 0b010), DisplayPort (bits 3-0 = 0x5)
         base[0x14] = 0x80 | 0x25;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert!(caps.digital);
         assert_eq!(caps.color_bit_depth, Some(ColorBitDepth::Depth8));
         assert_eq!(caps.video_interface, Some(VideoInterface::DisplayPort));
@@ -271,14 +271,14 @@ mod tests {
         // Digital, undefined depth and interface
         base[0x14] = 0x80;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(caps.color_bit_depth, None);
         assert_eq!(caps.video_interface, None);
 
         // Analog — neither field populated
         base[0x14] = 0x00;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert!(!caps.digital);
         assert_eq!(caps.color_bit_depth, None);
         assert_eq!(caps.video_interface, None);
@@ -301,7 +301,7 @@ mod tests {
         base[0x1A] = (((154u16 & 3) << 6) | ((61u16 & 3) << 4) | (337u16 & 3)) as u8;
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         assert_eq!(caps.chromaticity, Chromaticity::from_edid_bytes(&base));
         assert_eq!(caps.chromaticity.red.x_raw, 655);
@@ -321,7 +321,7 @@ mod tests {
         base[19] = 4; // revision 4
         base[0x18] = 0x18; // bits 4-3 = 0b11
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(
             caps.digital_color_encoding,
             Some(DigitalColorEncoding::Rgb444YCbCr444YCbCr422)
@@ -331,7 +331,7 @@ mod tests {
         // Digital, EDID 1.3 — encoding field not decoded
         base[19] = 3;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(caps.digital_color_encoding, None);
         assert_eq!(caps.analog_color_type, None);
 
@@ -339,14 +339,14 @@ mod tests {
         base[0x14] = 0x00; // analog
         base[0x18] = 0x08; // bits 4-3 = 0b01
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(caps.digital_color_encoding, None);
         assert_eq!(caps.analog_color_type, Some(AnalogColorType::Rgb));
 
         // Analog, bits 4-3 = 0b11 → undefined (None)
         base[0x18] = 0x18;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(caps.analog_color_type, None);
     }
 
@@ -357,7 +357,7 @@ mod tests {
         // DPMS standby + suspend + active-off + preferred timing = 0xE2
         base[0x18] = 0xE2;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         let flags = caps.display_features.unwrap();
         assert!(flags.contains(DisplayFeatureFlags::DPMS_STANDBY));
         assert!(flags.contains(DisplayFeatureFlags::DPMS_SUSPEND));
@@ -369,7 +369,7 @@ mod tests {
         // sRGB + preferred timing + continuous timings = 0x07
         base[0x18] = 0x07;
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         let flags = caps.display_features.unwrap();
         assert!(flags.contains(DisplayFeatureFlags::SRGB));
         assert!(flags.contains(DisplayFeatureFlags::PREFERRED_TIMING));
@@ -409,7 +409,7 @@ mod tests {
         base[0x40..0x48].fill(0x20);
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         assert_eq!(caps.manufacturer, Some(ManufacturerId([b'S', b'A', b'M'])));
         assert_eq!(caps.product_code, Some(0x1234));
@@ -433,7 +433,7 @@ mod tests {
         base[0x09] = 0x00;
         let mut warnings = Vec::new();
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut warnings);
+        BaseBlockHandler.process(&[&base], &mut caps, &mut warnings);
         assert_eq!(caps.manufacturer, None);
         assert!(
             warnings.iter().any(|w| (**w).downcast_ref::<EdidWarning>()
@@ -450,7 +450,7 @@ mod tests {
         base[0x09] = 0x21;
         let mut warnings = Vec::new();
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut warnings);
+        BaseBlockHandler.process(&[&base], &mut caps, &mut warnings);
         assert_eq!(caps.manufacturer, None);
         assert!(
             warnings.iter().any(|w| (**w).downcast_ref::<EdidWarning>()
