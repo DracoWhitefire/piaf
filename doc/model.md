@@ -4,8 +4,24 @@ PIAF keeps a clear separation between parsed source data and normalized capabili
 
 ## Parsed representation
 
-`ParsedEdid` stays close to the source structure. The base block is preserved as a raw
-byte array; extension blocks are stored the same way and dispatched by tag.
+Two types represent the parsed EDID. Both implement `EdidSource` and are accepted by the
+capability pipelines.
+
+**`ParsedEdidRef<'a>`** — the zero-copy output of `parse_edid`. Borrows block data directly
+from the input slice; no bytes are copied. Extension blocks are accessible at all build tiers
+including bare `no_std`, because they are borrowed rather than allocated.
+
+```rust
+pub struct ParsedEdidRef<'a> {
+    pub base_block: &'a [u8; 128],
+    pub num_extensions: usize,
+    // alloc/std: pub warnings: Vec<ParseWarning>,
+    // no_std:    pub warnings: [Option<EdidWarning>; 8],
+}
+```
+
+**`ParsedEdid`** — the owned output of `parse_edid_owned`. Copies block bytes out of the
+input so the result can outlive the input buffer.
 
 ```rust
 pub struct ParsedEdid {
@@ -16,10 +32,11 @@ pub struct ParsedEdid {
 }
 ```
 
-In bare `no_std` builds (no `alloc`), `extensions` and `warnings` are absent. The base block
-is always present.
+In bare `no_std` builds (no `alloc`), `ParsedEdid.extensions` and `ParsedEdid.warnings` are
+absent. Prefer `ParsedEdidRef` in bare `no_std` when extension block access is needed — it
+retains the borrowed extension bytes without requiring an allocator.
 
-This structure is useful for:
+Both structures are useful for:
 
 - debugging,
 - inspecting exact decoded content,

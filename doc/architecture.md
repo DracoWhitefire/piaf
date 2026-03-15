@@ -4,7 +4,9 @@ PIAF is organized as a small library with clear internal boundaries between byte
 
 ## Core pipeline
 
-Two capability pipelines operate on the same `ParsedEdid`. Choose one per call site:
+Two capability pipelines operate on any `EdidSource` — either `ParsedEdidRef<'_>` (zero-copy,
+from `parse_edid`) or `ParsedEdid` (owned, from `parse_edid_owned`). Choose one pipeline per
+call site:
 
 **Dynamic pipeline** (`alloc`/`std`) — full metadata extraction, heap-allocated output:
 
@@ -13,7 +15,7 @@ flowchart LR
     A[Input Bytes] --> B[Block Validation]
     K[KnownExtensions] --> B
     B --> C[Structured Parse]
-    C --> D[ParsedEdid]
+    C --> D[ParsedEdidRef]
     C --> G[Parse Warnings]
     D --> E[Extension Handlers]
     L[ExtensionLibrary] --> E
@@ -28,7 +30,7 @@ flowchart LR
     A[Input Bytes] --> B[Block Validation]
     K[KnownExtensions] --> B
     B --> C[Structured Parse]
-    C --> D[ParsedEdid]
+    C --> D[ParsedEdidRef]
     D --> E[Static Handlers]
     S[StaticExtensionHandler slice] --> E
     E --> F[StaticDisplayCapabilities]
@@ -55,7 +57,14 @@ The parser should avoid embedding higher-level policy decisions where possible.
 
 ### Intermediate representation
 
-`ParsedEdid` should preserve the structure of the decoded data closely enough to support inspection, debugging, and later refinement.
+`ParsedEdidRef<'_>` (zero-copy, borrowed) and `ParsedEdid` (owned, copied) both preserve the
+structure of the decoded data closely enough to support inspection, debugging, and later
+refinement. Both implement `EdidSource`, which is the abstraction the capability pipelines
+work against.
+
+`ParsedEdidRef<'_>` is the primary output of `parse_edid` — it borrows block data directly
+from the input slice without copying. `ParsedEdid` is available via `parse_edid_owned` for
+cases where the result must outlive the input buffer.
 
 This representation is distinct from the end-user capability model.
 
@@ -71,8 +80,8 @@ pipelines do this work:
 
 - **Static pipeline** — `capabilities_from_edid_static` with a `&[&dyn StaticExtensionHandler]`
   slice. Produces `StaticDisplayCapabilities<N>` with a fixed-capacity mode array and the same
-  scalar fields. Available at all build tiers; in bare `no_std` it covers the base block only
-  (extension blocks are not stored in `ParsedEdid` without `alloc`).
+  scalar fields. Available at all build tiers. When called with a `ParsedEdidRef<'_>`, extension
+  blocks are processed even in bare `no_std` — the borrowed slice requires no allocator.
 
 Both pipelines share all internal parsing logic through the `ModeSink` trait abstraction.
 
@@ -116,7 +125,7 @@ and avoids encoding policy or heuristics into what is fundamentally a decoded re
 ## Technical constraints
 
 - **`no_std` compatibility**: The core library avoids the Rust standard library to remain usable in firmware, bootloaders, and embedded systems. `alloc` may be used where dynamic allocation is required (e.g., for extension block storage and the dynamic handler pipeline). The static pipeline and all scalar field decoding are available without any allocator.
-- **Zero-copy (where possible)**: The parser should aim to avoid unnecessary allocations, working directly with input byte slices.
+- **Zero-copy**: `parse_edid` returns `ParsedEdidRef<'_>`, which borrows the base block and all extension blocks directly from the input slice. No block data is copied unless `parse_edid_owned` is called explicitly.
 - **Dead-code warnings in bare `no_std` builds**: Without `alloc` or `std`, the handler layer is absent and the `pub(crate)` decode functions on model types (e.g. `ManufactureDate::from_edid_bytes`) appear unused. These functions are intentionally left available — a consumer with no handler pipeline can still call them directly. A blanket `#![cfg_attr(not(any(feature = "alloc", feature = "std")), allow(dead_code, unused_imports))]` in `lib.rs` suppresses the noise without removing the items.
 
 ### Fixed-capacity types for `no_std` field availability

@@ -167,8 +167,10 @@ sink.push_warning(EdidWarning::MalformedDataBlock);
 `ExtensionHandler` and `ExtensionLibrary` require `alloc` or `std`. `StaticExtensionHandler`
 and `capabilities_from_edid_static` are available unconditionally.
 
-In bare `no_std` (no `alloc`), `ParsedEdid` does not store extension blocks, so static
-handlers receive no extension block calls. Base block modes are still extracted.
+In bare `no_std` (no `alloc`), `parse_edid` returns a `ParsedEdidRef<'_>` that borrows
+extension blocks directly from the input slice — no allocator needed. Static handlers receive
+extension block calls normally; `capabilities_from_edid_static` processes both base-block and
+extension-block data at all build tiers.
 
 For tag-only registration without handlers (e.g., to suppress `UnknownExtension` warnings),
 `ExtensionTagRegistry` is available at all tiers and holds up to 16 tags in a fixed-size

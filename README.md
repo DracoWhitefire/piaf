@@ -7,12 +7,13 @@ and produces a `DisplayCapabilities` value with all the information a display or
 HDMI-adjacent application typically needs: identity, input type, supported modes,
 color characteristics, HDR metadata, audio capabilities, and more.
 
-Decoding happens in two steps. `parse_edid` validates the raw bytes and produces a
-`ParsedEdid`, which holds the block structure close to the wire format. `capabilities_from_edid`
-then runs the registered extension handlers over that structure and produces a
-`DisplayCapabilities` — the typed, stable model your application works with. Keeping
-these steps separate means you can inspect the raw parse result for debugging, or run
-multiple handler configurations over the same parsed data without re-parsing.
+Decoding happens in two steps. `parse_edid` validates the raw bytes and returns a
+`ParsedEdidRef<'_>` — a zero-copy view that borrows the block structure directly from the
+input slice. `capabilities_from_edid` then runs the registered extension handlers over that
+structure and produces a `DisplayCapabilities` — the typed, stable model your application
+works with. Keeping these steps separate means you can inspect the raw parse result for
+debugging, or run multiple handler configurations over the same parsed data without re-parsing.
+Use `parse_edid_owned` to get an owned `ParsedEdid` that can outlive the input buffer.
 
 ```rust
 use piaf::{parse_edid, capabilities_from_edid, ExtensionLibrary, ScreenSize};
@@ -32,6 +33,17 @@ for mode in &caps.supported_modes {
 ```
 
 See [`examples/inspect_displays.rs`](examples/inspect_displays.rs) for a more complete example.
+
+```mermaid
+flowchart LR
+    bytes["&[u8]"]
+    ref["ParsedEdidRef&lt;'_&gt;"]
+
+    bytes -->|"parse_edid"| ref
+
+    ref -->|"capabilities_from_edid\n+ ExtensionLibrary"| dc["DisplayCapabilities\nalloc / std"]
+    ref -->|"capabilities_from_edid_static\n+ STANDARD_HANDLERS"| sc["StaticDisplayCapabilities&lt;N&gt;\nall tiers"]
+```
 
 ## Why PIAF
 
@@ -57,8 +69,9 @@ build tiers, including bare `no_std` without an allocator. Custom handlers imple
 `StaticExtensionHandler` using `static` references instead of `Box` — see
 [`no_std` builds](#no_std-builds) below.
 
-**Stable consumer model.** `ParsedEdid` preserves raw bytes; `DisplayCapabilities`
-is the typed, stable output. Parser improvements don't change the consumer-facing API.
+**Stable consumer model.** `ParsedEdidRef` and `ParsedEdid` preserve raw bytes;
+`DisplayCapabilities` is the typed, stable output. Both implement `EdidSource` and work
+directly with the capability pipelines. Parser improvements don't change the consumer-facing API.
 
 ## Extension system
 
@@ -142,12 +155,13 @@ Bare `no_std` (neither `std` nor `alloc`) is supported. The dynamic extension ha
 pipeline (`ExtensionLibrary`, `capabilities_from_edid`) requires `alloc` or `std`.
 The static pipeline (`capabilities_from_edid_static`) is available unconditionally.
 
-In bare `no_std`, `ParsedEdid` does not store extension blocks (that field is
-alloc-gated), so `capabilities_from_edid_static` returns base-block data only —
-`StaticDisplayCapabilities` with all scalar fields populated and modes from established
-timings, standard timings, and detailed timing descriptors.
+In bare `no_std`, `parse_edid` returns a `ParsedEdidRef<'_>` that borrows extension blocks
+directly from the input slice — no allocator needed. Both base-block fields and extension-block
+modes are available through `capabilities_from_edid_static` at all build tiers.
 
-To also get modes from CEA-861 extension blocks, enable the `alloc` or `std` feature.
+`parse_edid_owned` returns a `ParsedEdid` that copies block bytes into owned storage; in bare
+`no_std` the extension block field is absent (alloc-gated), so prefer `ParsedEdidRef` from
+`parse_edid` when extension block access matters.
 
 ### Fields in `DisplayCapabilities` available in all build configurations
 
