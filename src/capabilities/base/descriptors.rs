@@ -11,6 +11,10 @@ pub(super) fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilitie
     let mut unspecified_slot = 0usize;
     for i in 0..4 {
         let offset = 0x36 + (i * 18);
+        debug_assert!(
+            offset + 18 <= 128,
+            "descriptor slot {i} at offset {offset:#04x} would exceed the 128-byte base block"
+        );
         let descriptor = &base[offset..offset + 18];
 
         // Additional White Point Descriptor: tag 0xFB
