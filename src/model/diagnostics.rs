@@ -20,6 +20,10 @@ pub enum EdidWarning {
     /// is left as `None`.
     #[error("manufacturer ID bytes do not encode a valid PNP ID")]
     InvalidManufacturerId,
+    /// A data block inside an extension block declared a length that extends past the
+    /// end of the data block collection. Remaining data blocks in the collection are skipped.
+    #[error("data block length exceeds collection boundary")]
+    MalformedDataBlock,
     /// The byte slice length does not match the size implied by the extension count.
     ///
     /// The EDID header declares `extension_count` extension blocks, so the expected

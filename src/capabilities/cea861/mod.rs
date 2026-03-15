@@ -227,7 +227,7 @@ impl ExtensionHandler for Cea861Handler {
         &self,
         ext: &[u8; 128],
         caps: &mut DisplayCapabilities,
-        _warnings: &mut Vec<EdidWarning>,
+        warnings: &mut Vec<EdidWarning>,
     ) {
         let flags = Cea861Flags::from_bits_truncate(ext[3]);
         let dtd_offset = ext[2] as usize;
@@ -288,7 +288,7 @@ impl ExtensionHandler for Cea861Handler {
                 i += 1;
 
                 if i + length > collection.len() {
-                    // Malformed block extends past end of collection.
+                    warnings.push(EdidWarning::MalformedDataBlock);
                     break;
                 }
 
@@ -583,6 +583,22 @@ mod tests {
         assert!(flags.contains(Cea861Flags::BASIC_AUDIO));
         assert!(flags.contains(Cea861Flags::YCBCR_444));
         assert!(flags.contains(Cea861Flags::YCBCR_422));
+    }
+
+    #[test]
+    fn test_malformed_data_block_warns() {
+        let mut ext = [0u8; 128];
+        // dtd_offset = 10: data block collection occupies bytes 4–9 (6 bytes).
+        ext[2] = 10;
+        // Write a block header claiming length = 8, which extends past the 6-byte collection.
+        // tag = 1 (Audio), length = 8 → header = (1 << 5) | 8 = 0x28
+        ext[4] = (1 << 5) | 8;
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings = Vec::new();
+        Cea861Handler.process(&ext, &mut caps, &mut warnings);
+
+        assert!(warnings.contains(&EdidWarning::MalformedDataBlock));
     }
 
     #[test]
