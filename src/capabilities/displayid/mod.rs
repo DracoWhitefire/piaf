@@ -402,7 +402,9 @@ mod tests {
         let mut warnings: Vec<ParseWarning> = Vec::new();
         ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
         assert!(warnings.is_empty());
-        let did = caps.get_extension_data::<DisplayIdCapabilities>(0x70).unwrap();
+        let did = caps
+            .get_extension_data::<DisplayIdCapabilities>(0x70)
+            .unwrap();
         assert_eq!(did.version, 0x13);
         assert_eq!(did.product_type, 2);
     }
@@ -452,8 +454,16 @@ mod tests {
         ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
         assert!(warnings.is_empty());
         assert_eq!(caps.supported_modes.len(), 2);
-        assert!(caps.supported_modes.iter().any(|m| m.width == 1920 && m.height == 1080));
-        assert!(caps.supported_modes.iter().any(|m| m.width == 2560 && m.height == 1440));
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 1920 && m.height == 1080)
+        );
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 2560 && m.height == 1440)
+        );
     }
 
     #[test]
@@ -471,12 +481,25 @@ mod tests {
 
         let mut caps = DisplayCapabilities::default();
         let mut warnings: Vec<ParseWarning> = Vec::new();
-        ExtensionHandler::process(&DisplayIdHandler, &[&block1, &block2], &mut caps, &mut warnings);
+        ExtensionHandler::process(
+            &DisplayIdHandler,
+            &[&block1, &block2],
+            &mut caps,
+            &mut warnings,
+        );
 
         assert!(warnings.is_empty(), "unexpected warnings: {:?}", warnings);
         assert_eq!(caps.supported_modes.len(), 2);
-        assert!(caps.supported_modes.iter().any(|m| m.width == 1920 && m.height == 1080));
-        assert!(caps.supported_modes.iter().any(|m| m.width == 2560 && m.height == 1440));
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 1920 && m.height == 1080)
+        );
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 2560 && m.height == 1440)
+        );
     }
 
     #[test]
