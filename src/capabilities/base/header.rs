@@ -422,7 +422,7 @@ mod tests {
                 height_cm: 29
             })
         );
-        assert_eq!(caps.display_name, Some("PIAF".to_string()));
+        assert_eq!(caps.display_name.as_deref(), Some("PIAF"));
     }
 
     #[test]

@@ -63,3 +63,44 @@ impl core::fmt::Display for ManufacturerId {
         f.write_str(self.as_str())
     }
 }
+
+/// A monitor descriptor string, decoded from one of the 18-byte descriptor slots in the
+/// EDID base block (`0xFC` monitor name, `0xFF` serial number, `0xFE` unspecified text).
+///
+/// The text payload occupies bytes 5–17 of the descriptor (13 bytes), terminated by `0x0A`
+/// and padded with spaces. The `as_str()` method strips both the terminator and trailing
+/// spaces, returning a clean `&str`.
+///
+/// Available in all build configurations including bare `no_std`. `Deref<Target = str>`
+/// is implemented so `Option<MonitorString>::as_deref()` returns `Option<&str>` directly.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MonitorString(pub [u8; 13]);
+
+impl MonitorString {
+    /// Returns the string content with the `0x0A` terminator and trailing spaces stripped.
+    ///
+    /// Returns an empty `&str` if the payload is all padding or not valid UTF-8.
+    pub fn as_str(&self) -> &str {
+        let bytes = &self.0;
+        let end = bytes.iter().position(|&b| b == 0x0A).unwrap_or(bytes.len());
+        let trimmed = match bytes[..end].iter().rposition(|&b| b != b' ') {
+            Some(i) => &bytes[..=i],
+            None => &[][..],
+        };
+        core::str::from_utf8(trimmed).unwrap_or("")
+    }
+}
+
+impl core::fmt::Display for MonitorString {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl core::ops::Deref for MonitorString {
+    type Target = str;
+    fn deref(&self) -> &str {
+        self.as_str()
+    }
+}

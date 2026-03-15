@@ -36,7 +36,7 @@ pub use features::DisplayFeatureFlags;
 
 /// Manufacture date model type.
 pub mod manufacture;
-pub use manufacture::{ManufactureDate, ManufacturerId};
+pub use manufacture::{ManufactureDate, ManufacturerId, MonitorString};
 
 /// Screen size and aspect ratio.
 pub mod screen;

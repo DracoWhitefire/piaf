@@ -116,7 +116,7 @@ fn main() {
                                 "  Display Name: {:?}",
                                 caps.display_name.as_deref().unwrap_or("Unknown")
                             );
-                            for text in &caps.unspecified_text {
+                            for text in caps.unspecified_text.iter().flatten() {
                                 println!("  Info:         {}", text);
                             }
                             println!("  Product Code: {:?}", caps.product_code);

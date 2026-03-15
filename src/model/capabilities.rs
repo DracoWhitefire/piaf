@@ -1,10 +1,10 @@
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
-use crate::model::manufacture::ManufacturerId;
+use crate::model::manufacture::{ManufacturerId, MonitorString};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::Arc;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::{String, Vec};
+use crate::model::prelude::Vec;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use core::any::Any;
 
@@ -132,14 +132,14 @@ pub struct DisplayCapabilities {
     /// Manufacturer-assigned serial number, if encoded numerically in the base block.
     pub serial_number: Option<u32>,
     /// Serial number string from the monitor serial number descriptor (`0xFF`), if present.
-    #[cfg(any(feature = "alloc", feature = "std"))]
-    pub serial_number_string: Option<String>,
+    pub serial_number_string: Option<MonitorString>,
     /// Human-readable display name from the monitor name descriptor, if present.
-    #[cfg(any(feature = "alloc", feature = "std"))]
-    pub display_name: Option<String>,
-    /// Unspecified ASCII text strings from `0xFE` descriptors, in slot order.
-    #[cfg(any(feature = "alloc", feature = "std"))]
-    pub unspecified_text: Vec<String>,
+    pub display_name: Option<MonitorString>,
+    /// Unspecified ASCII text strings from `0xFE` descriptors, in descriptor slot order.
+    ///
+    /// Up to four entries (one per descriptor slot). Each slot is `None` if the corresponding
+    /// descriptor was not a `0xFE` entry.
+    pub unspecified_text: [Option<MonitorString>; 4],
     /// Additional white points from the `0xFB` descriptor.
     ///
     /// Up to two entries (the EDID `0xFB` descriptor has two fixed slots). Each slot is

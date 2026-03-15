@@ -3,12 +3,12 @@ use crate::model::capabilities::DisplayCapabilities;
 use crate::model::capabilities::VideoMode;
 use crate::model::color::ChromaticityPoint;
 use crate::model::color::{ColorManagementData, DcmChannel, DisplayGamma, WhitePoint};
-#[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::String;
+use crate::model::manufacture::MonitorString;
 use crate::model::timing::TimingFormula;
 
 /// Decodes the four 18-byte monitor descriptor slots (offsets 0x36, 0x48, 0x5A, 0x6C).
 pub(super) fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilities) {
+    let mut unspecified_slot = 0usize;
     for i in 0..4 {
         let offset = 0x36 + (i * 18);
         let descriptor = &base[offset..offset + 18];
@@ -180,23 +180,24 @@ pub(super) fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilitie
         }
 
         // Serial Number Descriptor: tag 0xFF
-        #[cfg(any(feature = "alloc", feature = "std"))]
         if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFF] {
-            let s = String::from_utf8_lossy(&descriptor[5..18]);
-            let trimmed = s.trim().to_string();
-            if !trimmed.is_empty() {
-                caps.serial_number_string = Some(trimmed);
+            let mut bytes = [0u8; 13];
+            bytes.copy_from_slice(&descriptor[5..18]);
+            let ms = MonitorString(bytes);
+            if !ms.as_str().is_empty() {
+                caps.serial_number_string = Some(ms);
             }
         }
 
         // Unspecified ASCII Text Descriptor: tag 0xFE
-        #[cfg(any(feature = "alloc", feature = "std"))]
-        if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFE] {
-            let s = String::from_utf8_lossy(&descriptor[5..18]);
-            let trimmed = s.trim().to_string();
-            if !trimmed.is_empty() {
-                caps.unspecified_text.push(trimmed);
+        if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFE] && unspecified_slot < 4 {
+            let mut bytes = [0u8; 13];
+            bytes.copy_from_slice(&descriptor[5..18]);
+            let ms = MonitorString(bytes);
+            if !ms.as_str().is_empty() {
+                caps.unspecified_text[unspecified_slot] = Some(ms);
             }
+            unspecified_slot += 1;
         }
 
         // Color Management Data: tag 0xF9
@@ -220,13 +221,12 @@ pub(super) fn decode_descriptors(base: &[u8; 128], caps: &mut DisplayCapabilitie
         }
 
         // Monitor Name Descriptor: tag 0xFC
-        #[cfg(any(feature = "alloc", feature = "std"))]
         if descriptor[0..4] == [0x00, 0x00, 0x00, 0xFC] {
-            let name_bytes = &descriptor[5..18];
-            let name = String::from_utf8_lossy(name_bytes);
-            let trimmed = name.trim().to_string();
-            if !trimmed.is_empty() {
-                caps.display_name = Some(trimmed);
+            let mut bytes = [0u8; 13];
+            bytes.copy_from_slice(&descriptor[5..18]);
+            let ms = MonitorString(bytes);
+            if !ms.as_str().is_empty() {
+                caps.display_name = Some(ms);
             }
         }
 
@@ -334,9 +334,10 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
 
-        assert_eq!(caps.unspecified_text.len(), 2);
-        assert_eq!(caps.unspecified_text[0], "ABCD");
-        assert_eq!(caps.unspecified_text[1], "EFGH");
+        assert_eq!(caps.unspecified_text[0].as_deref(), Some("ABCD"));
+        assert_eq!(caps.unspecified_text[1].as_deref(), Some("EFGH"));
+        assert!(caps.unspecified_text[2].is_none());
+        assert!(caps.unspecified_text[3].is_none());
     }
 
     #[test]
@@ -355,7 +356,7 @@ mod tests {
 
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
-        assert_eq!(caps.serial_number_string, Some("SN123456".to_string()));
+        assert_eq!(caps.serial_number_string.as_deref(), Some("SN123456"));
     }
 
     #[test]
