@@ -1,268 +1,115 @@
-# DisplayID Handler — Implementation Plan
+# DisplayID Extension Handler
 
-DisplayID is the primary feature planned for version 0.2. This document records the agreed
-design before implementation begins.
+DisplayID (tag `0x70`) is a VESA standard for display identification that carries richer
+timing and capability data than the base EDID block. It is most common on DisplayPort
+Alt Mode devices, docks, and professional monitors.
 
-## The multi-block problem
+## Multi-block sections
 
-CEA-861 extension blocks are self-contained: each 128-byte block at tag `0x02` is an
-independent unit, and the current per-block dispatch in `capabilities_from_edid` and
-`capabilities_from_edid_static` handles it correctly.
+Unlike CEA-861, where each 128-byte extension block is self-contained, a single logical
+DisplayID section may span several consecutive 128-byte blocks all tagged `0x70`. The
+dispatch layer collects all `0x70` blocks in stream order and passes them to
+`DisplayIdHandler` as a slice — the handler owns reassembly. No other part of the pipeline
+needs to know about DisplayID's multi-block structure.
 
-DisplayID is different. A single logical DisplayID section may span several consecutive
-128-byte extension blocks, all tagged `0x70`. Naive per-block dispatch would call the
-handler once per fragment with no awareness of the others, making reassembly impossible
-without introducing statefulness into the handler interface.
+In `alloc`/`std` builds, full multi-block reassembly is supported. In bare `no_std` builds
+(no allocator), extension blocks cannot be stored after parsing, so the static pipeline
+receives only base-block data; DisplayID content is unavailable at that tier.
 
-The fix is to change dispatch so that a handler receives **all blocks with its tag at once**,
-as an ordered slice. This applies to both pipelines and requires updating both handler traits.
+## Dynamic pipeline
 
-## Handler trait changes
-
-Both traits change their `process` signature from a single block reference to a slice:
-
-```rust
-// Dynamic pipeline (alloc/std)
-pub trait ExtensionHandler: Debug {
-    fn process(
-        &self,
-        blocks: &[&[u8; 128]],
-        caps: &mut DisplayCapabilities,
-        warnings: &mut Vec<ParseWarning>,
-    );
-}
-
-// Static pipeline (all tiers)
-pub trait StaticExtensionHandler: Sync {
-    fn tag(&self) -> u8;
-    fn process(&self, blocks: &[&[u8; 128]], ctx: &mut StaticContext<'_>);
-}
-```
-
-These are breaking changes. They are made now, before 0.1 has external consumers, to avoid
-a second breaking release.
-
-**CEA-861** is unaffected in practice: each CEA-861 block is independent, so its handler
-iterates the slice and processes each element exactly as before. The slice will always
-contain a single element for the standard CEA-861 case, and multiple elements are handled
-gracefully since each is self-contained.
-
-**DisplayID** receives all its fragments in stream order and owns the reassembly logic.
-No other handler or dispatch layer needs to know about DisplayID's internal structure.
-
-## Dispatch changes
-
-**Agnostic by design.** Dispatch collects blocks by tag and passes the slice. It has no
-knowledge of whether a handler is single-block or multi-block — that is the handler's
-concern. If a future extension has a different multi-block structure, its handler handles it.
-
-### Dynamic pipeline (`capabilities_from_edid`)
-
-Before calling handlers, group extension blocks by tag into a `HashMap<u8, Vec<&[u8;128]>>`.
-Then dispatch each registered handler once with its group:
+`DisplayIdHandler` is registered automatically by `ExtensionLibrary::with_standard_handlers()`.
+After calling `capabilities_from_edid`, retrieve the parsed DisplayID section via
+`get_extension_data`:
 
 ```rust
-let mut groups: HashMap<u8, Vec<&[u8; 128]>> = HashMap::new();
-for ext in edid.extension_blocks() {
-    groups.entry(ext[0]).or_default().push(ext);
-}
-for metadata in &library.extensions {
-    if let Some(handler) = &metadata.handler {
-        if let Some(blocks) = groups.get(&metadata.tag) {
-            handler.process(blocks, &mut caps, &mut warnings);
-        }
-    }
+use piaf::{DisplayIdCapabilities, capabilities_from_edid, parse_edid};
+
+let library = ExtensionLibrary::with_standard_handlers();
+let parsed = parse_edid(&bytes, &library)?;
+let caps = capabilities_from_edid(&parsed, &library);
+
+if let Some(did) = caps.get_extension_data::<DisplayIdCapabilities>(0x70) {
+    println!("DisplayID version: 0x{:02X}", did.version);
+    println!("Product type: {}", did.product_type);
 }
 ```
 
-### Static pipeline (`capabilities_from_edid_static`)
+Video modes decoded from DisplayID timing blocks are added to `caps.supported_modes`
+alongside modes from the base block and CEA-861.
 
-No allocator is available, so grouping uses a fixed-size stack array. For each handler,
-scan the extension blocks and collect matching references:
+## Static pipeline
+
+`DisplayIdHandler` is included in `STANDARD_HANDLERS`. It decodes video modes from Type I
+timing blocks and pushes them into the static output:
 
 ```rust
-for handler in handlers {
-    let mut group: [MaybeUninit<&[u8; 128]>; MAX_EXTENSION_BLOCKS] =
-        MaybeUninit::uninit_array();
-    let mut count = 0;
-    for ext in parsed.extension_blocks() {
-        if ext[0] == handler.tag() {
-            group[count].write(ext);
-            count += 1;
-        }
-    }
-    if count > 0 {
-        let slice = unsafe { MaybeUninit::slice_assume_init_ref(&group[..count]) };
-        let mut ctx = StaticContext::new(&mut caps);
-        handler.process(slice, &mut ctx);
-    }
+use piaf::{STANDARD_HANDLERS, StaticDisplayCapabilities, capabilities_from_edid_static, parse_edid};
+
+let parsed = parse_edid(&bytes, STANDARD_HANDLERS)?;
+let caps: StaticDisplayCapabilities<64> = capabilities_from_edid_static(&parsed, STANDARD_HANDLERS);
+
+for mode in caps.iter_modes() {
+    println!("{}×{}@{}Hz", mode.width, mode.height, mode.refresh_rate);
 }
 ```
 
-Stack cost: `MAX_EXTENSION_BLOCKS × size_of::<&[u8; 128]>()` — 512 bytes on 64-bit, less
-on 32-bit embedded targets. This is a call-frame-local cost, not a persistent allocation,
-and is acceptable for all firmware targets that handle DisplayPort enumeration.
-`MaybeUninit::uninit_array` and `MaybeUninit::slice_assume_init_ref` are stable since
-Rust 1.82.
+`DisplayIdCapabilities` is not available from the static pipeline — rich metadata requires
+the dynamic pipeline.
 
-**Implementation note:** the crate's `#[forbid(unsafe_code)]` makes the `MaybeUninit`
-approach unavailable. The `alloc`/`std` branch of `capabilities_from_edid_static` instead
-collects into a `Vec<&[u8; 128]>` per handler, which is equivalent and heap-allocated only
-for the duration of the call. The bare `no_std` branch (no `alloc`) falls back to calling
-each handler once per block with a single-element slice; multi-block reassembly is therefore
-not supported in bare `no_std` builds.
+## `DisplayIdCapabilities`
 
-## `StaticContext` — the extensible sink bag
+Stored under tag `0x70` in `DisplayCapabilities::extension_data`:
 
-The static handler previously received `&mut dyn ModeSink` directly. Replacing it with
-`StaticContext<'_>` makes the output side extensible without future breaking changes.
+| Field | Type | Description |
+|---|---|---|
+| `version` | `u8` | Version byte from the section header (0x10–0x1F = v1.x, 0x20 = v2.x) |
+| `product_type` | `u8` | Display product primary use case, bits 2:0 of header byte 3 |
 
-`StaticContext` lives in `capabilities.rs`, alongside `ModeSink` and
-`StaticDisplayCapabilities`. It is an output-side type — the thing handlers write *to* —
-and belongs with its peers, not in `extension.rs` which is concerned with handler
-registration and dispatch infrastructure.
+## Extracted timing data
 
-```rust
-pub struct StaticContext<'a> {
-    modes: &'a mut dyn ModeSink,
-    // Future fields, e.g.:
-    // identity: Option<&'a mut dyn IdentitySink>,
-}
+The initial implementation decodes **Type I Video Timing** blocks (tag `0x01`). Each
+20-byte descriptor maps to a `VideoMode` with full timing detail:
 
-impl<'a> StaticContext<'a> {
-    pub fn new(modes: &'a mut dyn ModeSink) -> Self {
-        Self { modes }
-    }
-
-    pub fn push_mode(&mut self, mode: VideoMode) {
-        self.modes.push_mode(mode);
-    }
-
-    pub fn push_warning(&mut self, w: EdidWarning) {
-        self.modes.push_warning(w);
-    }
-}
-```
-
-Handlers call output through methods, not through direct field access. When a new sink
-type is added to `StaticContext` as `Option<&'a mut dyn XxxSink>`, existing handler
-implementations are unaffected — the new field defaults to `None` and handlers that do
-not need it simply ignore it.
-
-The dynamic pipeline's output type, `DisplayCapabilities`, already plays this role for
-`ExtensionHandler`: it is the rich context that handlers write into. No equivalent change
-is needed there.
-
-## Block ordering and block map interaction
-
-`EdidSource::extension_blocks()` yields all extension blocks in stream order — the physical
-order they appear in the EDID byte stream. Block Map blocks (`0xF0`) are present in this
-stream but are filtered out naturally when collecting for tag `0x70`, since their tags
-differ.
-
-Dispatch collects DisplayID fragments in stream order, which is the correct reassembly
-order. The DisplayID specification requires fragments to be contiguous and ordered; trusting
-the stream is both correct and simpler than consulting the block map.
-
-Block-map validation — verifying the count and positions of `0x70` blocks against the map
-— is a future additive check. It does not change what the handler receives; it would
-surface as a diagnostic warning if the block map is inconsistent with what was found. This
-design does not block that addition.
-
-## DisplayID handler structure
-
-The handler will live in `src/capabilities/displayid/`. The initial implementation covers
-DisplayID 1.x embedded in EDID extension blocks.
-
-**Fragment layout** (DisplayID 1.x):
-
-```
-Byte 0:     Tag (0x70)
-Byte 1:     DisplayID version
-Byte 2:     Payload length in this section
-Byte 3:     Display product type / extension count
-Bytes 4..N: DisplayID data blocks (variable-length)
-Last byte:  Checksum
-```
-
-The handler receives the raw 128-byte EDID blocks. It is responsible for:
-
-1. Validating the tag and version on the first block.
-2. Reading the extension count to know how many fragments to expect; warning if the slice
-   length does not match.
-3. Iterating the logical DisplayID data blocks across the reassembled payload.
-4. Dispatching each logical block by its DisplayID block tag to an internal decoder.
-
-For the static pipeline, the handler pushes decoded video modes via `ctx.push_mode()`.
-For the dynamic pipeline, it additionally writes rich data (product identity, interface
-features, colorimetry) into `DisplayCapabilities` via `set_extension_data`.
-
-The data type stored via `set_extension_data` will be `DisplayIdCapabilities` — a new
-struct in `src/capabilities/displayid/` analogous to `Cea861Capabilities`.
-
-## Files affected
-
-| File | Change |
+| `VideoMode` field | Source |
 |---|---|
-| `src/model/extension.rs` | `ExtensionHandler::process` signature |
-| `src/model/capabilities.rs` | Add `StaticContext`; `StaticExtensionHandler::process` signature |
-| `src/capabilities/mod.rs` | Dispatch logic in both pipeline functions |
-| `src/capabilities/cea861/mod.rs` | Update to new slice signature |
-| `src/capabilities/base/mod.rs` | Update if affected |
-| `src/capabilities/displayid/` | New module: handler, capabilities struct, block decoders |
-| `doc/extensibility.md` | Update code examples for new signatures |
-| `doc/static-pipeline.md` | Update signatures and remove stale claim in Limitations section |
+| `width`, `height` | Horizontal/Vertical Active (exact pixel/line counts) |
+| `refresh_rate` | Derived: `pixel_clock_hz / (h_total × v_total)` |
+| `interlaced` | Byte 19 bit 0 |
+| `h_front_porch`, `h_sync_width` | Bytes 7–10 |
+| `v_front_porch`, `v_sync_width` | Bytes 15–18 |
+| `sync` | `DigitalSeparate`; polarities from byte 19 bits 3–4 |
 
-## Implementation checklist
+Null descriptors (pixel clock = 0) are silently skipped.
 
-Steps are ordered so each builds on the last. Remove this section once all items are done.
+## Warnings
 
-### Infrastructure
+| Variant | Meaning |
+|---|---|
+| `DisplayIdVersionUnknown(u8)` | Version byte is outside the known ranges (0x10–0x1F, 0x20). The block is skipped. |
+| `DisplayIdExtensionCountMismatch { declared, found }` | The extension count in the first fragment's header does not match the number of continuation blocks actually present. Processing continues with whatever fragments are available. |
 
-- [x] Add `StaticContext<'a>` to `src/model/capabilities.rs`
-- [x] Change `ExtensionHandler::process` in `src/model/extension.rs` to take `&[&[u8; 128]]`
-- [x] Change `StaticExtensionHandler::process` in `src/model/extension.rs` to take `(&[&[u8; 128]], &mut StaticContext<'_>)`
+## Fragment layout reference
 
-### Dispatch
+Each 128-byte EDID extension block carrying DisplayID has the following structure:
 
-- [x] Replace per-block dispatch in `capabilities_from_edid` with group-by-tag pre-pass (`HashMap`)
-- [x] Update base handler call site — wrap `edid.base_block()` in a one-element slice
-- [x] Replace per-block dispatch in `capabilities_from_edid_static` with per-handler scan into `[MaybeUninit; MAX_EXTENSION_BLOCKS]`
+```
+Byte 0:      0x70 (EDID extension tag)
+Byte 1:      DisplayID version/revision
+Byte 2:      Section byte count (data block payload bytes in this fragment)
+Byte 3:      Bits [7:3] = continuation block count
+             Bits [2:0] = display product primary use case
+Bytes 4–126: DisplayID data blocks
+Byte 127:    Checksum
+```
 
-### Existing handler updates
+Data blocks within the payload each begin with a 3-byte header:
 
-- [x] Update `BaseBlockHandler` (`src/capabilities/base/mod.rs`) — extract `blocks[0]`, rest unchanged
-- [x] Update `Cea861Handler` dynamic impl — iterate slice, process each block as before
-- [x] Update `Cea861Handler` static impl — iterate slice with `StaticContext`
+```
+Byte 0: Block tag
+Byte 1: Revision
+Byte 2: Payload length (bytes following this header)
+```
 
-### DisplayID handler
-
-- [x] Create `src/capabilities/displayid/mod.rs`; add `mod displayid` to `src/capabilities/mod.rs`
-- [x] Implement fragment validation: check tag, version, extension count against slice length; emit warnings on mismatch
-- [x] Implement logical block iteration across the reassembled payload
-- [x] Define `DisplayIdCapabilities` struct
-- [x] Implement data block decoders (Type I timing; further block types pending)
-- [x] Wire `DisplayIdHandler` into `with_standard_handlers()` (dynamic pipeline)
-- [x] Wire `DisplayIdHandler` into `STANDARD_HANDLERS` (static pipeline)
-
-### Docs and tests
-
-- [x] Update code examples in `doc/extensibility.md` for new signatures
-- [x] Update `doc/static-pipeline.md`: new signatures, remove stale Limitations claim
-- [x] Unit tests for fragment reassembly and each data block decoder
-- [ ] Integration test with a real DisplayID EDID fixture in `testdata/valid/`
-
----
-
-## Note on `static-pipeline.md`
-
-The Limitations section of `static-pipeline.md` currently states:
-
-> Adding DisplayID to the static pipeline requires only implementing `StaticExtensionHandler`
-> for a `DisplayIdHandler` struct and adding it to `STANDARD_HANDLERS`. No structural
-> changes to the pipeline are needed.
-
-This is now superseded. Structural changes are required: the `StaticExtensionHandler` trait
-signature changes, `StaticContext` is introduced, and the dispatch loop in
-`capabilities_from_edid_static` is replaced. That section should be removed when the doc
-updates are made.
+Iteration stops at an end-of-section sentinel (tag `0x00`, length `0`) or when a block's
+declared length would extend past the available payload.
