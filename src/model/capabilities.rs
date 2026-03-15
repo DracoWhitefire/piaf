@@ -1,4 +1,3 @@
-#[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 use crate::model::manufacture::{ManufacturerId, MonitorString};
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -196,8 +195,19 @@ pub struct DisplayCapabilities {
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub supported_modes: Vec<VideoMode>,
     /// Non-fatal conditions collected from the parser and all handlers.
+    ///
+    /// In `alloc`/`std` builds this is a `Vec` and contains every warning.
+    /// In bare `no_std` builds this is a fixed array capped at 8 entries;
+    /// warnings beyond the first 8 are silently dropped.
+    /// Use [`iter_warnings`][Self::iter_warnings] for build-portable access.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub warnings: Vec<EdidWarning>,
+    /// Non-fatal conditions collected during base block decoding (bare `no_std` build).
+    ///
+    /// Capped at 8 entries. Use [`iter_warnings`][Self::iter_warnings] for
+    /// build-portable access.
+    #[cfg(not(any(feature = "alloc", feature = "std")))]
+    pub warnings: [Option<EdidWarning>; 8],
     /// Typed data attached by extension handlers, keyed by extension tag byte.
     ///
     /// Uses a `Vec` of `(tag, data)` pairs rather than a `HashMap` so that this field is
@@ -208,6 +218,53 @@ pub struct DisplayCapabilities {
     #[cfg(any(feature = "alloc", feature = "std"))]
     #[cfg_attr(feature = "serde", serde(skip))]
     pub extension_data: Vec<(u8, Arc<dyn ExtensionData>)>,
+}
+
+impl DisplayCapabilities {
+    /// Returns an iterator over all collected warnings.
+    ///
+    /// Portable across all build configurations. In bare `no_std` builds only the first
+    /// 8 warnings are retained; prefer this method over accessing `warnings` directly
+    /// to write code that compiles in all configurations.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub fn iter_warnings(&self) -> impl Iterator<Item = &EdidWarning> {
+        self.warnings.iter()
+    }
+
+    /// Returns an iterator over all collected warnings.
+    ///
+    /// Portable across all build configurations. In bare `no_std` builds only the first
+    /// 8 warnings are retained; prefer this method over accessing `warnings` directly
+    /// to write code that compiles in all configurations.
+    #[cfg(not(any(feature = "alloc", feature = "std")))]
+    pub fn iter_warnings(&self) -> impl Iterator<Item = &EdidWarning> {
+        self.warnings.iter().flatten()
+    }
+
+    /// Appends a warning. In bare `no_std` builds warnings beyond the first 8 are
+    /// silently dropped.
+    ///
+    /// In `alloc`/`std` builds, handlers typically push to the `&mut Vec<EdidWarning>`
+    /// parameter supplied by the pipeline rather than calling this directly. This method
+    /// is provided so that code which needs to emit a warning portably across both build
+    /// configurations can use a single call site.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    #[allow(dead_code)]
+    pub(crate) fn push_warning(&mut self, w: EdidWarning) {
+        self.warnings.push(w);
+    }
+
+    /// Appends a warning. In bare `no_std` builds warnings beyond the first 8 are
+    /// silently dropped.
+    #[cfg(not(any(feature = "alloc", feature = "std")))]
+    pub(crate) fn push_warning(&mut self, w: EdidWarning) {
+        for slot in self.warnings.iter_mut() {
+            if slot.is_none() {
+                *slot = Some(w);
+                return;
+            }
+        }
+    }
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]

@@ -3,7 +3,7 @@
 /// Warnings are collected into [`ParsedEdid::warnings`][crate::ParsedEdid] (from the parser)
 /// and into [`DisplayCapabilities::warnings`][crate::DisplayCapabilities] (from handlers).
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum EdidWarning {
     /// An extension block with an unrecognised tag was encountered.
     /// The inner value is the tag byte.

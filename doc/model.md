@@ -64,7 +64,8 @@ pub struct DisplayCapabilities {
     pub timing_formula: Option<TimingFormula>,
     pub supported_modes: Vec<VideoMode>,
     // Extensions
-    pub warnings: Vec<EdidWarning>,
+    // alloc/std: pub warnings: Vec<EdidWarning>,
+    // no_std:    pub warnings: [Option<EdidWarning>; 8],
     pub extension_data: Vec<(u8, Arc<dyn ExtensionData>)>,
 }
 ```

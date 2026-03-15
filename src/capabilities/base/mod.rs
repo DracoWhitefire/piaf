@@ -1,5 +1,4 @@
 use crate::model::capabilities::DisplayCapabilities;
-#[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::extension::ExtensionHandler;
@@ -19,7 +18,9 @@ pub(crate) mod timings;
 /// and emits diagnostics.
 #[cfg(not(any(feature = "alloc", feature = "std")))]
 pub(super) fn decode_base_block(base: &[u8; 128], caps: &mut DisplayCapabilities) {
-    let _ = header::decode_header_fields(base, caps);
+    if !header::decode_header_fields(base, caps) {
+        caps.push_warning(EdidWarning::InvalidManufacturerId);
+    }
     descriptors::decode_descriptors(base, caps);
 }
 
