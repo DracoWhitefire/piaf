@@ -1,8 +1,9 @@
 use piaf::{
     AudioFormat, AudioFormatInfo, Cea861Capabilities, Cea861Flags, Cea861Handler, ColorimetryFlags,
-    DisplayCapabilities, DtcPointEncoding, ExtensionHandler, ExtensionLibrary, HdmiVsdbFlags,
-    HdrEotf, ParseWarning, SpeakerAllocationFlags, SpeakerAllocationFlags2,
-    SpeakerAllocationFlags3, capabilities_from_edid, infoframe_type, parse_edid,
+    DisplayCapabilities, DisplayIdCapabilities, DtcPointEncoding, ExtensionHandler,
+    ExtensionLibrary, HdmiVsdbFlags, HdrEotf, ParseWarning, SpeakerAllocationFlags,
+    SpeakerAllocationFlags2, SpeakerAllocationFlags3, capabilities_from_edid, infoframe_type,
+    parse_edid,
 };
 use std::fs;
 use std::path::Path;
@@ -686,6 +687,13 @@ fn main() {
                                         }
                                     }
                                 }
+                            }
+
+                            if let Some(did) = caps.get_extension_data::<DisplayIdCapabilities>(0x70) {
+                                println!(
+                                    "  DisplayID:    version=0x{:02X} product_type={}",
+                                    did.version, did.product_type
+                                );
                             }
 
                             if let (Some(min_v), Some(max_v)) = (caps.min_v_rate, caps.max_v_rate) {
