@@ -1,5 +1,9 @@
 # PIAF
 
+[![CI](https://github.com/DracoWhitefire/piaf/actions/workflows/ci.yml/badge.svg)](https://github.com/DracoWhitefire/piaf/actions/workflows/ci.yml)
+[![License: MPL-2.0](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](https://github.com/DracoWhitefire/piaf/blob/main/LICENSE)
+[![Rust 1.85+](https://img.shields.io/badge/rustc-1.85+-orange.svg)](https://blog.rust-lang.org/2025/02/20/Rust-1.85.0.html)
+
 A Rust library for decoding binary capability data into a clean, typed model, specialized for EDID.
 
 PIAF reads raw EDID bytes — from a file, a kernel sysfs node, or a direct I²C read —
