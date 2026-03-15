@@ -26,7 +26,7 @@ for mode in caps.iter_modes() {
 }
 ```
 
-`STANDARD_HANDLERS` is a `&[&dyn StaticExtensionHandler]` covering CEA-861. It also implements
+`STANDARD_HANDLERS` is a `&[&dyn StaticExtensionHandler]` covering CEA-861 and DisplayID. It also implements
 [`KnownExtensions`][crate::KnownExtensions], so it can be passed directly to `parse_edid` — no
 separate `ExtensionTagRegistry` needed.
 
@@ -79,7 +79,7 @@ works in a static slice.
 ```rust
 pub trait StaticExtensionHandler: Sync {
     fn tag(&self) -> u8;
-    fn process(&self, block: &[u8; 128], sink: &mut dyn ModeSink);
+    fn process(&self, blocks: &[&[u8; 128]], ctx: &mut StaticContext<'_>);
 }
 ```
 
@@ -87,11 +87,27 @@ pub trait StaticExtensionHandler: Sync {
 [`KnownExtensions`][crate::KnownExtensions] via the same method, so the same slice serves both
 as a handler list and an extension tag filter for `parse_edid`.
 
+### `StaticContext`
+
+The output context passed to `StaticExtensionHandler::process`. Handlers write decoded data
+through its methods rather than directly to a sink trait object. This allows new output channels
+to be added as `Option` fields in the future without changing the handler trait signature.
+
+```rust
+pub struct StaticContext<'a> { /* private */ }
+
+impl StaticContext<'_> {
+    pub fn push_mode(&mut self, mode: VideoMode);
+    pub fn push_warning(&mut self, w: EdidWarning);
+}
+```
+
 ### `ModeSink`
 
-Internal trait abstracting mode and warning writes. Implemented by both `DisplayCapabilities`
-(alloc) and `StaticDisplayCapabilities<N>` (no-alloc). Exposed publicly so custom handler
-implementations can accept it.
+Internal trait abstracting mode and warning writes. Implemented by `DisplayCapabilities` (alloc),
+`StaticDisplayCapabilities<N>` (no-alloc), and `StaticContext` (which forwards to whatever sink
+it wraps). Exposed publicly for custom handler implementations that need to share logic across
+build tiers.
 
 ```rust
 pub trait ModeSink {
@@ -100,15 +116,17 @@ pub trait ModeSink {
 }
 ```
 
-Both impls deduplicate modes by (width, height, refresh_rate, interlaced): the first entry for
-a given resolution and rate wins. A DTD-derived mode with full timing detail therefore takes
-precedence over a later SVD-derived mode with sparse timing detail.
+Both `DisplayCapabilities` and `StaticDisplayCapabilities` deduplicate modes by
+(width, height, refresh_rate, interlaced): the first entry for a given resolution and rate wins.
+A DTD-derived mode with full timing detail therefore takes precedence over a later SVD-derived
+mode with sparse timing detail.
 
 ### Pre-built statics
 
 ```rust
 pub static CEA861_HANDLER: &dyn StaticExtensionHandler = &Cea861Handler;
-pub static STANDARD_HANDLERS: &[&dyn StaticExtensionHandler] = &[&Cea861Handler];
+pub static DISPLAYID_HANDLER: &dyn StaticExtensionHandler = &DisplayIdHandler;
+pub static STANDARD_HANDLERS: &[&dyn StaticExtensionHandler] = &[&Cea861Handler, &DisplayIdHandler];
 ```
 
 These are `static`, not `const` — fat pointer coercions to trait objects are not const-stable
@@ -124,8 +142,9 @@ struct MyHandler;
 
 impl piaf::StaticExtensionHandler for MyHandler {
     fn tag(&self) -> u8 { 0xAB }
-    fn process(&self, block: &[u8; 128], sink: &mut dyn piaf::ModeSink) {
-        // extract modes and push via sink.push_mode(...)
+    fn process(&self, blocks: &[&[u8; 128]], ctx: &mut piaf::StaticContext<'_>) {
+        // blocks contains all extension blocks with this handler's tag, in stream order.
+        // Push modes via ctx.push_mode(...) and warnings via ctx.push_warning(...).
     }
 }
 
@@ -163,6 +182,9 @@ DTDs — that field is a base-block concern and does not belong to the extension
 `no_std` tier (no `alloc` feature). `capabilities_from_edid_static` returns base-block data
 only in that configuration; passing handlers has no effect.
 
-**Future DisplayID support.** Adding DisplayID to the static pipeline requires only
-implementing `StaticExtensionHandler` for a `DisplayIdHandler` struct and adding it to
-`STANDARD_HANDLERS`. No structural changes to the pipeline are needed.
+**Multi-block formats in bare `no_std`.** In `alloc`/`std` builds, the dispatch layer collects
+all fragments for a given tag and calls the handler once with the full slice. In bare `no_std`
+builds there is no `Vec`, so each extension block is passed individually as a single-element
+slice. Handlers for single-block formats (CEA-861) work correctly at all tiers. Handlers for
+multi-block formats (DisplayID) receive one call per fragment and are responsible for handling
+that gracefully; full reassembly is not supported at the bare `no_std` tier.

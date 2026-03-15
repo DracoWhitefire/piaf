@@ -35,8 +35,9 @@ are registered via `ExtensionLibrary` using `Box<dyn ExtensionHandler>`.
 struct MyHandler;
 
 impl ExtensionHandler for MyHandler {
-    fn process(&self, block: &[u8; 128], caps: &mut DisplayCapabilities, warnings: &mut Vec<ParseWarning>) {
-        // Read from block, write to caps or warnings
+    fn process(&self, blocks: &[&[u8; 128]], caps: &mut DisplayCapabilities, warnings: &mut Vec<ParseWarning>) {
+        // blocks contains all extension blocks with this handler's tag, in stream order.
+        // Read from blocks, write to caps or warnings.
     }
 }
 ```
@@ -44,7 +45,7 @@ impl ExtensionHandler for MyHandler {
 ### `StaticExtensionHandler` (static, all tiers)
 
 `StaticExtensionHandler` is the no-alloc counterpart. Handlers are `'static` references in
-a slice rather than boxed trait objects. Output goes to a `dyn ModeSink` rather than
+a slice rather than boxed trait objects. Output goes to a `StaticContext` rather than
 `DisplayCapabilities` directly — this means mode extraction only; rich metadata requires
 `ExtensionHandler`.
 
@@ -53,8 +54,9 @@ struct MyHandler;
 
 impl StaticExtensionHandler for MyHandler {
     fn tag(&self) -> u8 { 0xAB }
-    fn process(&self, block: &[u8; 128], sink: &mut dyn ModeSink) {
-        // push modes via sink.push_mode(...)
+    fn process(&self, blocks: &[&[u8; 128]], ctx: &mut StaticContext<'_>) {
+        // blocks contains all extension blocks with this handler's tag, in stream order.
+        // Push modes via ctx.push_mode(...) and warnings via ctx.push_warning(...).
     }
 }
 
@@ -126,8 +128,10 @@ Any type that is `Debug + Send + Sync` qualifies.
 struct MyData { version: u8 }
 
 impl ExtensionHandler for MyHandler {
-    fn process(&self, block: &[u8; 128], caps: &mut DisplayCapabilities, _warnings: &mut Vec<EdidWarning>) {
-        caps.set_extension_data(MY_TAG, MyData { version: block[1] });
+    fn process(&self, blocks: &[&[u8; 128]], caps: &mut DisplayCapabilities, _warnings: &mut Vec<ParseWarning>) {
+        if let Some(block) = blocks.first() {
+            caps.set_extension_data(MY_TAG, MyData { version: block[1] });
+        }
     }
 }
 ```
@@ -155,11 +159,11 @@ variants; custom handlers may push their own types.
 warnings.push(Arc::new(EdidWarning::MalformedDataBlock));
 ```
 
-Static handlers emit warnings via `ModeSink::push_warning`, which accepts `EdidWarning`
+Static handlers emit warnings via `StaticContext::push_warning`, which accepts `EdidWarning`
 directly (no boxing required):
 
 ```rust
-sink.push_warning(EdidWarning::MalformedDataBlock);
+ctx.push_warning(EdidWarning::MalformedDataBlock);
 ```
 
 ## `no_std` support
