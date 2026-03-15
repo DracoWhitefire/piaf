@@ -89,6 +89,56 @@ See [`examples/inspect_displays.rs`](examples/inspect_displays.rs) for a complet
 | `alloc` | no      | Enables dynamic allocation without `std` |
 | `serde` | no      | Derives `Serialize`/`Deserialize` on public types |
 
+## `no_std` builds
+
+Bare `no_std` (neither `std` nor `alloc`) is supported. The pipeline is reduced:
+`parse_edid` and the extension handler system are unavailable; call
+`capabilities_from_edid` with an empty `ExtensionLibrary` and the base block is
+decoded directly into `DisplayCapabilities`.
+
+Fields available in all build configurations:
+
+| Field | Type |
+|-------|------|
+| `manufacturer` | `Option<ManufacturerId>` |
+| `manufacture_date` | `Option<ManufactureDate>` |
+| `edid_version` | `Option<EdidVersion>` |
+| `product_code` | `Option<u16>` |
+| `serial_number` | `Option<u32>` |
+| `serial_number_string` | `Option<MonitorString>` |
+| `display_name` | `Option<MonitorString>` |
+| `unspecified_text` | `[Option<MonitorString>; 4]` |
+| `white_points` | `[Option<WhitePoint>; 2]` |
+| `digital` | `bool` |
+| `color_bit_depth` | `Option<ColorBitDepth>` |
+| `video_interface` | `Option<VideoInterface>` |
+| `analog_sync_level` | `Option<AnalogSyncLevel>` |
+| `chromaticity` | `Chromaticity` |
+| `gamma` | `Option<DisplayGamma>` |
+| `display_features` | `Option<DisplayFeatureFlags>` |
+| `digital_color_encoding` | `Option<DigitalColorEncoding>` |
+| `analog_color_type` | `Option<AnalogColorType>` |
+| `screen_size` | `Option<ScreenSize>` |
+| `preferred_image_size_mm` | `Option<(u16, u16)>` |
+| `min_v_rate` / `max_v_rate` | `Option<u16>` |
+| `min_h_rate_khz` / `max_h_rate_khz` | `Option<u16>` |
+| `max_pixel_clock_mhz` | `Option<u16>` |
+| `timing_formula` | `Option<TimingFormula>` |
+| `color_management` | `Option<ColorManagementData>` |
+| `warnings` | `[Option<EdidWarning>; 8]` (first 8; use `iter_warnings()`) |
+
+Fields requiring `alloc` or `std`:
+
+| Field | Reason |
+|-------|--------|
+| `supported_modes` | Variable-length list of video modes |
+| `extension_data` | Type-erased handler data via `Arc<dyn ExtensionData>` |
+| `warnings` (full) | `Vec<EdidWarning>` in alloc builds; use `iter_warnings()` for portable access |
+
+Fixed-length string fields (`MonitorString`, `ManufacturerId`) use fixed-size byte
+array newtypes with `Display` and `Deref<Target = str>` impls, so they behave like
+strings in all build configurations without requiring heap allocation.
+
 ## Base block decoding
 
 Fields decoded by `BaseBlockHandler`:
