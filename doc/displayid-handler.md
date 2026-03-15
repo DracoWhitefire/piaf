@@ -249,7 +249,7 @@ Steps are ordered so each builds on the last. Remove this section once all items
 
 - [x] Update code examples in `doc/extensibility.md` for new signatures
 - [x] Update `doc/static-pipeline.md`: new signatures, remove stale Limitations claim
-- [ ] Unit tests for fragment reassembly and each data block decoder
+- [x] Unit tests for fragment reassembly and each data block decoder
 - [ ] Integration test with a real DisplayID EDID fixture in `testdata/valid/`
 
 ---

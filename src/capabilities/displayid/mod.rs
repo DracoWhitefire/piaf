@@ -383,4 +383,161 @@ mod tests {
         assert_eq!(mode.height, 1080);
         assert_eq!(mode.refresh_rate, 60);
     }
+
+    #[test]
+    fn test_v2_accepted_without_warning() {
+        let block = make_displayid_block(0x20, &[]);
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_displayid_capabilities_stored() {
+        // version 0x13 (DisplayID 1.3), product_type = 2 (packed in byte 3 as 0x02)
+        let mut block = make_displayid_block(0x13, &[]);
+        block[3] = 0x02; // extension_count=0, product_type=2
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+        assert!(warnings.is_empty());
+        let did = caps.get_extension_data::<DisplayIdCapabilities>(0x70).unwrap();
+        assert_eq!(did.version, 0x13);
+        assert_eq!(did.product_type, 2);
+    }
+
+    #[test]
+    fn test_null_descriptor_skipped() {
+        // A descriptor with pixel_clock = 0 is a null entry and must not produce a mode.
+        let null_descriptor = [0u8; 20];
+        let data_block = make_type_i_data_block(&null_descriptor);
+        let block = make_displayid_block(0x10, &data_block);
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+        assert!(warnings.is_empty());
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_interlaced_flag_decoded() {
+        // flags byte 19 bit 0 = interlaced
+        let descriptor = make_type_i_descriptor(14850, 1920, 280, 88, 44, 1080, 45, 4, 5, 0x01);
+        let data_block = make_type_i_data_block(&descriptor);
+        let block = make_displayid_block(0x10, &data_block);
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert!(caps.supported_modes[0].interlaced);
+    }
+
+    #[test]
+    fn test_multiple_descriptors_in_block() {
+        // Two 20-byte descriptors packed into a single Type I data block (40-byte payload).
+        let desc1 = make_type_i_descriptor(14850, 1920, 280, 88, 44, 1080, 45, 4, 5, 0x00);
+        // 2560×1440@60: h_total=3000, v_total=1481 → clock≈2560×1440×60/10000≈22118 × 10 kHz
+        let desc2 = make_type_i_descriptor(22118, 2560, 440, 80, 32, 1440, 41, 4, 5, 0x00);
+        let mut db = [0u8; 43];
+        db[0] = TAG_TYPE_I_TIMING;
+        db[1] = 0x00;
+        db[2] = 40; // 2 × 20 bytes
+        db[3..23].copy_from_slice(&desc1);
+        db[23..43].copy_from_slice(&desc2);
+        let block = make_displayid_block(0x10, &db);
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 2);
+        assert!(caps.supported_modes.iter().any(|m| m.width == 1920 && m.height == 1080));
+        assert!(caps.supported_modes.iter().any(|m| m.width == 2560 && m.height == 1440));
+    }
+
+    #[test]
+    fn test_multi_fragment_reassembly() {
+        // First fragment: 1920×1080@60. Declares one continuation block.
+        let desc1 = make_type_i_descriptor(14850, 1920, 280, 88, 44, 1080, 45, 4, 5, 0x00);
+        let db1 = make_type_i_data_block(&desc1);
+        let mut block1 = make_displayid_block(0x10, &db1);
+        block1[3] = 0x08; // extension_count=1 (bits 7:3), product_type=0
+
+        // Second fragment (continuation): 2560×1440@60.
+        let desc2 = make_type_i_descriptor(22118, 2560, 440, 80, 32, 1440, 41, 4, 5, 0x00);
+        let db2 = make_type_i_data_block(&desc2);
+        let block2 = make_displayid_block(0x10, &db2);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block1, &block2], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty(), "unexpected warnings: {:?}", warnings);
+        assert_eq!(caps.supported_modes.len(), 2);
+        assert!(caps.supported_modes.iter().any(|m| m.width == 1920 && m.height == 1080));
+        assert!(caps.supported_modes.iter().any(|m| m.width == 2560 && m.height == 1440));
+    }
+
+    #[test]
+    fn test_malformed_data_block_stops_iteration() {
+        // A data block that claims a length extending past the payload boundary.
+        // Iteration must stop without producing modes or panicking.
+        let mut payload = [0u8; 6];
+        payload[0] = TAG_TYPE_I_TIMING;
+        payload[1] = 0x00;
+        payload[2] = 50; // claims 50 bytes; only 3 remain after the header
+        let block = make_displayid_block(0x10, &payload);
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+        assert!(warnings.is_empty());
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_eos_sentinel_stops_iteration() {
+        // A valid Type I descriptor followed by an EOS sentinel (tag=0, length=0).
+        // A second descriptor after the sentinel must not be decoded.
+        let desc = make_type_i_descriptor(14850, 1920, 280, 88, 44, 1080, 45, 4, 5, 0x00);
+        let db = make_type_i_data_block(&desc);
+        let desc2 = make_type_i_descriptor(22118, 2560, 440, 80, 32, 1440, 41, 4, 5, 0x00);
+        let db2 = make_type_i_data_block(&desc2);
+
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&db);
+        payload.extend_from_slice(&[0x00, 0x00, 0x00]); // EOS sentinel
+        payload.extend_from_slice(&db2);
+
+        let block = make_displayid_block(0x10, &payload);
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 1920);
+    }
+
+    #[test]
+    fn test_unknown_data_block_tag_skipped() {
+        // An unknown data block (tag 0xFF, 10-byte payload) followed by a valid Type I block.
+        // The unknown block must be skipped and iteration must continue.
+        let desc = make_type_i_descriptor(14850, 1920, 280, 88, 44, 1080, 45, 4, 5, 0x00);
+        let db = make_type_i_data_block(&desc);
+
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&[0xFF, 0x00, 10]); // unknown tag, 10-byte payload
+        payload.extend_from_slice(&[0u8; 10]);
+        payload.extend_from_slice(&db);
+
+        let block = make_displayid_block(0x10, &payload);
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 1920);
+    }
 }
