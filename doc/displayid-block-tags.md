@@ -15,7 +15,7 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 | Tag | Block | Status |
 |---|---|---|
 | `0x00` | Product Identification Block (name, manufacturer ID, product code, serial) | ✓ implemented |
-| `0x01` | Display Parameters Block (physical size, color bit depths, aspect ratio) | — deferred |
+| `0x01` | Display Parameters Block (physical size, color bit depths, aspect ratio) | ✓ implemented |
 | `0x02` | Color Characteristics Block (primaries, white point) | — deferred |
 | `0x03` | Detailed Timings Block (Type I — 20-byte descriptors) | ✓ implemented |
 | `0x04` | Video Format Block (Type II — formula-based) | — deferred |
@@ -39,6 +39,33 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 | `0x80`–`0xFF` | Undefined (outside DisplayID 1.x tag space) | — reserved |
 
 ## Block structures
+
+### Display Parameters Block (`0x01`)
+
+Describes the physical display size and color bit depth.
+
+```
+Byte  0:     Block tag (0x01)
+Byte  1:     Revision
+Byte  2:     Payload length (minimum 6 bytes)
+
+Per payload:
+  Bytes 0–1: Horizontal image size in mm (LE uint16; 0 = not defined)
+  Bytes 2–3: Vertical image size in mm (LE uint16; 0 = not defined)
+  Byte  4:   Display technology (bits 7:4) and feature support flags (bits 3:0)
+             Display technology: 0=monochrome, 1=RGB, 2=non-RGB multicolor
+             Feature flags: bit 3=audio input, bit 2=separate default color char,
+                            bit 1=power management, bit 0=fixed timing
+  Byte  5:   Color bit depth:
+             Bits 4:0 = interface data bit depth per primary:
+               001=6 bpc, 010=8 bpc, 011=10 bpc, 100=12 bpc, 101=14 bpc, 110=16 bpc
+               000=undefined, 111=reserved
+             Bits 7:5 = overall display color bit depth (same encoding)
+```
+
+When both image size fields are non-zero they are written to `preferred_image_size_mm`.
+Color bit depth is decoded from bits 4:0 of byte 5 into `color_bit_depth`. Both fields
+are only available from the dynamic pipeline.
 
 ### Detailed Timings Block — Type I (`0x03`)
 

@@ -79,6 +79,14 @@ Stored under tag `0x70` in `DisplayCapabilities::extension_data`:
 | `manufacture_date` | Week/year bytes 8–9 (`year = byte + 1990`; week `0xFF` = model year) |
 | `display_name` | ASCII product name starting at byte 10 (up to 13 bytes stored) |
 
+**Display Parameters Block** (tag `0x01`) is decoded into the following
+`DisplayCapabilities` fields (dynamic pipeline only):
+
+| `DisplayCapabilities` field | Source |
+|---|---|
+| `preferred_image_size_mm` | LE uint16 pairs at payload bytes 0–3; `0` on either axis = not defined |
+| `color_bit_depth` | Payload byte 5, bits 4:0; same `001=6bpc … 110=16bpc` encoding as EDID `0x14` |
+
 If the DisplayID block appears alongside an EDID base block, DisplayID values overwrite
 any base-block values for the same fields.
 

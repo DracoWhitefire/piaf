@@ -8,6 +8,8 @@ use crate::model::diagnostics::ParseWarning;
 use crate::model::extension::ExtensionHandler;
 use crate::model::extension::StaticExtensionHandler;
 #[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::color::ColorBitDepth;
+#[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::manufacture::{ManufactureDate, ManufacturerId, MonitorString};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{Arc, Vec};
@@ -43,6 +45,9 @@ const DISPLAYID_V2: u8 = 0x20;
 
 /// Data block tag for the Product Identification Block (DisplayID 1.x §4.2).
 const TAG_PRODUCT_ID: u8 = 0x00;
+
+/// Data block tag for the Display Parameters Block (DisplayID 1.x §4.3).
+const TAG_DISPLAY_PARAMS: u8 = 0x01;
 
 /// Data block tag for the Detailed Timings Block (Type I descriptors, DisplayID 1.x §4.4.2).
 const TAG_TYPE_I_TIMING: u8 = 0x03;
@@ -248,6 +253,45 @@ fn scan_product_id_block(payload: &[u8], caps: &mut DisplayCapabilities) {
     });
 }
 
+/// Decodes a Display Parameters Block payload into `caps`.
+///
+/// Payload layout (DisplayID 1.x §4.3):
+/// - Bytes 0–1: Horizontal image size in mm (little-endian uint16; `0` = not defined)
+/// - Bytes 2–3: Vertical image size in mm (little-endian uint16; `0` = not defined)
+/// - Byte  4:   Display technology (bits 7:4) and feature support flags (bits 3:0)
+/// - Byte  5:   Color bit depth — bits 4:0 use the same `001=6bpc … 110=16bpc` encoding
+///   as EDID base block byte `0x14` bits 6:4
+///
+/// When both image size fields are non-zero they are written to `preferred_image_size_mm`.
+/// Color bit depth is written to `color_bit_depth` when the field decodes to a known value.
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn decode_display_params_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    // Physical image size (bytes 0–3).
+    if payload.len() >= 4 {
+        let h_mm = u16::from_le_bytes([payload[0], payload[1]]);
+        let v_mm = u16::from_le_bytes([payload[2], payload[3]]);
+        if h_mm != 0 && v_mm != 0 {
+            caps.preferred_image_size_mm = Some((h_mm, v_mm));
+        }
+    }
+
+    // Color bit depth (byte 5, bits 4:0).
+    if payload.len() >= 6 {
+        caps.color_bit_depth = ColorBitDepth::from_edid_bits(payload[5] & 0x1F);
+    }
+}
+
+/// Scans all data blocks in `payload` for a Display Parameters Block (tag `0x01`)
+/// and decodes the first one found into `caps`.
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn scan_display_params_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    for_each_data_block(payload, |tag, block_payload| {
+        if tag == TAG_DISPLAY_PARAMS {
+            decode_display_params_block(block_payload, caps);
+        }
+    });
+}
+
 /// Returns the data-block payload slice for a single DisplayID fragment.
 ///
 /// Extracts `block[4..end]` where `end = min(4 + section_byte_count, 127)`.
@@ -302,6 +346,7 @@ impl ExtensionHandler for DisplayIdHandler {
             let payload = fragment_payload(block);
             process_data_blocks(payload, caps);
             scan_product_id_block(payload, caps);
+            scan_display_params_block(payload, caps);
         }
     }
 }
@@ -355,8 +400,9 @@ impl StaticExtensionHandler for DisplayIdHandler {
 /// specification once a real DisplayID fixture is available.
 #[cfg(test)]
 const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
-    TAG_PRODUCT_ID,    // 0x00 — Product Identification Block
-    TAG_TYPE_I_TIMING, // 0x03 — Detailed Timings Block (Type I descriptors)
+    TAG_PRODUCT_ID,     // 0x00 — Product Identification Block
+    TAG_DISPLAY_PARAMS, // 0x01 — Display Parameters Block
+    TAG_TYPE_I_TIMING,  // 0x03 — Detailed Timings Block (Type I descriptors)
 ];
 
 /// DisplayID 1.x data block tags that are defined by the specification but not
@@ -366,7 +412,6 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
 /// implemented, remove its tag from here and add it to `IMPLEMENTED_BLOCK_TAGS`.
 #[cfg(test)]
 const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
-    (0x01, 0x01), // Display Parameters Block
     (0x02, 0x02), // Color Characteristics Block
     (0x04, 0x13), // Type II–VI timings, interface and identity blocks, Tiled Display Topology
     (0x14, 0x7E), // Reserved for future use in DisplayID 1.x
@@ -385,6 +430,7 @@ pub static DISPLAYID_HANDLER: &dyn StaticExtensionHandler = &DisplayIdHandler;
 mod tests {
     use super::*;
     use crate::model::capabilities::StaticDisplayCapabilities;
+    use crate::model::color::ColorBitDepth;
     use crate::model::extension::ExtensionHandler;
     use crate::model::manufacture::{ManufactureDate, ManufacturerId};
 
@@ -854,6 +900,137 @@ mod tests {
         assert_eq!(caps.product_code, Some(0xABCD));
         assert_eq!(caps.supported_modes.len(), 1);
         assert_eq!(caps.supported_modes[0].width, 1920);
+    }
+
+    // -----------------------------------------------------------------------
+    // Display Parameters Block (tag 0x01)
+    // -----------------------------------------------------------------------
+
+    fn make_display_params_payload(h_mm: u16, v_mm: u16, tech_flags: u8, bit_depth_byte: u8) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&h_mm.to_le_bytes());
+        v.extend_from_slice(&v_mm.to_le_bytes());
+        v.push(tech_flags);
+        v.push(bit_depth_byte);
+        v
+    }
+
+    fn make_display_params_data_block(payload: &[u8]) -> Vec<u8> {
+        let mut db = Vec::new();
+        db.push(TAG_DISPLAY_PARAMS);
+        db.push(0x00); // revision
+        db.push(payload.len() as u8);
+        db.extend_from_slice(payload);
+        db
+    }
+
+    #[test]
+    fn test_display_params_image_size_mm() {
+        let payload = make_display_params_payload(597, 336, 0x10, 0x00);
+        let db = make_display_params_data_block(&payload);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.preferred_image_size_mm, Some((597, 336)));
+    }
+
+    #[test]
+    fn test_display_params_zero_size_not_stored() {
+        // Both axes zero — undefined; preferred_image_size_mm must remain None.
+        let payload = make_display_params_payload(0, 0, 0x10, 0x00);
+        let db = make_display_params_data_block(&payload);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.preferred_image_size_mm, None);
+    }
+
+    #[test]
+    fn test_display_params_partial_zero_size_not_stored() {
+        // One axis zero — must not store a partial size.
+        let payload = make_display_params_payload(597, 0, 0x10, 0x00);
+        let db = make_display_params_data_block(&payload);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.preferred_image_size_mm, None);
+    }
+
+    #[test]
+    fn test_display_params_color_bit_depth_8bpc() {
+        // Bits 4:0 = 0b00010 = 8 bpc (same encoding as EDID base block).
+        let payload = make_display_params_payload(597, 336, 0x10, 0b0000_0010);
+        let db = make_display_params_data_block(&payload);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.color_bit_depth, Some(ColorBitDepth::Depth8));
+    }
+
+    #[test]
+    fn test_display_params_color_bit_depth_10bpc() {
+        // Bits 4:0 = 0b00011 = 10 bpc.
+        let payload = make_display_params_payload(597, 336, 0x10, 0b0000_0011);
+        let db = make_display_params_data_block(&payload);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.color_bit_depth, Some(ColorBitDepth::Depth10));
+    }
+
+    #[test]
+    fn test_display_params_undefined_bit_depth_not_stored() {
+        // Bits 4:0 = 0b00000 = undefined → color_bit_depth must remain None.
+        let payload = make_display_params_payload(597, 336, 0x10, 0b0000_0000);
+        let db = make_display_params_data_block(&payload);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.color_bit_depth, None);
+    }
+
+    #[test]
+    fn test_display_params_too_short_does_not_panic() {
+        // Only 3 bytes — too short for image size; must not panic.
+        let mut db = [0u8; 6];
+        db[0] = TAG_DISPLAY_PARAMS;
+        db[1] = 0x00;
+        db[2] = 3;
+        db[3] = 0x55;
+        db[4] = 0x01;
+        db[5] = 0x00;
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.preferred_image_size_mm, None);
     }
 
     // -----------------------------------------------------------------------
