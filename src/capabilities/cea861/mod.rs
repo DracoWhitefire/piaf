@@ -10,13 +10,12 @@ mod vic_table;
 pub use audio::{AudioFormat, AudioFormatInfo, AudioSampleRates, ShortAudioDescriptor};
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use extended_blocks::{
-    infoframe_type, ColorimetryBlock, ColorimetryFlags, DtcPointEncoding, HdmiDscMaxSlices,
-    HdmiForumDsc, HdmiForumFrl, HdmiForumSinkCap, HdrDynamicMetadataDescriptor, HdrEotf,
-    HdrStaticMetadata, InfoFrameDescriptor, RoomConfigurationBlock, SpeakerAllocation,
-    SpeakerAllocationFlags, SpeakerAllocationFlags2, SpeakerAllocationFlags3, SpeakerLocationEntry,
-    T10VtdbBlock, T10VtdbEntry, T7VtdbBlock, T8VtdbBlock, VendorSpecificBlock,
-    VesaDisplayDeviceBlock, VesaTransferCharacteristic, VideoCapability, VideoCapabilityFlags,
-    VtbExtBlock,
+    ColorimetryBlock, ColorimetryFlags, DtcPointEncoding, HdmiDscMaxSlices, HdmiForumDsc,
+    HdmiForumFrl, HdmiForumSinkCap, HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata,
+    InfoFrameDescriptor, RoomConfigurationBlock, SpeakerAllocation, SpeakerAllocationFlags,
+    SpeakerAllocationFlags2, SpeakerAllocationFlags3, SpeakerLocationEntry, T7VtdbBlock,
+    T8VtdbBlock, T10VtdbBlock, T10VtdbEntry, VendorSpecificBlock, VesaDisplayDeviceBlock,
+    VesaTransferCharacteristic, VideoCapability, VideoCapabilityFlags, VtbExtBlock, infoframe_type,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use hdmi_vsdb::{HdmiVsdb, HdmiVsdbFlags};
@@ -40,17 +39,17 @@ use crate::model::prelude::{Arc, Vec};
 use audio::parse_audio_data_block;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use extended_blocks::{
+    EXT_TAG_COLORIMETRY, EXT_TAG_HDMI_AUDIO, EXT_TAG_HDR_DYNAMIC_METADATA,
+    EXT_TAG_HDR_STATIC_METADATA, EXT_TAG_HF_EEODB, EXT_TAG_HF_SCDB, EXT_TAG_INFOFRAME,
+    EXT_TAG_ROOM_CONFIGURATION, EXT_TAG_SPEAKER_LOCATION, EXT_TAG_T7VTDB, EXT_TAG_T8VTDB,
+    EXT_TAG_T10VTDB, EXT_TAG_VESA_DDDB, EXT_TAG_VIDEO_CAPABILITY, EXT_TAG_VIDEO_FORMAT_PREFERENCE,
+    EXT_TAG_VSADB, EXT_TAG_VSVDB, EXT_TAG_VTB_EXT, EXT_TAG_Y420_CAPABILITY_MAP, EXT_TAG_Y420_VIDEO,
     parse_colorimetry, parse_hdr_dynamic_metadata, parse_hdr_static_metadata, parse_hf_eeodb,
     parse_hf_scdb, parse_hf_vsdb, parse_infoframe_db, parse_room_configuration,
-    parse_speaker_allocation, parse_speaker_location, parse_t10vtdb, parse_t7vtdb, parse_t8vtdb,
+    parse_speaker_allocation, parse_speaker_location, parse_t7vtdb, parse_t8vtdb, parse_t10vtdb,
     parse_vendor_specific_block, parse_vesa_display_device, parse_vesa_transfer_characteristic,
     parse_video_capability, parse_video_format_preferences, parse_vtb_ext,
-    parse_y420_capability_map, parse_y420_vdb, EXT_TAG_COLORIMETRY, EXT_TAG_HDMI_AUDIO,
-    EXT_TAG_HDR_DYNAMIC_METADATA, EXT_TAG_HDR_STATIC_METADATA, EXT_TAG_HF_EEODB, EXT_TAG_HF_SCDB,
-    EXT_TAG_INFOFRAME, EXT_TAG_ROOM_CONFIGURATION, EXT_TAG_SPEAKER_LOCATION, EXT_TAG_T10VTDB,
-    EXT_TAG_T7VTDB, EXT_TAG_T8VTDB, EXT_TAG_VESA_DDDB, EXT_TAG_VIDEO_CAPABILITY,
-    EXT_TAG_VIDEO_FORMAT_PREFERENCE, EXT_TAG_VSADB, EXT_TAG_VSVDB, EXT_TAG_VTB_EXT,
-    EXT_TAG_Y420_CAPABILITY_MAP, EXT_TAG_Y420_VIDEO,
+    parse_y420_capability_map, parse_y420_vdb,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use hdmi_vsdb::parse_hdmi_vsdb;
@@ -794,18 +793,22 @@ mod tests {
 
         // All three VICs should produce entries in supported_modes
         assert_eq!(caps.supported_modes.len(), 3);
-        assert!(caps
-            .supported_modes
-            .iter()
-            .any(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 60 && !m.interlaced));
-        assert!(caps
-            .supported_modes
-            .iter()
-            .any(|m| m.width == 1280 && m.height == 720 && m.refresh_rate == 60));
-        assert!(caps
-            .supported_modes
-            .iter()
-            .any(|m| m.width == 640 && m.height == 480 && m.refresh_rate == 60));
+        assert!(
+            caps.supported_modes.iter().any(|m| m.width == 1920
+                && m.height == 1080
+                && m.refresh_rate == 60
+                && !m.interlaced)
+        );
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 1280 && m.height == 720 && m.refresh_rate == 60)
+        );
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 640 && m.height == 480 && m.refresh_rate == 60)
+        );
     }
 
     #[test]
@@ -866,12 +869,12 @@ mod tests {
         ext[offset + 2] = (2560 & 0xFF) as u8; // hactive low
         ext[offset + 3] = (160 & 0xFF) as u8; // hblank low
         ext[offset + 4] = ((2560 >> 4) & 0xF0) as u8; // hblank high nibble = 0 (160 < 256)
-                                                      // vactive=1440, vblank=41
+        // vactive=1440, vblank=41
         ext[offset + 5] = (1440 & 0xFF) as u8; // vactive low
         ext[offset + 6] = (41 & 0xFF) as u8; // vblank low
         ext[offset + 7] = ((1440 >> 4) & 0xF0) as u8; // vblank high nibble = 0 (41 < 256)
-                                                      // bytes 8-16: sync/image (leave zero — minimal)
-                                                      // byte 17: digital separate sync, both polarities positive
+        // bytes 8-16: sync/image (leave zero — minimal)
+        // byte 17: digital separate sync, both polarities positive
         ext[offset + 17] = 0x1E; // bit4=digital, bit3=separate, bit2=Vpos, bit1=Hpos
     }
 
@@ -898,7 +901,7 @@ mod tests {
         // A DTD slot whose first two bytes are 0x00 is a monitor descriptor and must be skipped.
         let mut ext = [0u8; 128];
         ext[2] = 4; // dtd_offset = 4 — no data blocks, DTDs start immediately
-                    // ext[4..22] stays all-zero → zero pixel clock → skipped
+        // ext[4..22] stays all-zero → zero pixel clock → skipped
 
         let mut caps = DisplayCapabilities::default();
         ExtensionHandler::process(&Cea861Handler, &ext, &mut caps, &mut Vec::new());
@@ -942,10 +945,11 @@ mod tests {
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         assert_eq!(cea.y420_vics, vec![96]);
         // VIC 96 = 3840×2160@50Hz — should appear in supported_modes
-        assert!(caps
-            .supported_modes
-            .iter()
-            .any(|m| m.width == 3840 && m.height == 2160 && m.refresh_rate == 50));
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 3840 && m.height == 2160 && m.refresh_rate == 50)
+        );
     }
 
     #[test]
@@ -965,10 +969,11 @@ mod tests {
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         assert_eq!(cea.vics, vec![(193, false)]);
         // VIC 193 = 5120×2160p120 — should appear in supported_modes
-        assert!(caps
-            .supported_modes
-            .iter()
-            .any(|m| m.width == 5120 && m.height == 2160 && m.refresh_rate == 120));
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 5120 && m.height == 2160 && m.refresh_rate == 120)
+        );
     }
 
     #[test]
@@ -1030,11 +1035,11 @@ mod tests {
         ext[4] = (7 << 5) | 8; // outer tag=7, length=8
         ext[5] = 0x12; // EXT_TAG_HDMI_AUDIO
         ext[6] = 0x08; // flags: MSA set (bit 3)
-                       // SAD 1: LPCM 2ch
+        // SAD 1: LPCM 2ch
         ext[7] = (1 << 3) | 1; // AFC=1 (LPCM), max_ch=2 → (AFC<<3)|(ch-1) = 0x09
         ext[8] = 0x06; // 44.1kHz (bit1) + 48kHz (bit2)
         ext[9] = 0x01; // 16-bit
-                       // SAD 2: AC-3 6ch
+        // SAD 2: AC-3 6ch
         ext[10] = (2 << 3) | 5; // AFC=2 (AC-3), max_ch=6 → 0x15
         ext[11] = 0x04; // 48kHz only
         ext[12] = 0x50; // max bitrate = 0x50 * 8 = 640 kbps
@@ -1066,7 +1071,7 @@ mod tests {
         ext[4] = (7 << 5) | 5; // outer tag=7, length=5
         ext[5] = 0x12; // EXT_TAG_HDMI_AUDIO
         ext[6] = 0x00; // flags: MSA not set
-                       // One LPCM SAD
+        // One LPCM SAD
         ext[7] = (1 << 3) | 1;
         ext[8] = 0x04;
         ext[9] = 0x01;

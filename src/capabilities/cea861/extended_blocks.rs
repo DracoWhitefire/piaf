@@ -2355,12 +2355,12 @@ mod tests {
         let mut d = [0u8; 22];
         d[0] = 0x02; // Block_Rev = 010b
         d[1] = 0x00; // T7Y420=0, T7HSP=0, T7VSP=0
-                     // Pixel clock: 148500 kHz
+        // Pixel clock: 148500 kHz
         d[2] = 0x14;
         d[3] = 0x44;
         d[4] = 0x02;
         d[5] = 0x00; // 3D_Support=00, T7IL=0, T7_Aspect_Ratio=0
-                     // H Active: 1920
+        // H Active: 1920
         d[6] = 0x80;
         d[7] = 0x07;
         // H Blank: 280

@@ -1,7 +1,6 @@
 use piaf::{
-    capabilities_from_edid, capabilities_from_edid_static, parse_edid, EdidWarning,
-    ExtensionLibrary, ExtensionTagRegistry, KnownExtensions, StaticDisplayCapabilities,
-    STANDARD_HANDLERS,
+    EdidWarning, ExtensionLibrary, ExtensionTagRegistry, KnownExtensions, STANDARD_HANDLERS,
+    StaticDisplayCapabilities, capabilities_from_edid, capabilities_from_edid_static, parse_edid,
 };
 
 fn load(path: &str) -> Vec<u8> {

@@ -338,7 +338,7 @@ mod tests {
         base[0x38] = 0x80; // HActive LSB
         base[0x39] = 0x18; // HBlank LSB
         base[0x3A] = 0x71; // HActive high (0x7) | HBlank high (0x1)
-                           // VActive=1080 (0x438), VBlank=45 (0x02D): high nibbles packed into byte 7
+        // VActive=1080 (0x438), VBlank=45 (0x02D): high nibbles packed into byte 7
         base[0x3B] = 0x38; // VActive LSB
         base[0x3C] = 0x2D; // VBlank LSB
         base[0x3D] = 0x40; // VActive high (0x4) | VBlank high (0x0)
@@ -381,11 +381,11 @@ mod tests {
         base[0x3B] = 0x38;
         base[0x3C] = 0x2D;
         base[0x3D] = 0x40; // V
-                           // Sync timing:
-                           //   H front porch = 88 px  → byte8 = 88, byte11 bits 7-6 = 0
-                           //   H sync width  = 44 px  → byte9 = 44, byte11 bits 5-4 = 0
-                           //   V front porch = 4 lines → byte10 bits 7-4 = 4, byte11 bits 3-2 = 0
-                           //   V sync width  = 5 lines → byte10 bits 3-0 = 5, byte11 bits 1-0 = 0
+        // Sync timing:
+        //   H front porch = 88 px  → byte8 = 88, byte11 bits 7-6 = 0
+        //   H sync width  = 44 px  → byte9 = 44, byte11 bits 5-4 = 0
+        //   V front porch = 4 lines → byte10 bits 7-4 = 4, byte11 bits 3-2 = 0
+        //   V sync width  = 5 lines → byte10 bits 3-0 = 5, byte11 bits 1-0 = 0
         base[0x3E] = 88; // byte 8: H front porch LSBs
         base[0x3F] = 44; // byte 9: H sync width LSBs
         base[0x40] = (4 << 4) | 5; // byte 10: V FP nibble | V SW nibble
@@ -461,7 +461,7 @@ mod tests {
         // Pixel clock 7425 × 10kHz = 74.25 MHz (halved for interlace field rate)
         base[0x36] = 0x29; // pixel clock LSB (0x1D11 >> 8 = ... actually let's just set blanking)
         base[0x37] = 0x1D; // pixel clock = 0x1D29 = 7465
-                           // HActive=1920 (0x780), HBlank=280 (0x118)
+        // HActive=1920 (0x780), HBlank=280 (0x118)
         base[0x38] = 0x80;
         base[0x39] = 0x18;
         base[0x3A] = 0x71;
@@ -481,7 +481,7 @@ mod tests {
         base[0x42] = 0x0F; // H image size LSB
         base[0x43] = 0x28; // V image size LSB
         base[0x44] = 0x21; // H MSN=2, V MSN=1
-                           // Border
+        // Border
         base[0x45] = 0x00;
         base[0x46] = 0x00;
         // Byte 17: bit 7 = interlaced

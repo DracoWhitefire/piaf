@@ -420,7 +420,7 @@ mod tests {
         // 0xFA descriptor at 0x36 with two valid entries and four unused (0x01 0x01)
         base[0x36..0x3A].copy_from_slice(&[0x00, 0x00, 0x00, 0xFA]);
         base[0x3A] = 0x00; // reserved
-                           // 1920x1080@60: b1 = 1920/8 - 31 = 209, b2 = 16:9 (3<<6) | 0
+        // 1920x1080@60: b1 = 1920/8 - 31 = 209, b2 = 16:9 (3<<6) | 0
         base[0x3B] = 209;
         base[0x3C] = 0xC0;
         // 1280x720@60: b1 = 1280/8 - 31 = 129, b2 = 16:9 (3<<6) | 0
@@ -531,7 +531,7 @@ mod tests {
         //          max_h_active_pixels MSBs = 0b01 → 1 × 256 = 256 contribution
         // bits 7-2 = 0b000001 → 0x04; bits 1-0 = 0b01 → byte value = 0x05
         base[0x42] = (4 << 2) | 0x01; // = 0x11
-                                      // byte 13: max_h_active_pixels LSB = 0x80 = 128 → total = 128 + 256 = 384 → × 8 = 3072
+        // byte 13: max_h_active_pixels LSB = 0x80 = 128 → total = 128 + 256 = 384 → × 8 = 3072
         base[0x43] = 0x80;
         // byte 14: supported aspect ratios — 4:3, 16:9, 16:10
         base[0x44] = CvtAspectRatios::R4_3.bits()
@@ -576,12 +576,12 @@ mod tests {
         base[0x3D] = 0x12; // red a3 LSB, MSB
         base[0x3E] = 0x78;
         base[0x3F] = 0x56; // red a2 LSB, MSB
-                           // Green: a3 = 0xABCD, a2 = 0xEF01
+        // Green: a3 = 0xABCD, a2 = 0xEF01
         base[0x40] = 0xCD;
         base[0x41] = 0xAB; // green a3
         base[0x42] = 0x01;
         base[0x43] = 0xEF; // green a2
-                           // Blue:  a3 = 0x0200, a2 = 0x0400
+        // Blue:  a3 = 0x0200, a2 = 0x0400
         base[0x44] = 0x00;
         base[0x45] = 0x02; // blue a3
         base[0x46] = 0x00;

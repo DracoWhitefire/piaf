@@ -1,8 +1,8 @@
 use piaf::{
-    capabilities_from_edid, infoframe_type, parse_edid, AudioFormat, AudioFormatInfo,
-    Cea861Capabilities, Cea861Flags, Cea861Handler, ColorimetryFlags, DisplayCapabilities,
-    DtcPointEncoding, ExtensionHandler, ExtensionLibrary, HdmiVsdbFlags, HdrEotf, ParseWarning,
-    SpeakerAllocationFlags, SpeakerAllocationFlags2, SpeakerAllocationFlags3,
+    AudioFormat, AudioFormatInfo, Cea861Capabilities, Cea861Flags, Cea861Handler, ColorimetryFlags,
+    DisplayCapabilities, DtcPointEncoding, ExtensionHandler, ExtensionLibrary, HdmiVsdbFlags,
+    HdrEotf, ParseWarning, SpeakerAllocationFlags, SpeakerAllocationFlags2,
+    SpeakerAllocationFlags3, capabilities_from_edid, infoframe_type, parse_edid,
 };
 use std::fs;
 use std::path::Path;
@@ -153,11 +153,16 @@ fn main() {
                                 println!("  Gamma:        {:.2}", gamma.value());
                             }
                             let c = &caps.chromaticity;
-                            println!("  Chromaticity: R({:.4},{:.4}) G({:.4},{:.4}) B({:.4},{:.4}) W({:.4},{:.4})",
-                                c.red.x(),   c.red.y(),
-                                c.green.x(), c.green.y(),
-                                c.blue.x(),  c.blue.y(),
-                                c.white.x(), c.white.y(),
+                            println!(
+                                "  Chromaticity: R({:.4},{:.4}) G({:.4},{:.4}) B({:.4},{:.4}) W({:.4},{:.4})",
+                                c.red.x(),
+                                c.red.y(),
+                                c.green.x(),
+                                c.green.y(),
+                                c.blue.x(),
+                                c.blue.y(),
+                                c.white.x(),
+                                c.white.y(),
                             );
                             if let Some(iface) = caps.video_interface {
                                 println!("  Interface:    {:?}", iface);
@@ -505,9 +510,13 @@ fn main() {
                                     }
                                 }
                                 if let Some(dddb) = &cea.vesa_display_device {
-                                    println!("  VESA DDDB:    iface_type=0x{:X} links={} min_clock={}MHz max_clock={}MHz",
-                                        dddb.interface_type, dddb.num_links,
-                                        dddb.min_clock_mhz, dddb.max_clock_mhz);
+                                    println!(
+                                        "  VESA DDDB:    iface_type=0x{:X} links={} min_clock={}MHz max_clock={}MHz",
+                                        dddb.interface_type,
+                                        dddb.num_links,
+                                        dddb.min_clock_mhz,
+                                        dddb.max_clock_mhz
+                                    );
                                     if let (Some(w), Some(h)) =
                                         (dddb.native_width, dddb.native_height)
                                     {

@@ -1,9 +1,9 @@
-use piaf::{
-    capabilities_from_edid, parse_edid, ChromaticityPoint, ColorBitDepth, DigitalColorEncoding,
-    DisplayFeatureFlags, DisplayGamma, EdidVersion, ExtensionLibrary, ExtensionTagRegistry,
-    ManufactureDate, ScreenSize, VideoInterface,
-};
 use piaf::{AudioFormat, AudioSampleRates, Cea861Capabilities, Cea861Flags, HdmiVsdbFlags};
+use piaf::{
+    ChromaticityPoint, ColorBitDepth, DigitalColorEncoding, DisplayFeatureFlags, DisplayGamma,
+    EdidVersion, ExtensionLibrary, ExtensionTagRegistry, ManufactureDate, ScreenSize,
+    VideoInterface, capabilities_from_edid, parse_edid,
+};
 
 fn load(path: &str) -> Vec<u8> {
     std::fs::read(path).unwrap_or_else(|e| panic!("Failed to read fixture {path}: {e}"))
@@ -180,32 +180,38 @@ fn lg_ultragear_cea_vics() {
     }
 
     // Each in-table VIC should have a corresponding entry in supported_modes
-    assert!(caps
-        .supported_modes
-        .iter()
-        .any(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 60 && !m.interlaced)); // VIC 16
-    assert!(caps
-        .supported_modes
-        .iter()
-        .any(|m| m.width == 1280 && m.height == 720 && m.refresh_rate == 60)); // VIC 4
-    assert!(caps
-        .supported_modes
-        .iter()
-        .any(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 120 && !m.interlaced)); // VIC 63
+    assert!(
+        caps.supported_modes
+            .iter()
+            .any(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 60 && !m.interlaced)
+    ); // VIC 16
+    assert!(
+        caps.supported_modes
+            .iter()
+            .any(|m| m.width == 1280 && m.height == 720 && m.refresh_rate == 60)
+    ); // VIC 4
+    assert!(
+        caps.supported_modes
+            .iter()
+            .any(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 120 && !m.interlaced)
+    ); // VIC 63
 
     // 4K UHD VICs are now in the extended table (VICs 93–97)
-    assert!(caps
-        .supported_modes
-        .iter()
-        .any(|m| m.width == 3840 && m.height == 2160 && m.refresh_rate == 24)); // VIC 93
-    assert!(caps
-        .supported_modes
-        .iter()
-        .any(|m| m.width == 3840 && m.height == 2160 && m.refresh_rate == 30)); // VIC 95
-    assert!(caps
-        .supported_modes
-        .iter()
-        .any(|m| m.width == 3840 && m.height == 2160 && m.refresh_rate == 60)); // VIC 97
+    assert!(
+        caps.supported_modes
+            .iter()
+            .any(|m| m.width == 3840 && m.height == 2160 && m.refresh_rate == 24)
+    ); // VIC 93
+    assert!(
+        caps.supported_modes
+            .iter()
+            .any(|m| m.width == 3840 && m.height == 2160 && m.refresh_rate == 30)
+    ); // VIC 95
+    assert!(
+        caps.supported_modes
+            .iter()
+            .any(|m| m.width == 3840 && m.height == 2160 && m.refresh_rate == 60)
+    ); // VIC 97
 }
 
 #[test]

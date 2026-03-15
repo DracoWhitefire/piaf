@@ -94,11 +94,7 @@ impl DisplayGamma {
     ///
     /// Returns `None` if the byte is `0xFF` (gamma not specified).
     pub fn from_edid_byte(byte: u8) -> Option<Self> {
-        if byte == 0xFF {
-            None
-        } else {
-            Some(Self(byte))
-        }
+        if byte == 0xFF { None } else { Some(Self(byte)) }
     }
 
     /// Returns the raw encoded byte.
