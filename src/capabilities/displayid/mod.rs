@@ -39,8 +39,8 @@ const DISPLAYID_V1_MAX: u8 = 0x1F;
 /// Version byte for DisplayID 2.x.
 const DISPLAYID_V2: u8 = 0x20;
 
-/// Data block tag for Type I Video Timing Descriptors (DisplayID 1.x §4.4.2).
-const TAG_TYPE_I_TIMING: u8 = 0x01;
+/// Data block tag for the Detailed Timings Block (Type I descriptors, DisplayID 1.x §4.4.2).
+const TAG_TYPE_I_TIMING: u8 = 0x03;
 
 /// Parses the 4-byte section header common to all DisplayID fragments.
 ///
@@ -266,7 +266,7 @@ impl StaticExtensionHandler for DisplayIdHandler {
 /// specification once a real DisplayID fixture is available.
 #[cfg(test)]
 const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
-    TAG_TYPE_I_TIMING, // 0x01 — Type I Video Timing
+    TAG_TYPE_I_TIMING, // 0x03 — Detailed Timings Block (Type I descriptors)
 ];
 
 /// DisplayID 1.x data block tags that are defined by the specification but not
@@ -277,8 +277,9 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
 #[cfg(test)]
 const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
     (0x00, 0x00), // Product Identification (EOS sentinel when length=0; data block otherwise)
-    (0x02, 0x13), // Defined block types not yet decoded (Display Parameters, Color,
-                  // Type II–VI timings, Tiled Display Topology, etc.)
+    (0x01, 0x01), // Display Parameters Block
+    (0x02, 0x02), // Color Characteristics Block
+    (0x04, 0x13), // Type II–VI timings, interface and identity blocks, Tiled Display Topology
     (0x14, 0x7E), // Reserved for future use in DisplayID 1.x
     (0x7F, 0x7F), // Vendor-specific
     (0x80, 0xFF), // Undefined (outside the DisplayID 1.x tag space)
