@@ -17,9 +17,6 @@ pub use cea861::{
 };
 
 use crate::model::capabilities::DisplayCapabilities;
-#[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::extension::ExtensionLibrary;
-#[cfg(not(any(feature = "alloc", feature = "std")))]
 use crate::model::extension::ExtensionLibrary;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::Box;
