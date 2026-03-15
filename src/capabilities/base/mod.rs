@@ -1,4 +1,6 @@
 use crate::model::capabilities::DisplayCapabilities;
+#[cfg(not(any(feature = "alloc", feature = "std")))]
+use crate::model::capabilities::ModeSink;
 use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::ParseWarning;
@@ -18,6 +20,19 @@ pub(crate) mod timings;
 /// where the handler pipeline is unavailable. In `std`/`alloc` builds the full
 /// [`BaseBlockHandler`] is used instead, which additionally decodes variable-length fields
 /// and emits diagnostics.
+/// Decodes all mode-producing sections of the base block into `sink`.
+///
+/// Covers established timings, standard timings, detailed timings (sink-based,
+/// no `preferred_image_size_mm`), and mode-producing descriptor types.
+/// Called by `capabilities_from_edid_static` in bare `no_std` builds.
+#[cfg(not(any(feature = "alloc", feature = "std")))]
+pub(super) fn decode_base_modes(base: &[u8; 128], sink: &mut dyn ModeSink) {
+    timings::decode_established_timings(base, sink);
+    timings::decode_standard_timings(base, sink);
+    timings::decode_detailed_timings(base, sink);
+    descriptors::decode_descriptors_modes(base, sink);
+}
+
 #[cfg(not(any(feature = "alloc", feature = "std")))]
 pub(super) fn decode_base_block(base: &[u8; 128], caps: &mut DisplayCapabilities) {
     if !header::decode_header_fields(base, caps) {

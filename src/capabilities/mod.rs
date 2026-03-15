@@ -16,10 +16,10 @@ pub use cea861::{
     VesaTransferCharacteristic, VideoCapability, VideoCapabilityFlags, VtbExtBlock,
 };
 
-use crate::model::capabilities::DisplayCapabilities;
+use crate::model::capabilities::{DisplayCapabilities, ModeSink, StaticDisplayCapabilities};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::ParseWarning;
-use crate::model::extension::ExtensionLibrary;
+use crate::model::extension::{ExtensionLibrary, StaticExtensionHandler};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{Box, Vec};
 use crate::model::ParsedEdid;
@@ -83,6 +83,117 @@ pub fn capabilities_from_edid(
         let _ = library;
         base::decode_base_block(&edid.base_block, &mut caps);
     }
+
+    caps
+}
+
+/// Derives [`StaticDisplayCapabilities`] from a [`ParsedEdid`] without heap allocation.
+///
+/// `N` is the maximum number of video modes the result can hold; 64 is a reasonable default
+/// for most displays. Modes beyond `N` are silently dropped, matching the 8-entry warning cap.
+///
+/// Extension blocks are dispatched to the first handler in `handlers` whose
+/// [`tag`][StaticExtensionHandler::tag] matches the block's tag byte. Only mode-producing
+/// data (SVDs, DTDs, VTB-EXT timings) is extracted; rich metadata such as audio descriptors
+/// and colorimetry blocks requires the alloc pipeline.
+///
+/// In bare `no_std` builds (without `alloc`) extension blocks are not stored in
+/// [`ParsedEdid`], so the result contains base-block data only.
+///
+/// This function is a replacement for [`capabilities_from_edid`], not a complement —
+/// calling both on the same EDID will process extension blocks twice.
+pub fn capabilities_from_edid_static<const N: usize>(
+    parsed: &ParsedEdid,
+    handlers: &[&dyn StaticExtensionHandler],
+) -> StaticDisplayCapabilities<N> {
+    // Step 1 — Decode the base block into a temporary DisplayCapabilities.
+    // This gives us all scalar fields and preferred_image_size_mm "for free" from the
+    // existing base-block decoder, without duplicating its logic here.
+    let mut base_caps = DisplayCapabilities::default();
+
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    {
+        use crate::model::extension::ExtensionHandler;
+        let mut w: Vec<ParseWarning> = Vec::new();
+        base::BaseBlockHandler.process(&parsed.base_block, &mut base_caps, &mut w);
+        // base_caps now holds scalar fields, preferred_image_size_mm, and supported_modes.
+        // Handler-level warnings in `w` (Arc-boxed) are not copied to the static output;
+        // use capabilities_from_edid if full warning detail is needed.
+    }
+
+    #[cfg(not(any(feature = "alloc", feature = "std")))]
+    {
+        base::decode_base_block(&parsed.base_block, &mut base_caps);
+    }
+
+    // Step 2 — Copy all scalar fields from the temporary into the static output.
+    let mut caps = StaticDisplayCapabilities::<N> {
+        manufacturer: base_caps.manufacturer,
+        manufacture_date: base_caps.manufacture_date,
+        edid_version: base_caps.edid_version,
+        product_code: base_caps.product_code,
+        serial_number: base_caps.serial_number,
+        serial_number_string: base_caps.serial_number_string,
+        display_name: base_caps.display_name,
+        unspecified_text: base_caps.unspecified_text,
+        white_points: base_caps.white_points,
+        digital: base_caps.digital,
+        color_bit_depth: base_caps.color_bit_depth,
+        chromaticity: base_caps.chromaticity,
+        gamma: base_caps.gamma,
+        display_features: base_caps.display_features,
+        digital_color_encoding: base_caps.digital_color_encoding,
+        analog_color_type: base_caps.analog_color_type,
+        video_interface: base_caps.video_interface,
+        analog_sync_level: base_caps.analog_sync_level,
+        screen_size: base_caps.screen_size,
+        min_v_rate: base_caps.min_v_rate,
+        max_v_rate: base_caps.max_v_rate,
+        min_h_rate_khz: base_caps.min_h_rate_khz,
+        max_h_rate_khz: base_caps.max_h_rate_khz,
+        max_pixel_clock_mhz: base_caps.max_pixel_clock_mhz,
+        preferred_image_size_mm: base_caps.preferred_image_size_mm,
+        timing_formula: base_caps.timing_formula,
+        color_management: base_caps.color_management,
+        ..Default::default()
+    };
+
+    // Step 3 — Populate modes.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    {
+        // base_caps.supported_modes was populated by BaseBlockHandler above.
+        for mode in base_caps.supported_modes {
+            caps.push_mode(mode);
+        }
+    }
+
+    #[cfg(not(any(feature = "alloc", feature = "std")))]
+    {
+        // No supported_modes in bare no_std DisplayCapabilities; call ungated functions directly.
+        base::decode_base_modes(&parsed.base_block, &mut caps);
+    }
+
+    // Step 4 — Copy base-block warnings (bare no_std only; alloc warnings are Arc-boxed).
+    #[cfg(not(any(feature = "alloc", feature = "std")))]
+    {
+        for w in base_caps.warnings.iter().flatten().copied() {
+            caps.push_warning(w);
+        }
+    }
+
+    // Step 5 — Dispatch extension blocks to the static handler slice (alloc/std only;
+    // bare no_std ParsedEdid does not store extension blocks).
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    {
+        for ext in &parsed.extensions {
+            let tag = ext[0];
+            if let Some(handler) = handlers.iter().find(|h| h.tag() == tag) {
+                handler.process(ext, &mut caps);
+            }
+        }
+    }
+    #[cfg(not(any(feature = "alloc", feature = "std")))]
+    let _ = handlers;
 
     caps
 }
