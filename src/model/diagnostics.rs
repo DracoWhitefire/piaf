@@ -47,6 +47,13 @@ pub enum EdidWarning {
     /// end of the data block collection. Remaining data blocks in the collection are skipped.
     #[error("data block length exceeds collection boundary")]
     MalformedDataBlock,
+    /// A Detailed Timing Descriptor slot was skipped because the byte slice passed to the
+    /// decoder was shorter than the required 18 bytes.
+    ///
+    /// This indicates a malformed extension block that claimed to contain a DTD but did
+    /// not supply enough data.
+    #[error("DTD slot skipped: slice is shorter than the required 18 bytes")]
+    DtdSlotTooShort,
     /// A Detailed Timing Descriptor slot was skipped because the pixel clock value
     /// would overflow during refresh rate calculation.
     ///

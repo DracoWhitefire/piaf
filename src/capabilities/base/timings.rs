@@ -93,7 +93,10 @@ pub(super) fn decode_standard_timings(base: &[u8; 128], caps: &mut DisplayCapabi
 /// This is `pub(crate)` so that the CEA-861 handler can reuse it for DTDs in extension blocks.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities) {
-    debug_assert!(dtd.len() >= 18, "DTD slot must be at least 18 bytes");
+    if dtd.len() < 18 {
+        caps.push_warning(EdidWarning::DtdSlotTooShort);
+        return;
+    }
 
     if dtd[0] == 0x00 && dtd[1] == 0x00 {
         return; // monitor descriptor, not a DTD
