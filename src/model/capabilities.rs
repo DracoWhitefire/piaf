@@ -156,6 +156,16 @@ impl<'a> StaticContext<'a> {
     }
 }
 
+impl ModeSink for StaticContext<'_> {
+    fn push_mode(&mut self, mode: VideoMode) {
+        self.modes.push_mode(mode);
+    }
+
+    fn push_warning(&mut self, w: EdidWarning) {
+        self.modes.push_warning(w);
+    }
+}
+
 /// Consumer-facing display capability model derived from a parsed EDID.
 ///
 /// Fields are `Option` where the underlying EDID data may be absent or undecodable.

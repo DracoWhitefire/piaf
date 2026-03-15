@@ -187,10 +187,37 @@ pub fn capabilities_from_edid_static<const N: usize, T: EdidSource>(
     }
 
     // Step 5 — Dispatch extension blocks to the static handler slice.
-    for ext in parsed.extension_blocks() {
-        let tag = ext[0];
-        if let Some(handler) = handlers.iter().find(|h| h.tag() == tag) {
-            handler.process(ext, &mut caps);
+    //
+    // In alloc/std builds, collect all blocks per handler first and call once with the
+    // full slice, so multi-block formats (e.g. DisplayID) receive all their fragments
+    // together for reassembly.
+    //
+    // In bare no_std builds there is no Vec, so each block is passed individually as a
+    // single-element slice. Single-block formats (CEA-861) work correctly. Multi-block
+    // formats receive one call per fragment and are responsible for handling that gracefully.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    {
+        use crate::model::capabilities::StaticContext;
+        for handler in handlers {
+            let blocks: Vec<&[u8; 128]> = parsed
+                .extension_blocks()
+                .filter(|b| b[0] == handler.tag())
+                .collect();
+            if !blocks.is_empty() {
+                let mut ctx = StaticContext::new(&mut caps);
+                handler.process(&blocks, &mut ctx);
+            }
+        }
+    }
+
+    #[cfg(not(any(feature = "alloc", feature = "std")))]
+    {
+        use crate::model::capabilities::StaticContext;
+        for ext in parsed.extension_blocks() {
+            if let Some(handler) = handlers.iter().find(|h| h.tag() == ext[0]) {
+                let mut ctx = StaticContext::new(&mut caps);
+                handler.process(&[ext], &mut ctx);
+            }
         }
     }
 

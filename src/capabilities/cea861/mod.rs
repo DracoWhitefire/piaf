@@ -25,6 +25,7 @@ use crate::capabilities::base::timings::decode_dtd_slot;
 use crate::capabilities::base::timings::decode_dtd_slot_into_sink;
 use crate::model::capabilities::DisplayCapabilities;
 use crate::model::capabilities::ModeSink;
+use crate::model::capabilities::StaticContext;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::VideoMode;
 use crate::model::diagnostics::EdidWarning;
@@ -688,8 +689,10 @@ impl StaticExtensionHandler for Cea861Handler {
         0x02
     }
 
-    fn process(&self, block: &[u8; 128], sink: &mut dyn ModeSink) {
-        cea861_process_into_sink(block, sink);
+    fn process(&self, blocks: &[&[u8; 128]], ctx: &mut StaticContext<'_>) {
+        for block in blocks {
+            cea861_process_into_sink(block, ctx);
+        }
     }
 }
 

@@ -105,6 +105,13 @@ and is acceptable for all firmware targets that handle DisplayPort enumeration.
 `MaybeUninit::uninit_array` and `MaybeUninit::slice_assume_init_ref` are stable since
 Rust 1.82.
 
+**Implementation note:** the crate's `#[forbid(unsafe_code)]` makes the `MaybeUninit`
+approach unavailable. The `alloc`/`std` branch of `capabilities_from_edid_static` instead
+collects into a `Vec<&[u8; 128]>` per handler, which is equivalent and heap-allocated only
+for the duration of the call. The bare `no_std` branch (no `alloc`) falls back to calling
+each handler once per block with a single-element slice; multi-block reassembly is therefore
+not supported in bare `no_std` builds.
+
 ## `StaticContext` — the extensible sink bag
 
 The static handler previously received `&mut dyn ModeSink` directly. Replacing it with
@@ -214,19 +221,19 @@ Steps are ordered so each builds on the last. Remove this section once all items
 
 - [x] Add `StaticContext<'a>` to `src/model/capabilities.rs`
 - [x] Change `ExtensionHandler::process` in `src/model/extension.rs` to take `&[&[u8; 128]]`
-- [ ] Change `StaticExtensionHandler::process` in `src/model/extension.rs` to take `(&[&[u8; 128]], &mut StaticContext<'_>)`
+- [x] Change `StaticExtensionHandler::process` in `src/model/extension.rs` to take `(&[&[u8; 128]], &mut StaticContext<'_>)`
 
 ### Dispatch
 
 - [x] Replace per-block dispatch in `capabilities_from_edid` with group-by-tag pre-pass (`HashMap`)
 - [x] Update base handler call site — wrap `edid.base_block()` in a one-element slice
-- [ ] Replace per-block dispatch in `capabilities_from_edid_static` with per-handler scan into `[MaybeUninit; MAX_EXTENSION_BLOCKS]`
+- [x] Replace per-block dispatch in `capabilities_from_edid_static` with per-handler scan into `[MaybeUninit; MAX_EXTENSION_BLOCKS]`
 
 ### Existing handler updates
 
 - [x] Update `BaseBlockHandler` (`src/capabilities/base/mod.rs`) — extract `blocks[0]`, rest unchanged
 - [x] Update `Cea861Handler` dynamic impl — iterate slice, process each block as before
-- [ ] Update `Cea861Handler` static impl — iterate slice with `StaticContext`
+- [x] Update `Cea861Handler` static impl — iterate slice with `StaticContext`
 
 ### DisplayID handler
 
