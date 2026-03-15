@@ -33,6 +33,7 @@ use crate::model::diagnostics::EdidWarning;
 use crate::model::diagnostics::ParseWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::extension::ExtensionHandler;
+use crate::model::extension::StaticExtensionHandler;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{Arc, Vec};
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -219,7 +220,6 @@ pub struct Cea861Capabilities {
 }
 
 /// Processes a CEA-861 extension block (tag `0x02`).
-#[cfg(any(feature = "alloc", feature = "std"))]
 #[derive(Debug)]
 pub struct Cea861Handler;
 
@@ -554,8 +554,6 @@ impl ExtensionHandler for Cea861Handler {
 /// This is the allocation-free counterpart to [`Cea861Handler::process`]: it produces
 /// [`VideoMode`][crate::VideoMode] entries (SVDs, DTDs, and — in `alloc`/`std` builds —
 /// VTB-EXT/T7VTDB/T8VTDB/T10VTDB/Y420 VDB entries) without requiring heap allocation.
-// Called by capabilities_from_edid_static (step 5).
-#[allow(dead_code)]
 pub(crate) fn cea861_process_into_sink(ext: &[u8; 128], sink: &mut dyn ModeSink) {
     let dtd_offset = ext[2] as usize;
     let collection_end = if dtd_offset == 0 {
@@ -673,6 +671,39 @@ pub(crate) fn cea861_process_into_sink(ext: &[u8; 128], sink: &mut dyn ModeSink)
     }
 }
 
+impl StaticExtensionHandler for Cea861Handler {
+    fn tag(&self) -> u8 {
+        0x02
+    }
+
+    fn process(&self, block: &[u8; 128], sink: &mut dyn ModeSink) {
+        cea861_process_into_sink(block, sink);
+    }
+}
+
+/// Pre-built static reference to the built-in CEA-861 handler.
+///
+/// Suitable for passing to [`parse_edid`][crate::parse_edid] as the `KnownExtensions`
+/// argument, and to [`capabilities_from_edid_static`][crate::capabilities_from_edid_static]
+/// as a single-element slice.
+pub static CEA861_HANDLER: &dyn StaticExtensionHandler = &Cea861Handler;
+
+/// Pre-built static handler slice containing the standard built-in handlers (CEA-861 only).
+///
+/// Pass to [`parse_edid`][crate::parse_edid] and
+/// [`capabilities_from_edid_static`][crate::capabilities_from_edid_static] for the
+/// common case where no custom extension handlers are needed:
+///
+/// ```no_run
+/// use piaf::{parse_edid, capabilities_from_edid_static, StaticDisplayCapabilities, STANDARD_HANDLERS};
+///
+/// let bytes: &[u8] = &[/* raw EDID bytes */];
+/// let parsed = parse_edid(bytes, STANDARD_HANDLERS).unwrap();
+/// let caps: StaticDisplayCapabilities<64> =
+///     capabilities_from_edid_static(&parsed, STANDARD_HANDLERS);
+/// ```
+pub static STANDARD_HANDLERS: &[&dyn StaticExtensionHandler] = &[&Cea861Handler];
+
 #[cfg(test)]
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod tests {
@@ -685,7 +716,7 @@ mod tests {
         ext[3] = Cea861Flags::BASIC_AUDIO.bits();
 
         let mut caps = DisplayCapabilities::default();
-        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+        ExtensionHandler::process(&Cea861Handler, &ext, &mut caps, &mut Vec::new());
 
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         assert!(cea.flags.contains(Cea861Flags::BASIC_AUDIO));
@@ -696,7 +727,7 @@ mod tests {
         let ext = [0u8; 128];
 
         let mut caps = DisplayCapabilities::default();
-        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+        ExtensionHandler::process(&Cea861Handler, &ext, &mut caps, &mut Vec::new());
 
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         assert!(!cea.flags.contains(Cea861Flags::BASIC_AUDIO));
@@ -722,7 +753,7 @@ mod tests {
 
         let mut caps = DisplayCapabilities::default();
         let mut warnings = Vec::new();
-        Cea861Handler.process(&ext, &mut caps, &mut warnings);
+        ExtensionHandler::process(&Cea861Handler, &ext, &mut caps, &mut warnings);
 
         assert!(
             warnings
@@ -745,7 +776,7 @@ mod tests {
         ext[7] = 0x01; // VIC 1
 
         let mut caps = DisplayCapabilities::default();
-        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+        ExtensionHandler::process(&Cea861Handler, &ext, &mut caps, &mut Vec::new());
 
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         assert_eq!(cea.vics, vec![(16, true), (4, false), (1, false)]);
@@ -778,7 +809,7 @@ mod tests {
         ext[6] = 0x90; // VIC 16, native — duplicate
 
         let mut caps = DisplayCapabilities::default();
-        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+        ExtensionHandler::process(&Cea861Handler, &ext, &mut caps, &mut Vec::new());
 
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         // Both SVD bytes are recorded in vics…
@@ -804,7 +835,7 @@ mod tests {
         ext[5] = 0x80; // native flag set, vic=0
 
         let mut caps = DisplayCapabilities::default();
-        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+        ExtensionHandler::process(&Cea861Handler, &ext, &mut caps, &mut Vec::new());
 
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         assert!(cea.vics.is_empty());
@@ -841,7 +872,7 @@ mod tests {
         write_dtd_2560x1440_144(&mut ext, 4);
 
         let mut caps = DisplayCapabilities::default();
-        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+        ExtensionHandler::process(&Cea861Handler, &ext, &mut caps, &mut Vec::new());
 
         assert!(
             caps.supported_modes
@@ -859,7 +890,7 @@ mod tests {
                     // ext[4..22] stays all-zero → zero pixel clock → skipped
 
         let mut caps = DisplayCapabilities::default();
-        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+        ExtensionHandler::process(&Cea861Handler, &ext, &mut caps, &mut Vec::new());
 
         assert!(caps.supported_modes.is_empty());
     }
@@ -875,7 +906,7 @@ mod tests {
         ext[7] = 0x00;
 
         let mut caps = DisplayCapabilities::default();
-        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+        ExtensionHandler::process(&Cea861Handler, &ext, &mut caps, &mut Vec::new());
 
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         let sa = cea.speaker_allocation.unwrap();
@@ -895,7 +926,7 @@ mod tests {
         ext[6] = 96; // VIC 96
 
         let mut caps = DisplayCapabilities::default();
-        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+        ExtensionHandler::process(&Cea861Handler, &ext, &mut caps, &mut Vec::new());
 
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         assert_eq!(cea.y420_vics, vec![96]);
@@ -918,7 +949,7 @@ mod tests {
         ext[6] = 193; // full VIC
 
         let mut caps = DisplayCapabilities::default();
-        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+        ExtensionHandler::process(&Cea861Handler, &ext, &mut caps, &mut Vec::new());
 
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         assert_eq!(cea.vics, vec![(193, false)]);
@@ -939,7 +970,7 @@ mod tests {
         ext[6] = 196; // VIC 196
 
         let mut caps = DisplayCapabilities::default();
-        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+        ExtensionHandler::process(&Cea861Handler, &ext, &mut caps, &mut Vec::new());
 
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         assert_eq!(cea.vics, vec![(196, true)]);
@@ -954,7 +985,7 @@ mod tests {
         ext[5] = 0x00; // extended SVD marker with no following byte
 
         let mut caps = DisplayCapabilities::default();
-        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+        ExtensionHandler::process(&Cea861Handler, &ext, &mut caps, &mut Vec::new());
 
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         assert!(cea.vics.is_empty());
@@ -970,7 +1001,7 @@ mod tests {
         ext[6] = 0b0000_0101;
 
         let mut caps = DisplayCapabilities::default();
-        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+        ExtensionHandler::process(&Cea861Handler, &ext, &mut caps, &mut Vec::new());
 
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         assert_eq!(cea.y420_capability_map, vec![0b0000_0101]);
@@ -998,7 +1029,7 @@ mod tests {
         ext[12] = 0x50; // max bitrate = 0x50 * 8 = 640 kbps
 
         let mut caps = DisplayCapabilities::default();
-        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+        ExtensionHandler::process(&Cea861Handler, &ext, &mut caps, &mut Vec::new());
 
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         let hdmi_audio = cea.hdmi_audio.as_ref().unwrap();
@@ -1030,7 +1061,7 @@ mod tests {
         ext[9] = 0x01;
 
         let mut caps = DisplayCapabilities::default();
-        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+        ExtensionHandler::process(&Cea861Handler, &ext, &mut caps, &mut Vec::new());
 
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         let hdmi_audio = cea.hdmi_audio.as_ref().unwrap();
@@ -1048,7 +1079,7 @@ mod tests {
         ext[6] = 0x08; // MSA set
 
         let mut caps = DisplayCapabilities::default();
-        Cea861Handler.process(&ext, &mut caps, &mut Vec::new());
+        ExtensionHandler::process(&Cea861Handler, &ext, &mut caps, &mut Vec::new());
 
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         let hdmi_audio = cea.hdmi_audio.as_ref().unwrap();

@@ -4,10 +4,11 @@ mod cea861;
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use base::BaseBlockHandler;
 pub use cea861::Cea861Flags;
+pub use cea861::{Cea861Handler, CEA861_HANDLER, STANDARD_HANDLERS};
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use cea861::{
     infoframe_type, AudioFormat, AudioFormatInfo, AudioSampleRates, Cea861Capabilities,
-    Cea861Handler, ColorimetryBlock, ColorimetryFlags, DtcPointEncoding, HdmiAudioBlock,
+    ColorimetryBlock, ColorimetryFlags, DtcPointEncoding, HdmiAudioBlock,
     HdmiDscMaxSlices, HdmiForumDsc, HdmiForumFrl, HdmiForumSinkCap, HdmiVsdb, HdmiVsdbFlags,
     HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata, InfoFrameDescriptor,
     RoomConfigurationBlock, ShortAudioDescriptor, SpeakerAllocation, SpeakerAllocationFlags,
