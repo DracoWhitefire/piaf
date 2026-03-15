@@ -1,4 +1,5 @@
 use crate::model::capabilities::VideoMode;
+use crate::model::prelude::Vec;
 
 /// Extended tag codes used in CEA Extended Tag Data Blocks (outer tag `0x07`).
 /// The first byte of the block payload is the extended tag.
