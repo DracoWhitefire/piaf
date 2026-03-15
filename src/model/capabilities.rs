@@ -1,4 +1,3 @@
-#[cfg(not(any(feature = "alloc", feature = "std")))]
 use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::ParseWarning;
@@ -111,6 +110,20 @@ pub struct VideoMode {
     pub stereo: StereoMode,
     /// Sync signal definition (`None` for non-DTD modes).
     pub sync: Option<SyncDefinition>,
+}
+
+/// Sink for mode and warning writes from extension handlers.
+///
+/// Implemented by [`DisplayCapabilities`] (alloc builds, writes to `Vec`) and
+/// `StaticDisplayCapabilities` (no_alloc builds, writes to a fixed array). Both handler traits —
+/// [`ExtensionHandler`][crate::ExtensionHandler] and `StaticExtensionHandler` — write their output
+/// through this trait so the core parsing logic is shared across build configurations.
+pub trait ModeSink {
+    /// Push a decoded video mode. Duplicate modes (same width, height, refresh rate, and
+    /// interlace flag) are silently ignored.
+    fn push_mode(&mut self, mode: VideoMode);
+    /// Push a non-fatal warning encountered while processing a block.
+    fn push_warning(&mut self, w: EdidWarning);
 }
 
 /// Consumer-facing display capability model derived from a parsed EDID.
@@ -267,6 +280,19 @@ impl DisplayCapabilities {
                 return;
             }
         }
+    }
+}
+
+#[cfg(any(feature = "alloc", feature = "std"))]
+impl ModeSink for DisplayCapabilities {
+    fn push_mode(&mut self, mode: VideoMode) {
+        if !self.supported_modes.contains(&mode) {
+            self.supported_modes.push(mode);
+        }
+    }
+
+    fn push_warning(&mut self, w: EdidWarning) {
+        self.warnings.push(Arc::new(w));
     }
 }
 
