@@ -481,10 +481,19 @@ impl<const MAX_MODES: usize> StaticDisplayCapabilities<MAX_MODES> {
 impl<const MAX_MODES: usize> ModeSink for StaticDisplayCapabilities<MAX_MODES> {
     fn push_mode(&mut self, mode: VideoMode) {
         if self.num_modes < MAX_MODES {
-            // Dedup: skip if an identical mode is already present.
+            // Dedup by (width, height, refresh_rate, interlaced) — the same criterion used
+            // by the alloc pipeline when processing CEA SVDs.  The first entry for a given
+            // resolution/rate wins, so a DTD-derived mode with full timing detail takes
+            // precedence over a later SVD-derived mode with sparse timing detail.
             for i in 0..self.num_modes {
-                if self.supported_modes[i].as_ref() == Some(&mode) {
-                    return;
+                if let Some(existing) = &self.supported_modes[i] {
+                    if existing.width == mode.width
+                        && existing.height == mode.height
+                        && existing.refresh_rate == mode.refresh_rate
+                        && existing.interlaced == mode.interlaced
+                    {
+                        return;
+                    }
                 }
             }
             self.supported_modes[self.num_modes] = Some(mode);

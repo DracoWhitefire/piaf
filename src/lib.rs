@@ -56,15 +56,15 @@ pub mod capabilities;
 pub use capabilities::capabilities_from_edid;
 pub use capabilities::capabilities_from_edid_static;
 pub use capabilities::Cea861Flags;
-pub use capabilities::{Cea861Handler, CEA861_HANDLER, STANDARD_HANDLERS};
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use capabilities::{
     infoframe_type, AudioFormat, AudioFormatInfo, AudioSampleRates, Cea861Capabilities,
-    ColorimetryBlock, ColorimetryFlags, DtcPointEncoding, HdmiAudioBlock,
-    HdmiDscMaxSlices, HdmiForumDsc, HdmiForumFrl, HdmiForumSinkCap, HdmiVsdb, HdmiVsdbFlags,
+    ColorimetryBlock, ColorimetryFlags, DtcPointEncoding, HdmiAudioBlock, HdmiDscMaxSlices,
+    HdmiForumDsc, HdmiForumFrl, HdmiForumSinkCap, HdmiVsdb, HdmiVsdbFlags,
     HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata, InfoFrameDescriptor,
     RoomConfigurationBlock, ShortAudioDescriptor, SpeakerAllocation, SpeakerAllocationFlags,
     SpeakerAllocationFlags2, SpeakerAllocationFlags3, SpeakerLocationEntry, T10VtdbBlock,
     T10VtdbEntry, T7VtdbBlock, T8VtdbBlock, VendorSpecificBlock, VesaDisplayDeviceBlock,
     VesaTransferCharacteristic, VideoCapability, VideoCapabilityFlags, VtbExtBlock,
 };
+pub use capabilities::{Cea861Handler, CEA861_HANDLER, STANDARD_HANDLERS};

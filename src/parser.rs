@@ -32,7 +32,10 @@ pub const MAX_EXTENSION_BLOCKS: usize = 64;
 /// # Errors
 ///
 /// Returns [`EdidError`] if the byte slice fails any structural check.
-pub fn parse_edid<T: KnownExtensions + ?Sized>(bytes: &[u8], tags: &T) -> Result<ParsedEdid, EdidError> {
+pub fn parse_edid<T: KnownExtensions + ?Sized>(
+    bytes: &[u8],
+    tags: &T,
+) -> Result<ParsedEdid, EdidError> {
     let _ = tags; // Suppress unused warning in no_alloc
     if bytes.len() < 128 {
         return Err(EdidError::InvalidLength);

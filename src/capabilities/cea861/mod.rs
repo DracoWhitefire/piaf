@@ -705,6 +705,17 @@ pub static CEA861_HANDLER: &dyn StaticExtensionHandler = &Cea861Handler;
 pub static STANDARD_HANDLERS: &[&dyn StaticExtensionHandler] = &[&Cea861Handler];
 
 #[cfg(test)]
+mod test_static {
+    use super::*;
+    use crate::model::extension::StaticExtensionHandler;
+
+    #[test]
+    fn test_static_handler_tag() {
+        assert_eq!(StaticExtensionHandler::tag(&Cea861Handler), 0x02);
+    }
+}
+
+#[cfg(test)]
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod tests {
     use super::*;
