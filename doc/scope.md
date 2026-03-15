@@ -40,3 +40,15 @@ A successful EDID parser creates a stable base for later work on metadata handli
 ## Constraints
 
 All development must maintain `no_std` compatibility for core modules. Optional features such as `serde` support and diagnostic pretty-printing can be enabled via crate features.
+
+In bare `no_std` builds (no `alloc`, no `std`) the extension handler pipeline is
+unavailable, but base block decoding runs in full. All fixed-length fields in
+`DisplayCapabilities` are available, including identity, input type, color, timing
+range limits, and the fixed-count string and white-point fields. Variable-length
+fields (`supported_modes`, `extension_data`) require `alloc` or `std`.
+
+When a field has a known fixed maximum — such as a three-character PNP ID or a
+13-byte monitor descriptor string — it is represented as a fixed-size array newtype
+(`ManufacturerId`, `MonitorString`) rather than a heap-allocated string. This keeps
+the field available in all build configurations without sacrificing API ergonomics.
+New fields should follow this pattern where the bound is derivable from the spec.
