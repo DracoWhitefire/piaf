@@ -321,3 +321,183 @@ impl DisplayCapabilities {
             .and_then(|(_, data)| (**data).as_any().downcast_ref::<T>())
     }
 }
+
+/// No-alloc display capability model derived from a parsed EDID.
+///
+/// Contains the same scalar fields as [`DisplayCapabilities`] plus a fixed-capacity mode list.
+/// Use `MAX_MODES` to set the maximum number of video modes that can be stored; 64 is a
+/// reasonable default for most displays (real displays rarely declare more than ~40 modes).
+/// Modes beyond the capacity are silently dropped, matching the behaviour of the 8-entry
+/// warning cap.
+///
+/// Produced by `capabilities_from_edid_static`.
+///
+/// # Stack size
+///
+/// At `MAX_MODES = 64` this struct is approximately 3 KB. On targets with very limited stack
+/// space, consider placing the value in a `static mut` or a statically-allocated buffer
+/// rather than on the stack.
+#[derive(Debug, Clone)]
+pub struct StaticDisplayCapabilities<const MAX_MODES: usize> {
+    /// Three-character PNP manufacturer ID (e.g. `GSM` for LG, `SAM` for Samsung).
+    pub manufacturer: Option<ManufacturerId>,
+    /// Manufacture date or model year, decoded from bytes 16–17.
+    pub manufacture_date: Option<crate::model::manufacture::ManufactureDate>,
+    /// EDID specification version and revision, decoded from bytes 18–19.
+    pub edid_version: Option<crate::model::edid::EdidVersion>,
+    /// Manufacturer-assigned product code.
+    pub product_code: Option<u16>,
+    /// Manufacturer-assigned serial number, if encoded numerically in the base block.
+    pub serial_number: Option<u32>,
+    /// Serial number string from the monitor serial number descriptor (`0xFF`), if present.
+    pub serial_number_string: Option<MonitorString>,
+    /// Human-readable display name from the monitor name descriptor, if present.
+    pub display_name: Option<MonitorString>,
+    /// Unspecified ASCII text strings from `0xFE` descriptors, in descriptor slot order.
+    ///
+    /// Up to four entries (one per descriptor slot). Each slot is `None` if the corresponding
+    /// descriptor was not a `0xFE` entry.
+    pub unspecified_text: [Option<MonitorString>; 4],
+    /// Additional white points from the `0xFB` descriptor.
+    ///
+    /// Up to two entries (the EDID `0xFB` descriptor has two fixed slots). Each slot is
+    /// `None` if the corresponding entry was unused (index byte `0x00`).
+    pub white_points: [Option<crate::model::color::WhitePoint>; 2],
+    /// `true` if the display uses a digital input interface.
+    pub digital: bool,
+    /// Color bit depth per primary channel, decoded from byte `0x14` bits 6–4.
+    /// `None` for analog displays or when the field is undefined or reserved.
+    pub color_bit_depth: Option<crate::model::color::ColorBitDepth>,
+    /// CIE xy chromaticity coordinates for the color primaries and white point,
+    /// decoded from bytes `0x19`–`0x22`.
+    pub chromaticity: crate::model::color::Chromaticity,
+    /// Display gamma from byte `0x17`. `None` if the display did not specify a gamma value.
+    pub gamma: Option<crate::model::color::DisplayGamma>,
+    /// Display feature support flags from byte `0x18`.
+    pub display_features: Option<crate::model::features::DisplayFeatureFlags>,
+    /// Supported color encoding formats, decoded from byte `0x18` bits 4–3.
+    /// Only populated for EDID 1.4+ digital displays.
+    pub digital_color_encoding: Option<crate::model::color::DigitalColorEncoding>,
+    /// Color type, decoded from byte `0x18` bits 4–3.
+    /// Only populated for analog displays; `None` for the undefined value (`0b11`).
+    pub analog_color_type: Option<crate::model::color::AnalogColorType>,
+    /// Video interface type, decoded from byte `0x14` bits 3–0.
+    /// `None` for analog displays or when the field is undefined or reserved.
+    pub video_interface: Option<crate::model::input::VideoInterface>,
+    /// Analog sync and video white levels, decoded from byte `0x14` bits 6–5.
+    /// Only populated for analog displays.
+    pub analog_sync_level: Option<crate::model::input::AnalogSyncLevel>,
+    /// Physical screen dimensions or aspect ratio, decoded from bytes `0x15`–`0x16`.
+    /// `None` when both bytes are zero (undefined).
+    pub screen_size: Option<crate::model::screen::ScreenSize>,
+    /// Minimum supported vertical refresh rate in Hz.
+    pub min_v_rate: Option<u16>,
+    /// Maximum supported vertical refresh rate in Hz.
+    pub max_v_rate: Option<u16>,
+    /// Minimum supported horizontal scan rate in kHz.
+    pub min_h_rate_khz: Option<u16>,
+    /// Maximum supported horizontal scan rate in kHz.
+    pub max_h_rate_khz: Option<u16>,
+    /// Maximum pixel clock in MHz.
+    pub max_pixel_clock_mhz: Option<u16>,
+    /// Physical image area dimensions in millimetres `(width_mm, height_mm)`, decoded from
+    /// the first detailed timing descriptor that provides non-zero values (bytes 12–14).
+    ///
+    /// More precise than [`screen_size`][Self::screen_size] (which is in cm from the base
+    /// block header). `None` when all DTD image-size fields are zero.
+    pub preferred_image_size_mm: Option<(u16, u16)>,
+    /// Video timing formula reported in the display range limits descriptor (`0xFD`), byte 10.
+    pub timing_formula: Option<crate::model::timing::TimingFormula>,
+    /// DCM polynomial coefficients decoded from a Color Management Data descriptor (`0xF9`).
+    pub color_management: Option<crate::model::color::ColorManagementData>,
+    /// Video modes decoded from the base block and extension handlers.
+    ///
+    /// Populated up to `MAX_MODES` entries. Use [`iter_modes`][Self::iter_modes] for a
+    /// safe iterator that respects [`num_modes`][Self::num_modes].
+    pub supported_modes: [Option<VideoMode>; MAX_MODES],
+    /// Number of valid entries in [`supported_modes`][Self::supported_modes].
+    pub num_modes: usize,
+    /// Non-fatal conditions collected from the parser and all handlers.
+    ///
+    /// Capped at 8 entries; warnings beyond the first 8 are silently dropped.
+    /// Use [`iter_warnings`][Self::iter_warnings] for a safe iterator.
+    pub warnings: [Option<EdidWarning>; 8],
+    /// Number of valid entries in [`warnings`][Self::warnings].
+    pub num_warnings: usize,
+}
+
+impl<const MAX_MODES: usize> Default for StaticDisplayCapabilities<MAX_MODES> {
+    fn default() -> Self {
+        Self {
+            manufacturer: None,
+            manufacture_date: None,
+            edid_version: None,
+            product_code: None,
+            serial_number: None,
+            serial_number_string: None,
+            display_name: None,
+            unspecified_text: Default::default(),
+            white_points: Default::default(),
+            digital: false,
+            color_bit_depth: None,
+            chromaticity: Default::default(),
+            gamma: None,
+            display_features: None,
+            digital_color_encoding: None,
+            analog_color_type: None,
+            video_interface: None,
+            analog_sync_level: None,
+            screen_size: None,
+            min_v_rate: None,
+            max_v_rate: None,
+            min_h_rate_khz: None,
+            max_h_rate_khz: None,
+            max_pixel_clock_mhz: None,
+            preferred_image_size_mm: None,
+            timing_formula: None,
+            color_management: None,
+            // `Option<VideoMode>` is not `Copy` so array repeat syntax is unavailable;
+            // `core::array::from_fn` constructs each slot individually.
+            supported_modes: core::array::from_fn(|_| None),
+            num_modes: 0,
+            warnings: Default::default(),
+            num_warnings: 0,
+        }
+    }
+}
+
+impl<const MAX_MODES: usize> StaticDisplayCapabilities<MAX_MODES> {
+    /// Returns an iterator over decoded video modes.
+    pub fn iter_modes(&self) -> impl Iterator<Item = &VideoMode> {
+        self.supported_modes[..self.num_modes].iter().flatten()
+    }
+
+    /// Returns an iterator over collected warnings.
+    pub fn iter_warnings(&self) -> impl Iterator<Item = &EdidWarning> {
+        self.warnings[..self.num_warnings].iter().flatten()
+    }
+}
+
+impl<const MAX_MODES: usize> ModeSink for StaticDisplayCapabilities<MAX_MODES> {
+    fn push_mode(&mut self, mode: VideoMode) {
+        if self.num_modes < MAX_MODES {
+            // Dedup: skip if an identical mode is already present.
+            for i in 0..self.num_modes {
+                if self.supported_modes[i].as_ref() == Some(&mode) {
+                    return;
+                }
+            }
+            self.supported_modes[self.num_modes] = Some(mode);
+            self.num_modes += 1;
+        }
+        // Modes beyond capacity are silently dropped.
+    }
+
+    fn push_warning(&mut self, w: EdidWarning) {
+        if self.num_warnings < 8 {
+            self.warnings[self.num_warnings] = Some(w);
+            self.num_warnings += 1;
+        }
+        // Warnings beyond capacity are silently dropped.
+    }
+}

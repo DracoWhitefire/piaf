@@ -55,4 +55,6 @@ pub use timing::{
 pub mod capabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use capabilities::ExtensionData;
-pub use capabilities::{DisplayCapabilities, ModeSink, StereoMode, SyncDefinition, VideoMode};
+pub use capabilities::{
+    DisplayCapabilities, ModeSink, StaticDisplayCapabilities, StereoMode, SyncDefinition, VideoMode,
+};
