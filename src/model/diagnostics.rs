@@ -1,7 +1,30 @@
+/// A reference-counted, type-erased warning value.
+///
+/// Any type that implements [`core::error::Error`] + [`Send`] + [`Sync`] + `'static` can be
+/// wrapped in a `ParseWarning`. The built-in library variants use [`EdidWarning`], but
+/// custom handlers may push their own error types without wrapping them in `EdidWarning`.
+///
+/// Using [`Arc`][crate::model::prelude::Arc] (rather than `Box`) means `ParseWarning` is
+/// [`Clone`], which lets warnings be copied from [`crate::ParsedEdid`] into
+/// [`crate::DisplayCapabilities`] without consuming the parsed result.
+///
+/// To inspect a specific variant, use the inherent `downcast_ref` method available on
+/// `dyn core::error::Error + Send + Sync + 'static` in `std` builds:
+///
+/// ```text
+/// for w in caps.iter_warnings() {
+///     if let Some(ew) = (**w).downcast_ref::<EdidWarning>() { ... }
+/// }
+/// ```
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub type ParseWarning = crate::model::prelude::Arc<dyn core::error::Error + Send + Sync + 'static>;
+
 /// A non-fatal condition encountered while parsing or processing an EDID block.
 ///
 /// Warnings are collected into [`ParsedEdid::warnings`][crate::ParsedEdid] (from the parser)
 /// and into [`DisplayCapabilities::warnings`][crate::DisplayCapabilities] (from handlers).
+/// In `alloc`/`std` builds each entry is a [`ParseWarning`]; use `downcast_ref` to recover the
+/// concrete type. In bare `no_std` builds this enum is used directly.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum EdidWarning {
@@ -24,6 +47,13 @@ pub enum EdidWarning {
     /// end of the data block collection. Remaining data blocks in the collection are skipped.
     #[error("data block length exceeds collection boundary")]
     MalformedDataBlock,
+    /// A Detailed Timing Descriptor slot was skipped because the pixel clock value
+    /// would overflow during refresh rate calculation.
+    ///
+    /// This indicates a malformed or corrupted EDID: valid pixel clocks are at most
+    /// a few hundred MHz (fits comfortably in a `u32` after scaling by 10 000).
+    #[error("DTD slot skipped: pixel clock overflow during refresh rate calculation")]
+    DtdPixelClockOverflow,
     /// The byte slice length does not match the size implied by the extension count.
     ///
     /// The EDID header declares `extension_count` extension blocks, so the expected

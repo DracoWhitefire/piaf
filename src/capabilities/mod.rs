@@ -17,9 +17,11 @@ pub use cea861::{
 };
 
 use crate::model::capabilities::DisplayCapabilities;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::diagnostics::ParseWarning;
 use crate::model::extension::ExtensionLibrary;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::Box;
+use crate::model::prelude::{Box, Vec};
 use crate::model::ParsedEdid;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -55,7 +57,7 @@ pub fn capabilities_from_edid(
 
     #[cfg(any(feature = "alloc", feature = "std"))]
     {
-        let mut warnings = Vec::new();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
 
         // 1. Process Base Block through all registered base handlers, in order
         for handler in &library.base_handlers {

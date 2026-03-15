@@ -1,7 +1,9 @@
 use crate::model::diagnostics::EdidError;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::diagnostics::EdidWarning;
+use crate::model::diagnostics::{EdidWarning, ParseWarning};
 use crate::model::extension::KnownExtensions;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::prelude::Arc;
 use crate::model::ParsedEdid;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::Vec;
@@ -42,7 +44,7 @@ pub fn parse_edid<T: KnownExtensions>(bytes: &[u8], tags: &T) -> Result<ParsedEd
     #[cfg(any(feature = "alloc", feature = "std"))]
     let mut extensions = Vec::new();
     #[cfg(any(feature = "alloc", feature = "std"))]
-    let mut warnings = Vec::new();
+    let mut warnings: Vec<ParseWarning> = Vec::new();
 
     #[cfg(any(feature = "alloc", feature = "std"))]
     {
@@ -54,10 +56,10 @@ pub fn parse_edid<T: KnownExtensions>(bytes: &[u8], tags: &T) -> Result<ParsedEd
         }
 
         if bytes.len() > total_required {
-            warnings.push(EdidWarning::SizeMismatch {
+            warnings.push(Arc::new(EdidWarning::SizeMismatch {
                 expected: total_required,
                 actual: bytes.len(),
-            });
+            }));
         }
 
         for i in 1..=extension_count {
@@ -72,7 +74,7 @@ pub fn parse_edid<T: KnownExtensions>(bytes: &[u8], tags: &T) -> Result<ParsedEd
 
             let tag = ext_block[0];
             if !tags.is_known(tag) {
-                warnings.push(EdidWarning::UnknownExtension(tag));
+                warnings.push(Arc::new(EdidWarning::UnknownExtension(tag)));
             }
 
             extensions.push(ext_block);
@@ -97,7 +99,10 @@ mod tests {
     fn test_parse_invalid_length() {
         let bytes = [0u8; 10];
         let registry = ExtensionTagRegistry::new();
-        assert_eq!(parse_edid(&bytes, &registry), Err(EdidError::InvalidLength));
+        assert_eq!(
+            parse_edid(&bytes, &registry).unwrap_err(),
+            EdidError::InvalidLength
+        );
     }
 
     #[test]
@@ -105,7 +110,10 @@ mod tests {
         let mut bytes = [0u8; 128];
         bytes[0] = 0x01; // Corrupt header
         let registry = ExtensionTagRegistry::new();
-        assert_eq!(parse_edid(&bytes, &registry), Err(EdidError::InvalidHeader));
+        assert_eq!(
+            parse_edid(&bytes, &registry).unwrap_err(),
+            EdidError::InvalidHeader
+        );
     }
 
     #[test]
@@ -115,8 +123,8 @@ mod tests {
         bytes[127] = 0x01; // Wrong checksum (should be 6 for all-zeros block with header)
         let registry = ExtensionTagRegistry::new();
         assert_eq!(
-            parse_edid(&bytes, &registry),
-            Err(EdidError::ChecksumMismatch)
+            parse_edid(&bytes, &registry).unwrap_err(),
+            EdidError::ChecksumMismatch
         );
     }
 
@@ -165,8 +173,8 @@ mod tests {
         bytes[255] = 0x00; // Wrong checksum
         let registry = ExtensionTagRegistry::new();
         assert_eq!(
-            parse_edid(&bytes, &registry),
-            Err(EdidError::ChecksumMismatch)
+            parse_edid(&bytes, &registry).unwrap_err(),
+            EdidError::ChecksumMismatch
         );
     }
 
@@ -187,7 +195,10 @@ mod tests {
         assert!(result.is_ok());
         let parsed = result.unwrap();
         assert_eq!(parsed.warnings.len(), 1);
-        assert_eq!(parsed.warnings[0], EdidWarning::UnknownExtension(0xEE));
+        assert_eq!(
+            (*parsed.warnings[0]).downcast_ref::<EdidWarning>(),
+            Some(&EdidWarning::UnknownExtension(0xEE))
+        );
     }
     #[test]
     #[cfg(any(feature = "alloc", feature = "std"))]
@@ -200,12 +211,13 @@ mod tests {
         let result = parse_edid(&bytes, &registry);
         assert!(result.is_ok());
         let parsed = result.unwrap();
+        assert_eq!(parsed.warnings.len(), 1);
         assert_eq!(
-            parsed.warnings,
-            vec![EdidWarning::SizeMismatch {
+            (*parsed.warnings[0]).downcast_ref::<EdidWarning>(),
+            Some(&EdidWarning::SizeMismatch {
                 expected: 128,
                 actual: 256
-            }]
+            })
         );
     }
 

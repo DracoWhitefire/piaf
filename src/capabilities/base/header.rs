@@ -435,7 +435,10 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&base, &mut caps, &mut warnings);
         assert_eq!(caps.manufacturer, None);
-        assert!(warnings.contains(&EdidWarning::InvalidManufacturerId));
+        assert!(warnings
+            .iter()
+            .any(|w| (**w).downcast_ref::<EdidWarning>()
+                == Some(&EdidWarning::InvalidManufacturerId)));
     }
 
     #[test]
@@ -449,6 +452,9 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&base, &mut caps, &mut warnings);
         assert_eq!(caps.manufacturer, None);
-        assert!(warnings.contains(&EdidWarning::InvalidManufacturerId));
+        assert!(warnings
+            .iter()
+            .any(|w| (**w).downcast_ref::<EdidWarning>()
+                == Some(&EdidWarning::InvalidManufacturerId)));
     }
 }

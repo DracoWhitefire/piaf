@@ -1,7 +1,7 @@
 use piaf::{
     capabilities_from_edid, infoframe_type, parse_edid, AudioFormat, AudioFormatInfo,
     Cea861Capabilities, Cea861Flags, Cea861Handler, ColorimetryFlags, DisplayCapabilities,
-    DtcPointEncoding, EdidWarning, ExtensionHandler, ExtensionLibrary, HdmiVsdbFlags, HdrEotf,
+    DtcPointEncoding, ExtensionHandler, ExtensionLibrary, HdmiVsdbFlags, HdrEotf, ParseWarning,
     SpeakerAllocationFlags, SpeakerAllocationFlags2, SpeakerAllocationFlags3,
 };
 use std::fs;
@@ -31,7 +31,7 @@ impl ExtensionHandler for CeaDetailsHandler {
         &self,
         ext: &[u8; 128],
         caps: &mut DisplayCapabilities,
-        warnings: &mut Vec<EdidWarning>,
+        warnings: &mut Vec<ParseWarning>,
     ) {
         // Run the built-in handler first so VICs and modes are populated normally.
         Cea861Handler.process(ext, caps, warnings);

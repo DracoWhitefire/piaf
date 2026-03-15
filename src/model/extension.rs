@@ -1,7 +1,7 @@
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::diagnostics::EdidWarning;
+use crate::model::diagnostics::ParseWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{Box, String, Vec};
 
@@ -18,7 +18,7 @@ pub trait ExtensionHandler: core::fmt::Debug {
         &self,
         block: &[u8; 128],
         caps: &mut DisplayCapabilities,
-        warnings: &mut Vec<EdidWarning>,
+        warnings: &mut Vec<ParseWarning>,
     );
 }
 

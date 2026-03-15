@@ -13,6 +13,8 @@ pub use extension::{ExtensionLibrary, ExtensionMetadata, ExtensionTagRegistry, K
 
 /// Error and warning types.
 pub mod diagnostics;
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use diagnostics::ParseWarning;
 pub use diagnostics::{EdidError, EdidWarning};
 
 /// Parsed EDID intermediate representation.

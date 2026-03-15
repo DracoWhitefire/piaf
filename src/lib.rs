@@ -35,6 +35,8 @@ pub mod model;
 pub use model::ExtensionData;
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use model::ExtensionHandler;
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use model::ParseWarning;
 pub use model::{
     AnalogColorType, AnalogSyncLevel, Chromaticity, ChromaticityPoint, ColorBitDepth,
     ColorManagementData, CvtAspectRatio, CvtAspectRatios, CvtScaling, CvtSupportParams, DcmChannel,

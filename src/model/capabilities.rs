@@ -1,4 +1,7 @@
+#[cfg(not(any(feature = "alloc", feature = "std")))]
 use crate::model::diagnostics::EdidWarning;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::diagnostics::ParseWarning;
 use crate::model::manufacture::{ManufacturerId, MonitorString};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::Arc;
@@ -201,7 +204,8 @@ pub struct DisplayCapabilities {
     /// warnings beyond the first 8 are silently dropped.
     /// Use [`iter_warnings`][Self::iter_warnings] for build-portable access.
     #[cfg(any(feature = "alloc", feature = "std"))]
-    pub warnings: Vec<EdidWarning>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub warnings: Vec<ParseWarning>,
     /// Non-fatal conditions collected during base block decoding (bare `no_std` build).
     ///
     /// Capped at 8 entries. Use [`iter_warnings`][Self::iter_warnings] for
@@ -227,7 +231,7 @@ impl DisplayCapabilities {
     /// 8 warnings are retained; prefer this method over accessing `warnings` directly
     /// to write code that compiles in all configurations.
     #[cfg(any(feature = "alloc", feature = "std"))]
-    pub fn iter_warnings(&self) -> impl Iterator<Item = &EdidWarning> {
+    pub fn iter_warnings(&self) -> impl Iterator<Item = &ParseWarning> {
         self.warnings.iter()
     }
 
@@ -244,14 +248,13 @@ impl DisplayCapabilities {
     /// Appends a warning. In bare `no_std` builds warnings beyond the first 8 are
     /// silently dropped.
     ///
-    /// In `alloc`/`std` builds, handlers typically push to the `&mut Vec<EdidWarning>`
-    /// parameter supplied by the pipeline rather than calling this directly. This method
-    /// is provided so that code which needs to emit a warning portably across both build
-    /// configurations can use a single call site.
+    /// In `alloc`/`std` builds the value is boxed into a [`ParseWarning`]; handlers that
+    /// already hold a `ParseWarning` can push directly to the `&mut Vec<ParseWarning>`
+    /// parameter instead. This method exists for code paths (such as internal DTD decoding)
+    /// that need a single call site portable across build configurations.
     #[cfg(any(feature = "alloc", feature = "std"))]
-    #[allow(dead_code)]
-    pub(crate) fn push_warning(&mut self, w: EdidWarning) {
-        self.warnings.push(w);
+    pub(crate) fn push_warning(&mut self, w: impl core::error::Error + Send + Sync + 'static) {
+        self.warnings.push(Arc::new(w));
     }
 
     /// Appends a warning. In bare `no_std` builds warnings beyond the first 8 are

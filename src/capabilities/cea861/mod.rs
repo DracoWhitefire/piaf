@@ -29,9 +29,11 @@ use crate::model::capabilities::VideoMode;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::diagnostics::ParseWarning;
+#[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::extension::ExtensionHandler;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::Vec;
+use crate::model::prelude::{Arc, Vec};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use audio::parse_audio_data_block;
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -227,7 +229,7 @@ impl ExtensionHandler for Cea861Handler {
         &self,
         ext: &[u8; 128],
         caps: &mut DisplayCapabilities,
-        warnings: &mut Vec<EdidWarning>,
+        warnings: &mut Vec<ParseWarning>,
     ) {
         let flags = Cea861Flags::from_bits_truncate(ext[3]);
         let dtd_offset = ext[2] as usize;
@@ -288,7 +290,7 @@ impl ExtensionHandler for Cea861Handler {
                 i += 1;
 
                 if i + length > collection.len() {
-                    warnings.push(EdidWarning::MalformedDataBlock);
+                    warnings.push(Arc::new(EdidWarning::MalformedDataBlock));
                     break;
                 }
 
@@ -598,7 +600,12 @@ mod tests {
         let mut warnings = Vec::new();
         Cea861Handler.process(&ext, &mut caps, &mut warnings);
 
-        assert!(warnings.contains(&EdidWarning::MalformedDataBlock));
+        assert!(
+            warnings
+                .iter()
+                .any(|w| (**w).downcast_ref::<EdidWarning>()
+                    == Some(&EdidWarning::MalformedDataBlock))
+        );
     }
 
     #[test]

@@ -1,6 +1,7 @@
 use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::{StereoMode, SyncDefinition, VideoMode};
+use crate::model::diagnostics::EdidWarning;
 
 /// Decodes the established timings bitmap (bytes 0x23–0x25, 17 predefined modes).
 ///
@@ -121,6 +122,7 @@ pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities) {
         .checked_mul(10_000)
         .and_then(|scaled| u8::try_from(scaled / total_pixels).ok())
     else {
+        caps.push_warning(EdidWarning::DtdPixelClockOverflow);
         return;
     };
 

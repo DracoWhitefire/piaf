@@ -1,9 +1,11 @@
 use crate::model::capabilities::DisplayCapabilities;
 use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::diagnostics::ParseWarning;
+#[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::extension::ExtensionHandler;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::Vec;
+use crate::model::prelude::{Arc, Vec};
 
 mod descriptors;
 mod header;
@@ -38,10 +40,10 @@ impl ExtensionHandler for BaseBlockHandler {
         &self,
         base: &[u8; 128],
         caps: &mut DisplayCapabilities,
-        warnings: &mut Vec<EdidWarning>,
+        warnings: &mut Vec<ParseWarning>,
     ) {
         if !header::decode_header_fields(base, caps) {
-            warnings.push(EdidWarning::InvalidManufacturerId);
+            warnings.push(Arc::new(EdidWarning::InvalidManufacturerId));
         }
         descriptors::decode_descriptors(base, caps);
         timings::decode_established_timings(base, caps);
