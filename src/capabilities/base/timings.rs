@@ -1,6 +1,6 @@
-use crate::model::capabilities::DisplayCapabilities;
-#[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::capabilities::{StereoMode, SyncDefinition, VideoMode};
+use crate::model::capabilities::{
+    DisplayCapabilities, ModeSink, StereoMode, SyncDefinition, VideoMode,
+};
 use crate::model::diagnostics::EdidWarning;
 
 /// Decodes the established timings bitmap (bytes 0x23–0x25, 17 predefined modes).
@@ -83,28 +83,22 @@ pub(super) fn decode_standard_timings(base: &[u8; 128], caps: &mut DisplayCapabi
     }
 }
 
-/// Decodes a single 18-byte Detailed Timing Descriptor slice into [`DisplayCapabilities`].
+/// Parses a single 18-byte DTD slice into a `VideoMode`.
 ///
-/// Returns without modifying `caps` if the slot is a monitor descriptor (zero pixel clock)
-/// or contains invalid geometry. If the mode already exists in `caps.supported_modes` it is
-/// upgraded in place (preserving sync timing that may have been missing from an earlier source);
-/// otherwise it is appended.
-///
-/// This is `pub(crate)` so that the CEA-861 handler can reuse it for DTDs in extension blocks.
-#[cfg(any(feature = "alloc", feature = "std"))]
-pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities) {
+/// Returns:
+/// - `Ok(None)` — monitor descriptor (zero pixel clock) or undecodable geometry
+/// - `Ok(Some(mode))` — valid timing; does **not** populate `preferred_image_size_mm`
+/// - `Err(w)` — [`EdidWarning::DtdSlotTooShort`] or [`EdidWarning::DtdPixelClockOverflow`]
+fn build_dtd_mode(dtd: &[u8]) -> Result<Option<VideoMode>, EdidWarning> {
     if dtd.len() < 18 {
-        caps.push_warning(EdidWarning::DtdSlotTooShort);
-        return;
+        return Err(EdidWarning::DtdSlotTooShort);
     }
-
     if dtd[0] == 0x00 && dtd[1] == 0x00 {
-        return; // monitor descriptor, not a DTD
+        return Ok(None); // monitor descriptor, not a DTD
     }
-
     let pixel_clock = ((dtd[1] as u32) << 8) | (dtd[0] as u32);
     if pixel_clock == 0 {
-        return;
+        return Ok(None);
     }
 
     let hactive = (((dtd[4] as u16) & 0xF0) << 4) | (dtd[2] as u16);
@@ -113,40 +107,29 @@ pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities) {
     let vblank = (((dtd[7] as u16) & 0x0F) << 8) | (dtd[6] as u16);
 
     if hactive == 0 || vactive == 0 || hblank == 0 || vblank == 0 {
-        return;
+        return Ok(None);
     }
-
     let total_pixels = (hactive + hblank) as u32 * (vactive + vblank) as u32;
     if total_pixels == 0 {
-        return;
+        return Ok(None);
     }
-
     let Some(refresh_rate) = pixel_clock
         .checked_mul(10_000)
         .and_then(|scaled| u8::try_from(scaled / total_pixels).ok())
     else {
-        caps.push_warning(EdidWarning::DtdPixelClockOverflow);
-        return;
+        return Err(EdidWarning::DtdPixelClockOverflow);
     };
 
     let interlaced = dtd[17] & 0x80 != 0;
 
-    // Sync timing (bytes 8-11).
+    // Sync timing (bytes 8–11).
     // H values are 10-bit; V values are 6-bit. Byte 11 holds all four MSB pairs.
     let h_front_porch = (((dtd[11] as u16) >> 6) << 8) | (dtd[8] as u16);
     let h_sync_width = ((((dtd[11] as u16) >> 4) & 0x03) << 8) | (dtd[9] as u16);
     let v_front_porch = ((((dtd[11] as u16) >> 2) & 0x03) << 4) | (((dtd[10] as u16) >> 4) & 0x0F);
     let v_sync_width = (((dtd[11] as u16) & 0x03) << 4) | ((dtd[10] as u16) & 0x0F);
 
-    // Physical image area in mm: 12-bit H from byte 12 + upper nibble of byte 14,
-    // 12-bit V from byte 13 + lower nibble of byte 14. Both zero = undefined.
-    let h_mm = (((dtd[14] as u16) & 0xF0) << 4) | (dtd[12] as u16);
-    let v_mm = (((dtd[14] as u16) & 0x0F) << 8) | (dtd[13] as u16);
-    if h_mm != 0 && v_mm != 0 && caps.preferred_image_size_mm.is_none() {
-        caps.preferred_image_size_mm = Some((h_mm, v_mm));
-    }
-
-    // Border (bytes 15-16): pixels/lines on each side of the active area.
+    // Border (bytes 15–16): pixels/lines on each side of the active area.
     let h_border = dtd[15];
     let v_border = dtd[16];
 
@@ -161,9 +144,8 @@ pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities) {
         _ => StereoMode::SideBySideInterleaved,
     };
 
-    // Sync (byte 17 bits 4-1): bit 4 = digital, bit 3 = sync subtype.
+    // Sync (byte 17 bits 4–1): bit 4 = digital, bit 3 = sync subtype.
     let sync = Some(if dtd[17] & 0x10 == 0 {
-        // Analog
         let serrations = dtd[17] & 0x04 != 0;
         let sync_on_all_rgb = dtd[17] & 0x02 != 0;
         if dtd[17] & 0x08 == 0 {
@@ -178,7 +160,6 @@ pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities) {
             }
         }
     } else {
-        // Digital
         let h_sync_positive = dtd[17] & 0x02 != 0;
         if dtd[17] & 0x08 == 0 {
             SyncDefinition::DigitalComposite {
@@ -193,7 +174,7 @@ pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities) {
         }
     });
 
-    let mode = VideoMode {
+    Ok(Some(VideoMode {
         width: hactive,
         height: vactive,
         refresh_rate,
@@ -206,7 +187,37 @@ pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities) {
         v_border,
         stereo,
         sync,
+    }))
+}
+
+/// Decodes a single 18-byte Detailed Timing Descriptor slice into [`DisplayCapabilities`].
+///
+/// Returns without modifying `caps` if the slot is a monitor descriptor (zero pixel clock)
+/// or contains invalid geometry. If the mode already exists in `caps.supported_modes` it is
+/// upgraded in place (preserving sync timing that may have been missing from an earlier source);
+/// otherwise it is appended.
+///
+/// This is `pub(crate)` so that the CEA-861 handler can reuse it for DTDs in extension blocks.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities) {
+    let mode = match build_dtd_mode(dtd) {
+        Err(w) => {
+            caps.push_warning(w);
+            return;
+        }
+        Ok(None) => return,
+        Ok(Some(m)) => m,
     };
+
+    // Physical image area in mm: 12-bit H from byte 12 + upper nibble of byte 14,
+    // 12-bit V from byte 13 + lower nibble of byte 14. Both zero = undefined.
+    // `build_dtd_mode` guarantees dtd.len() >= 18.
+    let h_mm = (((dtd[14] as u16) & 0xF0) << 4) | (dtd[12] as u16);
+    let v_mm = (((dtd[14] as u16) & 0x0F) << 8) | (dtd[13] as u16);
+    if h_mm != 0 && v_mm != 0 && caps.preferred_image_size_mm.is_none() {
+        caps.preferred_image_size_mm = Some((h_mm, v_mm));
+    }
+
     // If a mode with matching identity (w/h/rate/interlaced) was already added from a
     // non-DTD source (which has zero sync fields), upgrade it in place. Otherwise append.
     if let Some(existing) = caps.supported_modes.iter_mut().find(|m| {
@@ -218,6 +229,24 @@ pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities) {
         *existing = mode;
     } else {
         caps.supported_modes.push(mode);
+    }
+}
+
+/// Decodes a single 18-byte Detailed Timing Descriptor slice into a [`ModeSink`].
+///
+/// Like [`decode_dtd_slot`] but writes into any [`ModeSink`] rather than directly into
+/// [`DisplayCapabilities`]. The `preferred_image_size_mm` field is not populated — that
+/// is a base-block concern handled by [`decode_dtd_slot`].
+///
+/// This is `pub(crate)` so that the CEA-861 handler can use it for DTDs in extension blocks
+/// in no-alloc builds.
+// Called by cea861_process_into_sink and by capabilities_from_edid_static (step 5).
+#[allow(dead_code)]
+pub(crate) fn decode_dtd_slot_into_sink(dtd: &[u8], sink: &mut dyn ModeSink) {
+    match build_dtd_mode(dtd) {
+        Err(w) => sink.push_warning(w),
+        Ok(None) => {}
+        Ok(Some(mode)) => sink.push_mode(mode),
     }
 }
 

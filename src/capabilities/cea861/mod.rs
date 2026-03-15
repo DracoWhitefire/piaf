@@ -23,10 +23,11 @@ pub use hdmi_vsdb::{HdmiVsdb, HdmiVsdbFlags};
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::capabilities::base::timings::decode_dtd_slot;
+use crate::capabilities::base::timings::decode_dtd_slot_into_sink;
 use crate::model::capabilities::DisplayCapabilities;
+use crate::model::capabilities::ModeSink;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::VideoMode;
-#[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::ParseWarning;
@@ -52,7 +53,6 @@ use extended_blocks::{
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use hdmi_vsdb::parse_hdmi_vsdb;
-#[cfg(any(feature = "alloc", feature = "std"))]
 use vic_table::vic_to_mode;
 
 bitflags::bitflags! {
@@ -546,6 +546,130 @@ impl ExtensionHandler for Cea861Handler {
         }
 
         caps.set_extension_data(0x02, cea_caps);
+    }
+}
+
+/// Extracts video modes from a CEA-861 extension block into `sink`.
+///
+/// This is the allocation-free counterpart to [`Cea861Handler::process`]: it produces
+/// [`VideoMode`][crate::VideoMode] entries (SVDs, DTDs, and — in `alloc`/`std` builds —
+/// VTB-EXT/T7VTDB/T8VTDB/T10VTDB/Y420 VDB entries) without requiring heap allocation.
+// Called by capabilities_from_edid_static (step 5).
+#[allow(dead_code)]
+pub(crate) fn cea861_process_into_sink(ext: &[u8; 128], sink: &mut dyn ModeSink) {
+    let dtd_offset = ext[2] as usize;
+    let collection_end = if dtd_offset == 0 {
+        128
+    } else {
+        dtd_offset.min(128)
+    };
+
+    if collection_end > 4 {
+        let collection = &ext[4..collection_end];
+        let mut i = 0;
+
+        while i < collection.len() {
+            let header = collection[i];
+            if header == 0 {
+                break;
+            }
+
+            let tag = (header >> 5) & 0x07;
+            let length = (header & 0x1F) as usize;
+            i += 1;
+
+            if i + length > collection.len() {
+                sink.push_warning(EdidWarning::MalformedDataBlock);
+                break;
+            }
+
+            let block_data = &collection[i..i + length];
+
+            if tag == 0x02 {
+                // Video Data Block: Short Video Descriptors.
+                let mut j = 0;
+                while j < block_data.len() {
+                    let b = block_data[j];
+                    let vic_low = b & 0x7F;
+
+                    let vic = if vic_low == 0 {
+                        j += 1;
+                        match block_data.get(j).copied() {
+                            Some(0) | None => {
+                                j += 1;
+                                continue;
+                            }
+                            Some(v) => v,
+                        }
+                    } else {
+                        vic_low
+                    };
+                    j += 1;
+
+                    if let Some(mode) = vic_to_mode(vic) {
+                        sink.push_mode(mode);
+                    }
+                }
+            } else if tag == 0x07 {
+                // Extended Tag Data Block — mode-producing sub-types.
+                #[cfg(any(feature = "alloc", feature = "std"))]
+                match block_data.first().copied() {
+                    Some(EXT_TAG_VTB_EXT) => {
+                        if let Some(vtb) = parse_vtb_ext(&block_data[1..]) {
+                            for timing in vtb.timings {
+                                sink.push_mode(timing);
+                            }
+                        }
+                    }
+                    Some(EXT_TAG_Y420_VIDEO) => {
+                        for &vic in &parse_y420_vdb(block_data) {
+                            if let Some(mode) = vic_to_mode(vic) {
+                                sink.push_mode(mode);
+                            }
+                        }
+                    }
+                    Some(EXT_TAG_T7VTDB) => {
+                        if let Some(t7) = parse_t7vtdb(&block_data[1..]) {
+                            sink.push_mode(t7.mode);
+                        }
+                    }
+                    Some(EXT_TAG_T8VTDB) => {
+                        if let Some(t8) = parse_t8vtdb(&block_data[1..]) {
+                            for mode in t8.timings {
+                                sink.push_mode(mode);
+                            }
+                        }
+                    }
+                    Some(EXT_TAG_T10VTDB) => {
+                        if let Some(t10) = parse_t10vtdb(&block_data[1..]) {
+                            for entry in &t10.entries {
+                                if let Ok(refresh_rate) = u8::try_from(entry.refresh_hz) {
+                                    sink.push_mode(VideoMode {
+                                        width: entry.width,
+                                        height: entry.height,
+                                        refresh_rate,
+                                        interlaced: false,
+                                        ..Default::default()
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            i += length;
+        }
+    }
+
+    // Parse Detailed Timing Descriptors.
+    if (4..=110).contains(&dtd_offset) {
+        let mut offset = dtd_offset;
+        while offset + 18 <= 127 {
+            decode_dtd_slot_into_sink(&ext[offset..offset + 18], sink);
+            offset += 18;
+        }
     }
 }
 
