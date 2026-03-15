@@ -4,6 +4,10 @@ PIAF is organized as a small library with clear internal boundaries between byte
 
 ## Core pipeline
 
+Two capability pipelines operate on the same `ParsedEdid`. Choose one per call site:
+
+**Dynamic pipeline** (`alloc`/`std`) — full metadata extraction, heap-allocated output:
+
 ```mermaid
 flowchart LR
     A[Input Bytes] --> B[Block Validation]
@@ -15,6 +19,19 @@ flowchart LR
     L[ExtensionLibrary] --> E
     E --> F[DisplayCapabilities]
     E --> H[Handler Warnings]
+```
+
+**Static pipeline** (all tiers, including bare `no_std`) — mode extraction, fixed-capacity output:
+
+```mermaid
+flowchart LR
+    A[Input Bytes] --> B[Block Validation]
+    K[KnownExtensions] --> B
+    B --> C[Structured Parse]
+    C --> D[ParsedEdid]
+    D --> E[Static Handlers]
+    S[StaticExtensionHandler slice] --> E
+    E --> F[StaticDisplayCapabilities]
 ```
 
 ## Layers
@@ -44,15 +61,23 @@ This representation is distinct from the end-user capability model.
 
 ### Normalization
 
-The normalization layer converts parsed fields into a simpler, more stable `DisplayCapabilities` structure via a set of pluggable `ExtensionHandler` implementations.
+The normalization layer converts parsed fields into a consumer-facing output structure. Two
+pipelines do this work:
 
-This layer is where PIAF can:
+- **Dynamic pipeline** — `capabilities_from_edid` with `ExtensionLibrary`. Produces
+  `DisplayCapabilities` with `Vec<VideoMode>`, rich extension metadata (audio, VSDB,
+  colorimetry, HDR), and type-erased `Arc<dyn ExtensionData>` slots. Requires `alloc` or
+  `std`.
 
-- combine related low-level fields,
-- represent partial knowledge explicitly,
-- attach warnings for suspicious or inconsistent input.
+- **Static pipeline** — `capabilities_from_edid_static` with a `&[&dyn StaticExtensionHandler]`
+  slice. Produces `StaticDisplayCapabilities<N>` with a fixed-capacity mode array and the same
+  scalar fields. Available at all build tiers; in bare `no_std` it covers the base block only
+  (extension blocks are not stored in `ParsedEdid` without `alloc`).
 
-Normalization does not invent data. If a field cannot be reliably determined, it is left absent rather than filled with a default.
+Both pipelines share all internal parsing logic through the `ModeSink` trait abstraction.
+
+Normalization does not invent data. If a field cannot be reliably determined, it is left absent
+rather than filled with a default.
 
 ### Diagnostics
 
@@ -90,7 +115,7 @@ and avoids encoding policy or heuristics into what is fundamentally a decoded re
 
 ## Technical constraints
 
-- **`no_std` compatibility**: The core library avoids the Rust standard library to remain usable in firmware, bootloaders, and embedded systems. `alloc` may be used where dynamic allocation is required (e.g., for extension block storage and the dynamic handler pipeline).
+- **`no_std` compatibility**: The core library avoids the Rust standard library to remain usable in firmware, bootloaders, and embedded systems. `alloc` may be used where dynamic allocation is required (e.g., for extension block storage and the dynamic handler pipeline). The static pipeline and all scalar field decoding are available without any allocator.
 - **Zero-copy (where possible)**: The parser should aim to avoid unnecessary allocations, working directly with input byte slices.
 - **Dead-code warnings in bare `no_std` builds**: Without `alloc` or `std`, the handler layer is absent and the `pub(crate)` decode functions on model types (e.g. `ManufactureDate::from_edid_bytes`) appear unused. These functions are intentionally left available — a consumer with no handler pipeline can still call them directly. A blanket `#![cfg_attr(not(any(feature = "alloc", feature = "std")), allow(dead_code, unused_imports))]` in `lib.rs` suppresses the noise without removing the items.
 
@@ -125,5 +150,7 @@ This gives consumers the same ergonomics as a `String` field — `format!("{}", 
 Fields with a small fixed bound (like `white_points`, which the EDID `0xFB` descriptor
 limits to two entries) use `[Option<T>; N]` directly.
 
-Fields that are genuinely variable in length (display name strings, timing mode lists,
-warnings) remain `#[cfg(any(feature = "alloc", feature = "std"))]` gated.
+Fields that are genuinely variable in length (display name strings, warnings) remain
+`#[cfg(any(feature = "alloc", feature = "std"))]` gated in `DisplayCapabilities`. Mode
+lists are the exception: `StaticDisplayCapabilities<N>` provides a fixed-capacity
+`[Option<VideoMode>; N]` that is available at all build tiers.

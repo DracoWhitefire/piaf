@@ -51,21 +51,25 @@ checksum failure, truncated input) and non-fatal warnings (unknown extension blo
 malformed data block, out-of-range manufacturer ID). You decide how strict to be;
 nothing is silently discarded.
 
-**`no_std` support.** The library runs on bare metal. In `no_std` builds without
-`alloc`, base block decoding runs in full and most `DisplayCapabilities` fields
-are available — see [`no_std` builds](#no_std-builds) below.
+**`no_std` support.** The library runs on bare metal. The static extension handler
+pipeline — `capabilities_from_edid_static` with `STANDARD_HANDLERS` — works at all
+build tiers, including bare `no_std` without an allocator. Custom handlers implement
+`StaticExtensionHandler` using `static` references instead of `Box` — see
+[`no_std` builds](#no_std-builds) below.
 
 **Stable consumer model.** `ParsedEdid` preserves raw bytes; `DisplayCapabilities`
 is the typed, stable output. Parser improvements don't change the consumer-facing API.
 
 ## Extension system
 
-The built-in `Cea861Handler` covers the common case. You'd write your own handler to
-support a proprietary extension block, augment or replace CEA-861 decoding with
-application-specific logic, or extract fields that PIAF doesn't expose directly into
-your own typed data attached to `DisplayCapabilities`.
+`Cea861Handler` covers the common case. Write your own handler to support a proprietary
+extension block, augment CEA-861 decoding with application-specific logic, or attach typed
+custom data to `DisplayCapabilities` for downstream consumers.
 
-Register a handler for any extension block tag:
+### Dynamic handlers (`std`/`alloc`)
+
+Register via `ExtensionLibrary`. Uses `Box<dyn ExtensionHandler>` internally, so requires
+heap allocation:
 
 ```rust
 use piaf::{ExtensionHandler, DisplayCapabilities, ParseWarning, ExtensionLibrary};
@@ -81,8 +85,8 @@ impl ExtensionHandler for MyHandler {
 
 let mut library = ExtensionLibrary::new();
 library.register(ExtensionMetadata {
-    tag: 0x02,
-    display_name: String::from("CEA-861"),
+    tag: 0xAB,
+    display_name: String::from("My Extension"),
     handler: Some(Box::new(MyHandler)),
 });
 ```
@@ -90,12 +94,39 @@ library.register(ExtensionMetadata {
 Typed data can be attached to `DisplayCapabilities` and retrieved by tag:
 
 ```rust
-caps.set_extension_data(0x02, MyCeaData { version: block[1] });
+caps.set_extension_data(0xAB, MyCeaData { version: block[1] });
 
-if let Some(data) = caps.get_extension_data::<MyCeaData>(0x02) {
-    println!("CEA version: {}", data.version);
+if let Some(data) = caps.get_extension_data::<MyCeaData>(0xAB) {
+    println!("version: {}", data.version);
 }
 ```
+
+### Static handlers (no-alloc)
+
+Use `StaticExtensionHandler` when heap allocation is unavailable. Pass a `static` slice
+to `capabilities_from_edid_static`:
+
+```rust
+use piaf::{StaticExtensionHandler, ModeSink, StaticDisplayCapabilities, STANDARD_HANDLERS};
+
+struct MyHandler;
+
+impl StaticExtensionHandler for MyHandler {
+    fn tag(&self) -> u8 { 0xAB }
+    fn process(&self, block: &[u8; 128], sink: &mut dyn ModeSink) {
+        // push modes via sink.push_mode(...)
+    }
+}
+
+static MY_HANDLER: MyHandler = MyHandler;
+static HANDLERS: &[&dyn StaticExtensionHandler] = &[STANDARD_HANDLERS[0], &MY_HANDLER];
+
+let caps: StaticDisplayCapabilities<64> =
+    piaf::capabilities_from_edid_static(&parsed, HANDLERS);
+```
+
+Static handlers extract modes only — audio, VSDB, colorimetry, and similar rich metadata
+require the dynamic pipeline.
 
 ## Features
 
@@ -107,10 +138,18 @@ if let Some(data) = caps.get_extension_data::<MyCeaData>(0x02) {
 
 ## `no_std` builds
 
-Bare `no_std` (neither `std` nor `alloc`) is supported. The extension handler
-pipeline is unavailable; base block decoding runs directly into `DisplayCapabilities`.
+Bare `no_std` (neither `std` nor `alloc`) is supported. The dynamic extension handler
+pipeline (`ExtensionLibrary`, `capabilities_from_edid`) requires `alloc` or `std`.
+The static pipeline (`capabilities_from_edid_static`) is available unconditionally.
 
-Fields available in all build configurations:
+In bare `no_std`, `ParsedEdid` does not store extension blocks (that field is
+alloc-gated), so `capabilities_from_edid_static` returns base-block data only —
+`StaticDisplayCapabilities` with all scalar fields populated and modes from established
+timings, standard timings, and detailed timing descriptors.
+
+To also get modes from CEA-861 extension blocks, enable the `alloc` or `std` feature.
+
+### Fields in `DisplayCapabilities` available in all build configurations
 
 | Field | Type |
 |-------|------|
@@ -141,13 +180,17 @@ Fields available in all build configurations:
 | `color_management` | `Option<ColorManagementData>` |
 | `warnings` | `[Option<EdidWarning>; 8]` (first 8; use `iter_warnings()`) |
 
-Fields requiring `alloc` or `std`:
+These fields are absent from `DisplayCapabilities` without `alloc` or `std`:
 
 | Field | Reason |
 |-------|--------|
 | `supported_modes` | Variable-length list of video modes |
 | `extension_data` | Type-erased handler data via `Arc<dyn ExtensionData>` |
 | `warnings` (full) | `Vec<ParseWarning>` in alloc builds; use `iter_warnings()` for portable access |
+
+**For supported modes without heap allocation**, use `capabilities_from_edid_static` instead.
+It returns `StaticDisplayCapabilities<N>`, which holds all the scalar fields above plus a
+fixed-capacity `[Option<VideoMode>; N]` array accessible via `iter_modes()`.
 
 Fixed-length string fields (`MonitorString`, `ManufacturerId`) use fixed-size byte
 array newtypes with `Display` and `Deref<Target = str>` impls, so they behave like
@@ -220,6 +263,7 @@ Design and architecture notes live under [`doc/`](doc/):
 - [`doc/architecture.md`](doc/architecture.md) — pipeline and layer overview
 - [`doc/model.md`](doc/model.md) — data model and type design
 - [`doc/extensibility.md`](doc/extensibility.md) — extension system guide
+- [`doc/static-pipeline.md`](doc/static-pipeline.md) — static pipeline design and API reference
 - [`doc/scope.md`](doc/scope.md) — scope and evolution strategy
 - [`doc/testing.md`](doc/testing.md) — testing strategy and fuzzing
 - [`doc/cea861-vsdb.md`](doc/cea861-vsdb.md) — VSDB wire formats (HDMI 1.x and HDMI Forum)

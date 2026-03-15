@@ -10,10 +10,14 @@ byte array; extension blocks are stored the same way and dispatched by tag.
 ```rust
 pub struct ParsedEdid {
     pub base_block: [u8; 128],
+    // alloc/std only:
     pub extensions: Vec<[u8; 128]>,
     pub warnings: Vec<ParseWarning>,
 }
 ```
+
+In bare `no_std` builds (no `alloc`), `extensions` and `warnings` are absent. The base block
+is always present.
 
 This structure is useful for:
 
@@ -24,7 +28,11 @@ This structure is useful for:
 
 ## Capability representation
 
-`DisplayCapabilities` is the consumer-facing output. Fields are `Option` where the source
+PIAF provides two output types depending on the pipeline used.
+
+### `DisplayCapabilities` (dynamic pipeline, `alloc`/`std`)
+
+The consumer-facing output for the dynamic pipeline. Fields are `Option` where the source
 data may be absent or undecodable. The `extension_data` field allows handlers to attach
 typed custom data without modifying the struct.
 
@@ -73,6 +81,39 @@ pub struct DisplayCapabilities {
 Rate fields (`min_v_rate`, `max_v_rate`, `min_h_rate_khz`, `max_h_rate_khz`) are `u16`
 rather than `u8` because the `0xFD` range limits descriptor can add a 255-unit offset to
 extend beyond the 8-bit range.
+
+### `StaticDisplayCapabilities<const MAX_MODES: usize>` (static pipeline, all tiers)
+
+The output type for `capabilities_from_edid_static`. Contains all the same scalar fields as
+`DisplayCapabilities` (same names, same types), plus fixed-capacity arrays for modes and
+warnings:
+
+```rust
+pub struct StaticDisplayCapabilities<const MAX_MODES: usize> {
+    // All scalar fields identical to DisplayCapabilities
+    pub manufacturer: Option<ManufacturerId>,
+    // ...
+
+    // Mode and warning storage
+    pub supported_modes: [Option<VideoMode>; MAX_MODES],
+    pub num_modes: usize,
+    pub warnings: [Option<EdidWarning>; 8],
+    pub num_warnings: usize,
+}
+```
+
+Access modes and warnings through iterators rather than indexing directly:
+
+```rust
+for mode in caps.iter_modes() { /* &VideoMode */ }
+for warn in caps.iter_warnings() { /* &EdidWarning */ }
+```
+
+Modes and warnings beyond capacity are silently dropped — matching the existing 8-warning cap
+philosophy. 64 is a reasonable default for `MAX_MODES`.
+
+`StaticDisplayCapabilities` does not have an `extension_data` field. Rich extension metadata
+(audio, VSDB, colorimetry, HDR) is only available through the dynamic pipeline.
 
 ## Why separate them
 

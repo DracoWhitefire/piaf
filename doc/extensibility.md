@@ -21,21 +21,60 @@ This document describes the extension points and how to use them.
 
 ## Extension handlers
 
-`ExtensionHandler` is the primary extension point. Implement it to process any EDID block —
-base or extension — and write results into `DisplayCapabilities`.
+PIAF provides two handler traits that cover different build tiers. Use the one that matches
+your allocation constraints.
+
+### `ExtensionHandler` (dynamic, `alloc`/`std`)
+
+`ExtensionHandler` is the primary extension point for std builds. Implement it to process
+any EDID block — base or extension — and write results into `DisplayCapabilities`. Handlers
+are registered via `ExtensionLibrary` using `Box<dyn ExtensionHandler>`.
 
 ```rust
 #[derive(Debug)]
 struct MyHandler;
 
 impl ExtensionHandler for MyHandler {
-    fn process(&self, block: &[u8; 128], caps: &mut DisplayCapabilities, warnings: &mut Vec<EdidWarning>) {
+    fn process(&self, block: &[u8; 128], caps: &mut DisplayCapabilities, warnings: &mut Vec<ParseWarning>) {
         // Read from block, write to caps or warnings
     }
 }
 ```
 
-### Registering a base block handler
+### `StaticExtensionHandler` (static, all tiers)
+
+`StaticExtensionHandler` is the no-alloc counterpart. Handlers are `'static` references in
+a slice rather than boxed trait objects. Output goes to a `dyn ModeSink` rather than
+`DisplayCapabilities` directly — this means mode extraction only; rich metadata requires
+`ExtensionHandler`.
+
+```rust
+struct MyHandler;
+
+impl StaticExtensionHandler for MyHandler {
+    fn tag(&self) -> u8 { 0xAB }
+    fn process(&self, block: &[u8; 128], sink: &mut dyn ModeSink) {
+        // push modes via sink.push_mode(...)
+    }
+}
+
+static MY_HANDLER: MyHandler = MyHandler;
+```
+
+Pass a slice of static references to `capabilities_from_edid_static`:
+
+```rust
+static HANDLERS: &[&dyn StaticExtensionHandler] = &[piaf::CEA861_HANDLER, &MY_HANDLER];
+
+let caps: StaticDisplayCapabilities<64> =
+    capabilities_from_edid_static(&parsed, HANDLERS);
+```
+
+Because `tag()` makes each handler self-describing, the same slice can be passed directly to
+`parse_edid` as a `KnownExtensions` implementation — no separate `ExtensionTagRegistry`
+needed.
+
+### Registering a base block handler (dynamic pipeline)
 
 Use `add_base_handler` to register one or more handlers for the base block. All registered
 handlers are called in order.
@@ -45,7 +84,7 @@ let mut library = ExtensionLibrary::with_standard_handlers();
 library.add_base_handler(MyBaseHandler);
 ```
 
-### Registering an extension block handler
+### Registering an extension block handler (dynamic pipeline)
 
 Extension block handlers are registered per tag via `ExtensionMetadata`.
 
@@ -65,7 +104,7 @@ let parsed = parse_edid(&bytes, &library)?;
 let caps = capabilities_from_edid(&parsed, &library);
 ```
 
-### Replacing a built-in handler
+### Replacing a built-in handler (dynamic pipeline)
 
 The handlers registered by `with_standard_handlers()` can be replaced by mutating the
 library before use:
@@ -108,24 +147,36 @@ See `examples/inspect_displays.rs` for a working demonstration using CEA-861.
 
 ## Emitting warnings
 
-Handlers receive a `&mut Vec<EdidWarning>` and can push diagnostics that will be collected
-into `caps.warnings` after the pipeline completes.
+Dynamic handlers receive `&mut Vec<ParseWarning>` and can push any type implementing
+`core::error::Error + Send + Sync + 'static`. Built-in library code pushes `EdidWarning`
+variants; custom handlers may push their own types.
 
 ```rust
-warnings.push(EdidWarning::DescriptorParseFailed);
+warnings.push(Arc::new(EdidWarning::MalformedDataBlock));
+```
+
+Static handlers emit warnings via `ModeSink::push_warning`, which accepts `EdidWarning`
+directly (no boxing required):
+
+```rust
+sink.push_warning(EdidWarning::MalformedDataBlock);
 ```
 
 ## `no_std` support
 
-`ExtensionHandler` and dynamic dispatch require `alloc` or `std`. In `no_std` without an
-allocator, handlers are unavailable.
+`ExtensionHandler` and `ExtensionLibrary` require `alloc` or `std`. `StaticExtensionHandler`
+and `capabilities_from_edid_static` are available unconditionally.
 
-Tag registration is available in all configurations via `ExtensionTagRegistry`:
+In bare `no_std` (no `alloc`), `ParsedEdid` does not store extension blocks, so static
+handlers receive no extension block calls. Base block modes are still extracted.
+
+For tag-only registration without handlers (e.g., to suppress `UnknownExtension` warnings),
+`ExtensionTagRegistry` is available at all tiers and holds up to 16 tags in a fixed-size
+array. A `&[&dyn StaticExtensionHandler]` slice also implements `KnownExtensions` and is
+generally the better choice when you already have handlers registered.
 
 ```rust
-let mut registry = ExtensionTagRegistry::new();
-registry.register(0xAB);
+// Either works for parse_edid:
 let parsed = parse_edid(&bytes, &registry)?;
+let parsed = parse_edid(&bytes, piaf::STANDARD_HANDLERS)?;
 ```
-
-`ExtensionTagRegistry` holds up to 16 tags in a fixed-size array in `no_std` builds.
