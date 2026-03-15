@@ -117,8 +117,10 @@ pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities) {
         return;
     }
 
-    let rate = (pixel_clock * 10_000) / total_pixels;
-    let Some(refresh_rate) = u8::try_from(rate).ok() else {
+    let Some(refresh_rate) = pixel_clock
+        .checked_mul(10_000)
+        .and_then(|scaled| u8::try_from(scaled / total_pixels).ok())
+    else {
         return;
     };
 
