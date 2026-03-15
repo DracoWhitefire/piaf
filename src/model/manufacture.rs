@@ -42,6 +42,15 @@ impl ManufactureDate {
 /// Each character is an ASCII uppercase letter (A–Z). Valid IDs are registered with the IANA
 /// PNP registry. Well-known examples: `GSM` (LG), `SAM` (Samsung), `DEL` (Dell).
 ///
+/// # Invariant
+///
+/// All three bytes must be ASCII uppercase letters (`b'A'`–`b'Z'`, i.e. `0x41`–`0x5A`).
+/// The library only constructs this type after validating that constraint. If you construct
+/// one manually via the public field, you are responsible for maintaining the invariant;
+/// methods on this type will panic in debug builds if it is violated.
+///
+/// Use [`ManufacturerId::from_ascii`] for a checked construction path.
+///
 /// Available in all build configurations including bare `no_std`. The `Display` impl renders
 /// the three-character string directly, so `format!("{}", id)` and `id.to_string()` both work
 /// wherever a `Display` bound is satisfied.
@@ -50,11 +59,28 @@ impl ManufactureDate {
 pub struct ManufacturerId(pub [u8; 3]);
 
 impl ManufacturerId {
+    /// Constructs a `ManufacturerId` from three raw bytes, returning `None` if any byte is
+    /// not an ASCII uppercase letter (`A`–`Z`).
+    pub fn from_ascii(bytes: [u8; 3]) -> Option<Self> {
+        if bytes.iter().all(|&b| b.is_ascii_uppercase()) {
+            Some(Self(bytes))
+        } else {
+            None
+        }
+    }
+
     /// Returns the ID as a `&str` slice.
     ///
-    /// The bytes are always valid ASCII uppercase letters, so this never fails.
+    /// Panics in debug builds if the stored bytes are not ASCII uppercase letters, which
+    /// would indicate the type invariant was violated at construction time.
     pub fn as_str(&self) -> &str {
-        core::str::from_utf8(&self.0).unwrap_or("???")
+        debug_assert!(
+            self.0.iter().all(|&b| b.is_ascii_uppercase()),
+            "ManufacturerId invariant violated: bytes must be ASCII uppercase A-Z, got {:?}",
+            self.0
+        );
+        // Safety: ASCII uppercase bytes are always valid UTF-8.
+        core::str::from_utf8(&self.0).expect("ManufacturerId bytes must be ASCII uppercase A-Z")
     }
 }
 
