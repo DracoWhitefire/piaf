@@ -703,22 +703,6 @@ impl StaticExtensionHandler for Cea861Handler {
 /// as a single-element slice.
 pub static CEA861_HANDLER: &dyn StaticExtensionHandler = &Cea861Handler;
 
-/// Pre-built static handler slice containing the standard built-in handlers (CEA-861 only).
-///
-/// Pass to [`parse_edid`][crate::parse_edid] and
-/// [`capabilities_from_edid_static`][crate::capabilities_from_edid_static] for the
-/// common case where no custom extension handlers are needed:
-///
-/// ```no_run
-/// use piaf::{parse_edid, capabilities_from_edid_static, StaticDisplayCapabilities, STANDARD_HANDLERS};
-///
-/// let bytes: &[u8] = &[/* raw EDID bytes */];
-/// let parsed = parse_edid(bytes, STANDARD_HANDLERS).unwrap();
-/// let caps: StaticDisplayCapabilities<64> =
-///     capabilities_from_edid_static(&parsed, STANDARD_HANDLERS);
-/// ```
-pub static STANDARD_HANDLERS: &[&dyn StaticExtensionHandler] = &[&Cea861Handler];
-
 #[cfg(test)]
 mod test_static {
     use super::*;

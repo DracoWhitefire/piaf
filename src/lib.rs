@@ -56,6 +56,8 @@ pub use parser::{parse_edid, parse_edid_owned};
 /// Capability extraction from a [`ParsedEdid`].
 pub mod capabilities;
 pub use capabilities::Cea861Flags;
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use capabilities::DisplayIdCapabilities;
 pub use capabilities::capabilities_from_edid;
 pub use capabilities::capabilities_from_edid_static;
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -69,4 +71,6 @@ pub use capabilities::{
     VendorSpecificBlock, VesaDisplayDeviceBlock, VesaTransferCharacteristic, VideoCapability,
     VideoCapabilityFlags, VtbExtBlock, infoframe_type,
 };
-pub use capabilities::{CEA861_HANDLER, Cea861Handler, STANDARD_HANDLERS};
+pub use capabilities::{
+    CEA861_HANDLER, Cea861Handler, DISPLAYID_HANDLER, DisplayIdHandler, STANDARD_HANDLERS,
+};

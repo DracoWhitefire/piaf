@@ -237,13 +237,13 @@ Steps are ordered so each builds on the last. Remove this section once all items
 
 ### DisplayID handler
 
-- [ ] Create `src/capabilities/displayid/mod.rs`; add `mod displayid` to `src/capabilities/mod.rs`
-- [ ] Implement fragment validation: check tag, version, extension count against slice length; emit warnings on mismatch
-- [ ] Implement logical block iteration across the reassembled payload
-- [ ] Define `DisplayIdCapabilities` struct
-- [ ] Implement data block decoders (timing blocks first: Type I, Type VII; identity and interface blocks after)
-- [ ] Wire `DisplayIdHandler` into `with_standard_handlers()` (dynamic pipeline)
-- [ ] Wire `DisplayIdHandler` into `STANDARD_HANDLERS` (static pipeline)
+- [x] Create `src/capabilities/displayid/mod.rs`; add `mod displayid` to `src/capabilities/mod.rs`
+- [x] Implement fragment validation: check tag, version, extension count against slice length; emit warnings on mismatch
+- [x] Implement logical block iteration across the reassembled payload
+- [x] Define `DisplayIdCapabilities` struct
+- [x] Implement data block decoders (Type I timing; further block types pending)
+- [x] Wire `DisplayIdHandler` into `with_standard_handlers()` (dynamic pipeline)
+- [x] Wire `DisplayIdHandler` into `STANDARD_HANDLERS` (static pipeline)
 
 ### Docs and tests
 

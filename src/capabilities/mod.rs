@@ -1,5 +1,6 @@
 mod base;
 mod cea861;
+mod displayid;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use base::BaseBlockHandler;
@@ -15,7 +16,27 @@ pub use cea861::{
     VendorSpecificBlock, VesaDisplayDeviceBlock, VesaTransferCharacteristic, VideoCapability,
     VideoCapabilityFlags, VtbExtBlock, infoframe_type,
 };
-pub use cea861::{CEA861_HANDLER, Cea861Handler, STANDARD_HANDLERS};
+pub use cea861::{CEA861_HANDLER, Cea861Handler};
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use displayid::DisplayIdCapabilities;
+pub use displayid::{DISPLAYID_HANDLER, DisplayIdHandler};
+
+/// Pre-built static handler slice containing the standard built-in handlers
+/// (CEA-861 and DisplayID).
+///
+/// Pass to [`parse_edid`][crate::parse_edid] and
+/// [`capabilities_from_edid_static`][crate::capabilities_from_edid_static] for the
+/// common case where no custom extension handlers are needed:
+///
+/// ```no_run
+/// use piaf::{parse_edid, capabilities_from_edid_static, StaticDisplayCapabilities, STANDARD_HANDLERS};
+///
+/// let bytes: &[u8] = &[/* raw EDID bytes */];
+/// let parsed = parse_edid(bytes, STANDARD_HANDLERS).unwrap();
+/// let caps: StaticDisplayCapabilities<64> =
+///     capabilities_from_edid_static(&parsed, STANDARD_HANDLERS);
+/// ```
+pub static STANDARD_HANDLERS: &[&dyn StaticExtensionHandler] = &[&Cea861Handler, &DisplayIdHandler];
 
 use crate::model::capabilities::{DisplayCapabilities, ModeSink, StaticDisplayCapabilities};
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -37,6 +58,9 @@ impl ExtensionLibrary {
         lib.add_base_handler(BaseBlockHandler);
         if let Some(cea) = lib.extensions.iter_mut().find(|e| e.tag == 0x02) {
             cea.handler = Some(Box::new(Cea861Handler));
+        }
+        if let Some(did) = lib.extensions.iter_mut().find(|e| e.tag == 0x70) {
+            did.handler = Some(Box::new(DisplayIdHandler));
         }
         lib
     }
