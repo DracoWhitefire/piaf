@@ -1,43 +1,71 @@
 # PIAF
 
-PIAF is a Rust library for reading and interpreting display capability data from EDID (Extended Display Identification Data) byte streams.
+A Rust library for decoding EDID display capability data into a clean, typed model.
 
-It accepts raw display identification bytes, validates and decodes them, and exposes the result as a typed `DisplayCapabilities` model. PIAF is designed as a small, modular building block for display and HDMI-adjacent interoperability projects.
+PIAF reads raw EDID bytes — from a file, a kernel sysfs node, or a direct I²C read —
+and produces a `DisplayCapabilities` value with all the information a display or
+HDMI-adjacent application typically needs: identity, input type, supported modes,
+color characteristics, HDR metadata, audio capabilities, and more.
 
-## Quick start
+Decoding happens in two steps. `parse_edid` validates the raw bytes and produces a
+`ParsedEdid`, which holds the block structure close to the wire format. `capabilities_from_edid`
+then runs the registered extension handlers over that structure and produces a
+`DisplayCapabilities` — the typed, stable model your application works with. Keeping
+these steps separate means you can inspect the raw parse result for debugging, or run
+multiple handler configurations over the same parsed data without re-parsing.
 
 ```rust
 use piaf::{parse_edid, capabilities_from_edid, ExtensionLibrary, ScreenSize};
 
-let bytes: Vec<u8> = std::fs::read("/sys/class/drm/card0-HDMI-A-1/edid")?;
+let bytes = std::fs::read("/sys/class/drm/card0-HDMI-A-1/edid")?;
 let library = ExtensionLibrary::with_standard_handlers();
 let parsed = parse_edid(&bytes, &library)?;
 let caps = capabilities_from_edid(&parsed, &library);
 
-println!("{:?}", caps.display_name);
+println!("Display: {}", caps.display_name.as_deref().unwrap_or("unknown"));
 if let Some(ScreenSize::Physical { width_cm, height_cm }) = caps.screen_size {
-    println!("{}x{} cm", width_cm, height_cm);
+    println!("{}×{} cm", width_cm, height_cm);
+}
+for mode in &caps.supported_modes {
+    println!("  {}×{}@{}", mode.width, mode.height, mode.refresh_rate);
 }
 ```
 
-## Core pipeline
+See [`examples/inspect_displays.rs`](examples/inspect_displays.rs) for a more complete example.
 
-```mermaid
-flowchart LR
-    A[Input Bytes] --> B[Block Validation]
-    K[KnownExtensions] --> B
-    B --> C[Structured Parse]
-    C --> D[ParsedEdid]
-    C --> G[Parse Warnings]
-    D --> E[Extension Handlers]
-    L[ExtensionLibrary] --> E
-    E --> F[DisplayCapabilities]
-    E --> H[Handler Warnings]
-```
+## Why PIAF
+
+**Deep CEA-861 coverage.** Most EDID libraries decode the base block and stop.
+PIAF decodes 20+ CEA-861 data block types, including HDR static and dynamic metadata,
+HDMI 1.x and HDMI Forum VSDBs, colorimetry, speaker allocation, video timing blocks,
+and the HDMI Forum Sink Capability block. If the information is in the EDID, PIAF
+exposes it as typed fields rather than raw bytes.
+
+**Pluggable handlers.** The extension handler system lets you register your own handler
+for any extension block tag — override the built-in CEA-861 handler, add support for
+a proprietary block, or attach typed custom data to `DisplayCapabilities` for downstream
+consumers. Base block parsing is pluggable too.
+
+**Honest diagnostics.** PIAF distinguishes between hard parse errors (invalid header,
+checksum failure, truncated input) and non-fatal warnings (unknown extension block,
+malformed data block, out-of-range manufacturer ID). You decide how strict to be;
+nothing is silently discarded.
+
+**`no_std` support.** The library runs on bare metal. In `no_std` builds without
+`alloc`, base block decoding runs in full and most `DisplayCapabilities` fields
+are available — see [`no_std` builds](#no_std-builds) below.
+
+**Stable consumer model.** `ParsedEdid` preserves raw bytes; `DisplayCapabilities`
+is the typed, stable output. Parser improvements don't change the consumer-facing API.
 
 ## Extension system
 
-The extension handler system is the main integration point for consumers. Handlers receive a raw 128-byte block and populate `DisplayCapabilities` directly:
+The built-in `Cea861Handler` covers the common case. You'd write your own handler to
+support a proprietary extension block, augment or replace CEA-861 decoding with
+application-specific logic, or extract fields that PIAF doesn't expose directly into
+your own typed data attached to `DisplayCapabilities`.
+
+Register a handler for any extension block tag:
 
 ```rust
 use piaf::{ExtensionHandler, DisplayCapabilities, EdidWarning, ExtensionLibrary};
@@ -59,9 +87,7 @@ library.register(ExtensionMetadata {
 });
 ```
 
-Base block parsing is also pluggable via `add_base_handler`, allowing the default `BaseBlockHandler` to be extended or replaced.
-
-Custom typed data can be attached to `DisplayCapabilities` and retrieved by downstream code:
+Typed data can be attached to `DisplayCapabilities` and retrieved by tag:
 
 ```rust
 caps.set_extension_data(0x02, MyCeaData { version: block[1] });
@@ -70,16 +96,6 @@ if let Some(data) = caps.get_extension_data::<MyCeaData>(0x02) {
     println!("CEA version: {}", data.version);
 }
 ```
-
-See [`examples/inspect_displays.rs`](examples/inspect_displays.rs) for a complete working example.
-
-## Design goals
-
-- **Separation between parsing and normalization** — `ParsedEdid` preserves raw structure; `DisplayCapabilities` is the consumer-facing output
-- **Pluggable extension handlers** — consumers register handlers without modifying the library
-- **Structured diagnostics** — hard errors prevent parsing; warnings surface non-fatal issues from both the parser and handlers
-- **`no_std` compatibility** — core modules avoid the standard library; `alloc` is used where dynamic allocation is needed
-- **Optional `serde` support** — enable with `--features serde`
 
 ## Features
 
@@ -91,10 +107,8 @@ See [`examples/inspect_displays.rs`](examples/inspect_displays.rs) for a complet
 
 ## `no_std` builds
 
-Bare `no_std` (neither `std` nor `alloc`) is supported. The pipeline is reduced:
-`parse_edid` and the extension handler system are unavailable; call
-`capabilities_from_edid` with an empty `ExtensionLibrary` and the base block is
-decoded directly into `DisplayCapabilities`.
+Bare `no_std` (neither `std` nor `alloc`) is supported. The extension handler
+pipeline is unavailable; base block decoding runs directly into `DisplayCapabilities`.
 
 Fields available in all build configurations:
 
