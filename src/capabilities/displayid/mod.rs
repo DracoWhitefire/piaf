@@ -8,6 +8,8 @@ use crate::model::diagnostics::ParseWarning;
 use crate::model::extension::ExtensionHandler;
 use crate::model::extension::StaticExtensionHandler;
 #[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::manufacture::{ManufactureDate, ManufacturerId, MonitorString};
+#[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{Arc, Vec};
 
 /// Rich capabilities extracted from a DisplayID extension section.
@@ -38,6 +40,9 @@ const DISPLAYID_V1_MIN: u8 = 0x10;
 const DISPLAYID_V1_MAX: u8 = 0x1F;
 /// Version byte for DisplayID 2.x.
 const DISPLAYID_V2: u8 = 0x20;
+
+/// Data block tag for the Product Identification Block (DisplayID 1.x §4.2).
+const TAG_PRODUCT_ID: u8 = 0x00;
 
 /// Data block tag for the Detailed Timings Block (Type I descriptors, DisplayID 1.x §4.4.2).
 const TAG_TYPE_I_TIMING: u8 = 0x03;
@@ -124,12 +129,11 @@ fn decode_type_i_descriptor(d: &[u8; 20], sink: &mut dyn ModeSink) {
     });
 }
 
-/// Iterates DisplayID 1.x data blocks within a fragment's payload region and pushes
-/// decoded modes to `sink`.
+/// Calls `f(tag, block_payload)` for each well-formed data block in `payload`.
 ///
-/// `payload` must be the data-block region: bytes `block[4..4+section_byte_count]`,
-/// clamped to `block[4..127]` to exclude the checksum byte.
-fn process_data_blocks(payload: &[u8], sink: &mut dyn ModeSink) {
+/// Stops at the end-of-section sentinel (tag `0x00`, length `0`) or when a block's
+/// declared length would extend past the available payload.
+fn for_each_data_block(payload: &[u8], mut f: impl FnMut(u8, &[u8])) {
     let mut offset = 0;
     while offset + 3 <= payload.len() {
         let tag = payload[offset];
@@ -146,7 +150,18 @@ fn process_data_blocks(payload: &[u8], sink: &mut dyn ModeSink) {
             break;
         }
 
-        let block_payload = &payload[offset + 3..block_end];
+        f(tag, &payload[offset + 3..block_end]);
+        offset = block_end;
+    }
+}
+
+/// Iterates DisplayID 1.x data blocks within a fragment's payload region and pushes
+/// decoded modes to `sink`.
+///
+/// `payload` must be the data-block region: bytes `block[4..4+section_byte_count]`,
+/// clamped to `block[4..127]` to exclude the checksum byte.
+fn process_data_blocks(payload: &[u8], sink: &mut dyn ModeSink) {
+    for_each_data_block(payload, |tag, block_payload| {
         if tag == TAG_TYPE_I_TIMING {
             let mut i = 0;
             while i + 20 <= block_payload.len() {
@@ -156,9 +171,81 @@ fn process_data_blocks(payload: &[u8], sink: &mut dyn ModeSink) {
             }
         }
         // Unknown block tags are silently skipped.
+    });
+}
 
-        offset = block_end;
+/// Decodes a Product Identification Block payload into `caps`.
+///
+/// Payload layout (DisplayID 1.x §4.2):
+/// - Bytes 0–1: Manufacturer ID (2-byte PNP-encoded, same as EDID base block)
+/// - Bytes 2–3: Product code (little-endian uint16)
+/// - Bytes 4–7: Serial number (little-endian uint32; `0` = not specified)
+/// - Byte  8:   Week of manufacture (`0` = unspecified, `0xFF` = model year)
+/// - Byte  9:   Year (`byte + 1990`; when week = `0xFF`, this is the model year)
+/// - Bytes 10+: ASCII product name (space-padded, `0x0A`-terminated; may be absent)
+///
+/// Fields are written only when the payload is long enough to contain them.
+/// If the block is already populated (e.g. by the EDID base block), the values
+/// are overwritten by the DisplayID data.
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn decode_product_id_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    // Manufacturer ID — 2-byte packed PNP encoding (same as EDID base block bytes 0x08–0x09).
+    if payload.len() >= 2 {
+        let id_raw = ((payload[0] as u16) << 8) | (payload[1] as u16);
+        let char1 = ((id_raw >> 10) & 0x1F) as u8;
+        let char2 = ((id_raw >> 5) & 0x1F) as u8;
+        let char3 = (id_raw & 0x1F) as u8;
+        if (1..=26).contains(&char1) && (1..=26).contains(&char2) && (1..=26).contains(&char3) {
+            caps.manufacturer = Some(ManufacturerId([
+                char1 + b'A' - 1,
+                char2 + b'A' - 1,
+                char3 + b'A' - 1,
+            ]));
+        }
     }
+
+    // Product code (LE uint16).
+    if payload.len() >= 4 {
+        caps.product_code = Some(u16::from_le_bytes([payload[2], payload[3]]));
+    }
+
+    // Serial number (LE uint32; 0 = not specified).
+    if payload.len() >= 8 {
+        let sn = u32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]);
+        if sn != 0 {
+            caps.serial_number = Some(sn);
+        }
+    }
+
+    // Manufacture / model year.
+    if payload.len() >= 10 {
+        caps.manufacture_date = Some(ManufactureDate::from_edid_bytes(payload[8], payload[9]));
+    }
+
+    // Product name: bytes 10+ (ASCII, 0x0A-terminated, space-padded; max 13 bytes stored).
+    if payload.len() >= 11 {
+        let name_bytes = &payload[10..];
+        let mut buf = [b' '; 13];
+        let copy_len = name_bytes.len().min(13);
+        buf[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
+        // Ensure there is a 0x0A terminator within the buffer.
+        if !buf.contains(&0x0A) {
+            let term_pos = copy_len.min(12);
+            buf[term_pos] = 0x0A;
+        }
+        caps.display_name = Some(MonitorString(buf));
+    }
+}
+
+/// Scans all data blocks in `payload` for a Product Identification Block (tag `0x00`)
+/// and decodes the first one found into `caps`.
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn scan_product_id_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    for_each_data_block(payload, |tag, block_payload| {
+        if tag == TAG_PRODUCT_ID {
+            decode_product_id_block(block_payload, caps);
+        }
+    });
 }
 
 /// Returns the data-block payload slice for a single DisplayID fragment.
@@ -212,7 +299,9 @@ impl ExtensionHandler for DisplayIdHandler {
 
         // Process data blocks from all fragments.
         for block in blocks {
-            process_data_blocks(fragment_payload(block), caps);
+            let payload = fragment_payload(block);
+            process_data_blocks(payload, caps);
+            scan_product_id_block(payload, caps);
         }
     }
 }
@@ -266,6 +355,7 @@ impl StaticExtensionHandler for DisplayIdHandler {
 /// specification once a real DisplayID fixture is available.
 #[cfg(test)]
 const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
+    TAG_PRODUCT_ID,    // 0x00 — Product Identification Block
     TAG_TYPE_I_TIMING, // 0x03 — Detailed Timings Block (Type I descriptors)
 ];
 
@@ -276,7 +366,6 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
 /// implemented, remove its tag from here and add it to `IMPLEMENTED_BLOCK_TAGS`.
 #[cfg(test)]
 const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
-    (0x00, 0x00), // Product Identification (EOS sentinel when length=0; data block otherwise)
     (0x01, 0x01), // Display Parameters Block
     (0x02, 0x02), // Color Characteristics Block
     (0x04, 0x13), // Type II–VI timings, interface and identity blocks, Tiled Display Topology
@@ -297,6 +386,7 @@ mod tests {
     use super::*;
     use crate::model::capabilities::StaticDisplayCapabilities;
     use crate::model::extension::ExtensionHandler;
+    use crate::model::manufacture::{ManufactureDate, ManufacturerId};
 
     fn make_displayid_block(version: u8, data_blocks: &[u8]) -> [u8; 128] {
         let mut block = [0u8; 128];
@@ -589,6 +679,179 @@ mod tests {
         ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
 
         assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 1920);
+    }
+
+    // -----------------------------------------------------------------------
+    // Product Identification Block (tag 0x00)
+    // -----------------------------------------------------------------------
+
+    fn make_product_id_payload(
+        manufacturer_raw: u16, // packed PNP encoding
+        product_code: u16,
+        serial: u32,
+        week: u8,
+        year_offset: u8, // actual year = offset + 1990
+        name: Option<&[u8]>,
+    ) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&manufacturer_raw.to_be_bytes());
+        v.extend_from_slice(&product_code.to_le_bytes());
+        v.extend_from_slice(&serial.to_le_bytes());
+        v.push(week);
+        v.push(year_offset);
+        if let Some(n) = name {
+            v.extend_from_slice(n);
+        }
+        v
+    }
+
+    fn make_product_id_data_block(payload: &[u8]) -> Vec<u8> {
+        let mut db = Vec::new();
+        db.push(TAG_PRODUCT_ID); // tag 0x00
+        db.push(0x00); // revision
+        db.push(payload.len() as u8);
+        db.extend_from_slice(payload);
+        db
+    }
+
+    /// Pack three ASCII uppercase letters into the 2-byte PNP manufacturer ID encoding.
+    fn pack_manufacturer_id(a: u8, b: u8, c: u8) -> u16 {
+        let ca = (a - b'A' + 1) as u16;
+        let cb = (b - b'A' + 1) as u16;
+        let cc = (c - b'A' + 1) as u16;
+        (ca << 10) | (cb << 5) | cc
+    }
+
+    #[test]
+    fn test_product_id_manufacturer_and_product_code() {
+        // Encode "SAM" and product code 0x1234.
+        let packed = pack_manufacturer_id(b'S', b'A', b'M');
+        let payload = make_product_id_payload(packed, 0x1234, 0, 0, 0, None);
+        let db = make_product_id_data_block(&payload);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.manufacturer, Some(ManufacturerId(*b"SAM")));
+        assert_eq!(caps.product_code, Some(0x1234));
+    }
+
+    #[test]
+    fn test_product_id_serial_number() {
+        let packed = pack_manufacturer_id(b'D', b'E', b'L');
+        let payload = make_product_id_payload(packed, 0x0001, 0xDEADBEEF, 0, 0, None);
+        let db = make_product_id_data_block(&payload);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.serial_number, Some(0xDEAD_BEEF));
+    }
+
+    #[test]
+    fn test_product_id_zero_serial_not_stored() {
+        let packed = pack_manufacturer_id(b'G', b'S', b'M');
+        let payload = make_product_id_payload(packed, 0x0001, 0, 0, 0, None);
+        let db = make_product_id_data_block(&payload);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.serial_number, None);
+    }
+
+    #[test]
+    fn test_product_id_manufacture_date() {
+        let packed = pack_manufacturer_id(b'A', b'P', b'L');
+        // Week 10, year 2020 → year_byte = 2020 - 1990 = 30
+        let payload = make_product_id_payload(packed, 0x0001, 0, 10, 30, None);
+        let db = make_product_id_data_block(&payload);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(
+            caps.manufacture_date,
+            Some(ManufactureDate::Manufactured {
+                week: Some(10),
+                year: 2020
+            })
+        );
+    }
+
+    #[test]
+    fn test_product_id_display_name() {
+        let packed = pack_manufacturer_id(b'H', b'W', b'P');
+        // Name "Z27k G2" as ASCII with 0x0A terminator.
+        let name: &[u8] = b"Z27k G2\x0a     ";
+        let payload = make_product_id_payload(packed, 0x0042, 0, 0, 34, Some(name));
+        let db = make_product_id_data_block(&payload);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.display_name.as_deref(), Some("Z27k G2"));
+    }
+
+    #[test]
+    fn test_product_id_too_short_does_not_panic() {
+        // A product ID block that is only 1 byte long — too short for any field.
+        let mut db = [0u8; 4]; // tag, revision, length=1, one byte
+        db[0] = TAG_PRODUCT_ID;
+        db[1] = 0x00;
+        db[2] = 1;
+        db[3] = 0xFF;
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.manufacturer, None);
+        assert_eq!(caps.product_code, None);
+    }
+
+    #[test]
+    fn test_product_id_and_timing_in_same_block() {
+        // Product ID block followed by a Type I timing block — both must be decoded.
+        let packed = pack_manufacturer_id(b'S', b'A', b'M');
+        let pid_payload = make_product_id_payload(packed, 0xABCD, 0, 0, 0, None);
+        let pid_db = make_product_id_data_block(&pid_payload);
+
+        let desc = make_type_i_descriptor(14850, 1920, 280, 88, 44, 1080, 45, 4, 5, 0x00);
+        let timing_db = make_type_i_data_block(&desc);
+
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&pid_db);
+        payload.extend_from_slice(&timing_db);
+
+        let block = make_displayid_block(0x10, &payload);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.manufacturer, Some(ManufacturerId(*b"SAM")));
+        assert_eq!(caps.product_code, Some(0xABCD));
         assert_eq!(caps.supported_modes.len(), 1);
         assert_eq!(caps.supported_modes[0].width, 1920);
     }

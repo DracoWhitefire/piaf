@@ -14,7 +14,7 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 
 | Tag | Block | Status |
 |---|---|---|
-| `0x00` | Product Identification Block (name, manufacturer ID, product code, serial) | — deferred |
+| `0x00` | Product Identification Block (name, manufacturer ID, product code, serial) | ✓ implemented |
 | `0x01` | Display Parameters Block (physical size, color bit depths, aspect ratio) | — deferred |
 | `0x02` | Color Characteristics Block (primaries, white point) | — deferred |
 | `0x03` | Detailed Timings Block (Type I — 20-byte descriptors) | ✓ implemented |
@@ -73,3 +73,21 @@ Refresh rate derived as `pixel_clock_hz / (h_total × v_total)` where
 Contains the display name string, manufacturer PNP ID, product code, and serial number.
 The end-of-section sentinel (tag `0x00`, length `0`) shares the tag byte; a Product
 Identification Block is distinguished by having a non-zero length field.
+
+```
+Bytes 0:     Block tag (0x00)
+Byte  1:     Revision
+Byte  2:     Payload length
+
+Per payload:
+  Bytes 0–1: Manufacturer ID (2-byte PNP-encoded, same as EDID base block bytes 0x08–0x09)
+  Bytes 2–3: Product code (LE uint16)
+  Bytes 4–7: Serial number (LE uint32; 0x00000000 = not specified)
+  Byte  8:   Week of manufacture (0 = unspecified, 0xFF = model year)
+  Byte  9:   Year (byte value + 1990; when week = 0xFF this is the model year)
+  Bytes 10+: Product name (ASCII, 0x0A-terminated, space-padded; up to 13 bytes stored)
+```
+
+Decoded fields are written to `DisplayCapabilities`: `manufacturer`, `product_code`,
+`serial_number`, `manufacture_date`, and `display_name`. A zero serial number is treated
+as unspecified and not stored.

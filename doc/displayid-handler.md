@@ -66,10 +66,26 @@ Stored under tag `0x70` in `DisplayCapabilities::extension_data`:
 | `version` | `u8` | Version byte from the section header (0x10–0x1F = v1.x, 0x20 = v2.x) |
 | `product_type` | `u8` | Display product primary use case, bits 2:0 of header byte 3 |
 
+## Extracted identification data
+
+**Product Identification Block** (tag `0x00`) is decoded into the following
+`DisplayCapabilities` fields (dynamic pipeline only):
+
+| `DisplayCapabilities` field | Source |
+|---|---|
+| `manufacturer` | Manufacturer PNP ID, 2-byte packed encoding (same as EDID base block) |
+| `product_code` | LE uint16 at payload bytes 2–3 |
+| `serial_number` | LE uint32 at payload bytes 4–7; `0` is treated as unspecified |
+| `manufacture_date` | Week/year bytes 8–9 (`year = byte + 1990`; week `0xFF` = model year) |
+| `display_name` | ASCII product name starting at byte 10 (up to 13 bytes stored) |
+
+If the DisplayID block appears alongside an EDID base block, DisplayID values overwrite
+any base-block values for the same fields.
+
 ## Extracted timing data
 
-The initial implementation decodes **Type I Video Timing** blocks (tag `0x01`). Each
-20-byte descriptor maps to a `VideoMode` with full timing detail:
+**Type I Video Timing blocks** (tag `0x03`) are decoded in both the dynamic and static
+pipelines. Each 20-byte descriptor maps to a `VideoMode` with full timing detail:
 
 | `VideoMode` field | Source |
 |---|---|
