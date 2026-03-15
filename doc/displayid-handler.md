@@ -212,7 +212,7 @@ Steps are ordered so each builds on the last. Remove this section once all items
 
 ### Infrastructure
 
-- [ ] Add `StaticContext<'a>` to `src/model/capabilities.rs`
+- [x] Add `StaticContext<'a>` to `src/model/capabilities.rs`
 - [ ] Change `ExtensionHandler::process` in `src/model/extension.rs` to take `&[&[u8; 128]]`
 - [ ] Change `StaticExtensionHandler::process` in `src/model/extension.rs` to take `(&[&[u8; 128]], &mut StaticContext<'_>)`
 

@@ -126,6 +126,36 @@ pub trait ModeSink {
     fn push_warning(&mut self, w: EdidWarning);
 }
 
+/// Output context passed to [`StaticExtensionHandler::process`][crate::StaticExtensionHandler].
+///
+/// Handlers write decoded data through this type rather than directly to a sink trait object.
+/// This allows the context to grow over time — additional sink types can be added as
+/// `Option` fields without changing the handler trait signature.
+///
+/// Currently wraps a [`ModeSink`] for video mode and warning output. Future fields will
+/// provide access to identity, colorimetry, and other sink types as the static pipeline
+/// is extended.
+pub struct StaticContext<'a> {
+    modes: &'a mut dyn ModeSink,
+}
+
+impl<'a> StaticContext<'a> {
+    /// Creates a new context backed by `modes`.
+    pub fn new(modes: &'a mut dyn ModeSink) -> Self {
+        Self { modes }
+    }
+
+    /// Pushes a decoded video mode. Duplicate modes are silently ignored.
+    pub fn push_mode(&mut self, mode: VideoMode) {
+        self.modes.push_mode(mode);
+    }
+
+    /// Pushes a non-fatal warning encountered while processing a block.
+    pub fn push_warning(&mut self, w: EdidWarning) {
+        self.modes.push_warning(w);
+    }
+}
+
 /// Consumer-facing display capability model derived from a parsed EDID.
 ///
 /// Fields are `Option` where the underlying EDID data may be absent or undecodable.

@@ -44,8 +44,9 @@ pub use model::{
     DigitalColorEncoding, DisplayCapabilities, DisplayFeatureFlags, DisplayGamma, EdidError,
     EdidSource, EdidVersion, EdidWarning, ExtensionLibrary, ExtensionMetadata,
     ExtensionTagRegistry, GtfSecondaryParams, KnownExtensions, ManufactureDate, ManufacturerId,
-    ModeSink, MonitorString, ParsedEdid, ParsedEdidRef, ScreenSize, StaticDisplayCapabilities,
-    StaticExtensionHandler, StereoMode, SyncDefinition, TimingFormula, VideoInputFlags,
+    ModeSink, MonitorString, ParsedEdid, ParsedEdidRef, ScreenSize, StaticContext,
+    StaticDisplayCapabilities, StaticExtensionHandler, StereoMode, SyncDefinition, TimingFormula,
+    VideoInputFlags,
     VideoInterface, VideoMode, WhitePoint,
 };
 
