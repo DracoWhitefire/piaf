@@ -11,6 +11,13 @@ use crate::model::Vec;
 /// The fixed 8-byte magic header at offset 0 of every valid EDID block.
 pub const EDID_HEADER: [u8; 8] = [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00];
 
+/// Maximum number of extension blocks the parser will store and process.
+///
+/// The EDID spec allows up to 255 extension blocks, but real displays have at most a handful.
+/// Inputs claiming more than this limit are most likely malformed or hostile; the parser
+/// emits [`EdidWarning::ExtensionBlockLimitReached`] and ignores the excess blocks.
+pub const MAX_EXTENSION_BLOCKS: usize = 64;
+
 /// Validates and decodes a raw EDID byte slice into a [`ParsedEdid`].
 ///
 /// Performs length validation, header verification, and checksum verification for the base block
@@ -62,7 +69,17 @@ pub fn parse_edid<T: KnownExtensions>(bytes: &[u8], tags: &T) -> Result<ParsedEd
             }));
         }
 
-        for i in 1..=extension_count {
+        let blocks_to_parse = if extension_count > MAX_EXTENSION_BLOCKS {
+            warnings.push(Arc::new(EdidWarning::ExtensionBlockLimitReached {
+                declared: extension_count,
+                limit: MAX_EXTENSION_BLOCKS,
+            }));
+            MAX_EXTENSION_BLOCKS
+        } else {
+            extension_count
+        };
+
+        for i in 1..=blocks_to_parse {
             let start = i * 128;
             let mut ext_block = [0u8; 128];
             ext_block.copy_from_slice(&bytes[start..start + 128]);
@@ -267,5 +284,37 @@ mod tests {
         assert_eq!(parsed.warnings.len(), 0);
         assert_eq!(parsed.extensions.len(), 1);
         assert_eq!(parsed.extensions[0][0], custom_tag);
+    }
+
+    #[test]
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    fn test_extension_block_limit() {
+        // Build an EDID that declares MAX_EXTENSION_BLOCKS + 1 extension blocks.
+        let declared = MAX_EXTENSION_BLOCKS + 1;
+        let total_bytes = 128 * (1 + declared);
+        let mut bytes = vec![0u8; total_bytes];
+        bytes[0..8].copy_from_slice(&EDID_HEADER);
+        bytes[126] = declared as u8;
+
+        // Fix up base block checksum.
+        let base_sum: u8 = bytes[0..127]
+            .iter()
+            .fold(0u8, |acc, &x| acc.wrapping_add(x));
+        bytes[127] = 0u8.wrapping_sub(base_sum);
+
+        // Each extension block needs a valid checksum (all-zero payload → checksum 0).
+        // They are already zero-initialised, so no further fixup needed.
+
+        let registry = ExtensionTagRegistry::new();
+        let parsed = parse_edid(&bytes, &registry).unwrap();
+
+        assert_eq!(parsed.extensions.len(), MAX_EXTENSION_BLOCKS);
+        assert!(parsed.warnings.iter().any(|w| {
+            (*w).downcast_ref::<EdidWarning>()
+                == Some(&EdidWarning::ExtensionBlockLimitReached {
+                    declared,
+                    limit: MAX_EXTENSION_BLOCKS,
+                })
+        }));
     }
 }

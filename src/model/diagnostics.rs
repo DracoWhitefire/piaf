@@ -61,6 +61,20 @@ pub enum EdidWarning {
     /// a few hundred MHz (fits comfortably in a `u32` after scaling by 10 000).
     #[error("DTD slot skipped: pixel clock overflow during refresh rate calculation")]
     DtdPixelClockOverflow,
+    /// The number of extension blocks declared in the base block exceeds the parser's
+    /// safety limit. Only the first `limit` blocks were parsed; the rest were ignored.
+    ///
+    /// Real displays have at most a handful of extension blocks. A very large
+    /// `extension_count` most likely indicates a malformed or hostile EDID.
+    #[error(
+        "extension block count {declared} exceeds limit {limit}; only {limit} blocks were parsed"
+    )]
+    ExtensionBlockLimitReached {
+        /// The value of `extension_count` as declared in the base block.
+        declared: usize,
+        /// The maximum number of extension blocks the parser will process.
+        limit: usize,
+    },
     /// The byte slice length does not match the size implied by the extension count.
     ///
     /// The EDID header declares `extension_count` extension blocks, so the expected
