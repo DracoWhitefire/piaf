@@ -256,6 +256,34 @@ impl StaticExtensionHandler for DisplayIdHandler {
     }
 }
 
+/// Data block tags decoded by this handler.
+///
+/// Must be kept in sync with the `if tag ==` dispatch in `process_data_blocks`.
+/// `test_all_block_tags_accounted_for` verifies that the union of implemented,
+/// deferred, and reserved ranges covers every value 0x00–0xFF.
+///
+/// Note: tag assignments should be verified against the VESA DisplayID 1.3
+/// specification once a real DisplayID fixture is available.
+#[cfg(test)]
+const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
+    TAG_TYPE_I_TIMING, // 0x01 — Type I Video Timing
+];
+
+/// DisplayID 1.x data block tags that are defined by the specification but not
+/// yet decoded, plus tag ranges reserved or unassigned by the specification.
+///
+/// Each entry is an inclusive `(first, last)` range. When a new block type is
+/// implemented, remove its tag from here and add it to `IMPLEMENTED_BLOCK_TAGS`.
+#[cfg(test)]
+const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
+    (0x00, 0x00), // Product Identification (EOS sentinel when length=0; data block otherwise)
+    (0x02, 0x13), // Defined block types not yet decoded (Display Parameters, Color,
+                  // Type II–VI timings, Tiled Display Topology, etc.)
+    (0x14, 0x7E), // Reserved for future use in DisplayID 1.x
+    (0x7F, 0x7F), // Vendor-specific
+    (0x80, 0xFF), // Undefined (outside the DisplayID 1.x tag space)
+];
+
 /// Pre-built static reference to the built-in DisplayID handler.
 ///
 /// Suitable for inclusion in a `&[&dyn StaticExtensionHandler]` slice alongside
@@ -562,5 +590,45 @@ mod tests {
         assert!(warnings.is_empty());
         assert_eq!(caps.supported_modes.len(), 1);
         assert_eq!(caps.supported_modes[0].width, 1920);
+    }
+
+    // -----------------------------------------------------------------------
+    // Block tag coverage
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_all_block_tags_accounted_for() {
+        // Every value 0x00–0xFF must appear in either IMPLEMENTED_BLOCK_TAGS or
+        // DEFERRED_OR_RESERVED_TAG_RANGES. If this test fails after a spec update,
+        // add the new tag to IMPLEMENTED_BLOCK_TAGS (and implement it) or extend
+        // DEFERRED_OR_RESERVED_TAG_RANGES.
+        for tag in 0u16..=255 {
+            let tag = tag as u8;
+            let implemented = IMPLEMENTED_BLOCK_TAGS.contains(&tag);
+            let deferred_or_reserved = DEFERRED_OR_RESERVED_TAG_RANGES
+                .iter()
+                .any(|&(lo, hi)| tag >= lo && tag <= hi);
+            assert!(
+                implemented || deferred_or_reserved,
+                "DisplayID block tag 0x{:02X} is unaccounted for: \
+                 add it to IMPLEMENTED_BLOCK_TAGS or DEFERRED_OR_RESERVED_TAG_RANGES",
+                tag
+            );
+        }
+    }
+
+    #[test]
+    fn test_implemented_and_deferred_are_disjoint() {
+        for &tag in IMPLEMENTED_BLOCK_TAGS {
+            let in_deferred = DEFERRED_OR_RESERVED_TAG_RANGES
+                .iter()
+                .any(|&(lo, hi)| tag >= lo && tag <= hi);
+            assert!(
+                !in_deferred,
+                "DisplayID block tag 0x{:02X} appears in both IMPLEMENTED_BLOCK_TAGS \
+                 and DEFERRED_OR_RESERVED_TAG_RANGES",
+                tag
+            );
+        }
     }
 }
