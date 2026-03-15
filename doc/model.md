@@ -11,7 +11,7 @@ byte array; extension blocks are stored the same way and dispatched by tag.
 pub struct ParsedEdid {
     pub base_block: [u8; 128],
     pub extensions: Vec<[u8; 128]>,
-    pub warnings: Vec<EdidWarning>,
+    pub warnings: Vec<ParseWarning>,
 }
 ```
 
@@ -64,7 +64,7 @@ pub struct DisplayCapabilities {
     pub timing_formula: Option<TimingFormula>,
     pub supported_modes: Vec<VideoMode>,
     // Extensions
-    // alloc/std: pub warnings: Vec<EdidWarning>,
+    // alloc/std: pub warnings: Vec<ParseWarning>,
     // no_std:    pub warnings: [Option<EdidWarning>; 8],
     pub extension_data: Vec<(u8, Arc<dyn ExtensionData>)>,
 }
@@ -113,6 +113,9 @@ pub enum EdidWarning {
     /// A data block inside an extension block declared a length that extends past the
     /// end of the data block collection. Remaining data blocks are skipped.
     MalformedDataBlock,
+    /// A DTD slot was skipped because the pixel clock value would overflow during
+    /// refresh rate calculation. Indicates a malformed or corrupted EDID.
+    DtdPixelClockOverflow,
 }
 ```
 
@@ -120,4 +123,34 @@ This separation allows callers to decide how strict they want to be without losi
 diagnostic detail. Warnings from the parser (including `UnknownExtension` and `SizeMismatch`)
 are propagated into `DisplayCapabilities::warnings` alongside handler warnings, so consumers
 have a single place to inspect all diagnostics.
+
+### Extensible warnings (`alloc`/`std` builds)
+
+In `alloc`/`std` builds, warnings are type-erased behind a `ParseWarning` alias:
+
+```rust
+pub type ParseWarning = Arc<dyn core::error::Error + Send + Sync + 'static>;
+```
+
+This means custom extension handlers can push their own error types into the warning list
+without wrapping them in `EdidWarning`. The built-in library always emits `EdidWarning`
+variants, but a third-party handler that detects a protocol-specific anomaly can emit its
+own type directly.
+
+Using `Arc` (rather than `Box`) keeps `ParseWarning` cloneable, which lets warnings be
+copied from `ParsedEdid` into `DisplayCapabilities` without consuming the parsed result.
+
+To inspect a specific variant, use `downcast_ref` on the inner error:
+
+```rust
+for w in caps.iter_warnings() {
+    if let Some(ew) = (**w).downcast_ref::<EdidWarning>() {
+        // handle known library warning
+    }
+}
+```
+
+In bare `no_std` builds (without `alloc`) the warning list holds `EdidWarning` values
+directly (no type erasure), capped at 8 entries. The `iter_warnings()` method provides
+uniform access across both configurations.
 

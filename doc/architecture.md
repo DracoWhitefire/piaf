@@ -63,6 +63,13 @@ Diagnostics should distinguish between:
 
 This distinction is important because real display data is often imperfect. Warnings are collected from both the parser and the extension handlers and surfaced on the output structures.
 
+In `alloc`/`std` builds, warnings are stored as `ParseWarning` — a type-erased
+`Arc<dyn Error + Send + Sync + 'static>`. This keeps the warning channel open to custom
+extension handlers, which can push their own error types without modifying the core
+`EdidWarning` enum. Built-in library code emits `EdidWarning` variants; callers use
+`downcast_ref` to recover concrete types. In bare `no_std` builds, warnings are stored
+as `EdidWarning` values directly.
+
 ## Design principles
 
 - Keep byte parsing deterministic and testable
