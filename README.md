@@ -1,6 +1,6 @@
 # PIAF
 
-A Rust library for decoding EDID display capability data into a clean, typed model.
+A Rust library for decoding binary capability data into a clean, typed model, specialized for EDID.
 
 PIAF reads raw EDID bytes — from a file, a kernel sysfs node, or a direct I²C read —
 and produces a `DisplayCapabilities` value with all the information a display or
