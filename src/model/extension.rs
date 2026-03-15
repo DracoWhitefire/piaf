@@ -1,5 +1,6 @@
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
+use crate::model::capabilities::ModeSink;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::ParseWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -20,6 +21,31 @@ pub trait ExtensionHandler: core::fmt::Debug {
         caps: &mut DisplayCapabilities,
         warnings: &mut Vec<ParseWarning>,
     );
+}
+
+/// Processes a single 128-byte EDID block in a no-alloc context.
+///
+/// The no-alloc counterpart to [`ExtensionHandler`]. Implement this trait on a unit struct (or
+/// any `const`-constructible type) and place an instance in a `static` to register it with
+/// `capabilities_from_edid_static`.
+///
+/// The trait is object-safe, so a slice of static references can be passed directly:
+///
+/// ```
+/// # use piaf::{StaticExtensionHandler, ModeSink};
+/// # struct MyHandler;
+/// # impl StaticExtensionHandler for MyHandler {
+/// #     fn tag(&self) -> u8 { 0xFF }
+/// #     fn process(&self, _block: &[u8; 128], _sink: &mut dyn ModeSink) {}
+/// # }
+/// static MY_HANDLER: MyHandler = MyHandler;
+/// static HANDLERS: &[&dyn piaf::StaticExtensionHandler] = &[&MY_HANDLER];
+/// ```
+pub trait StaticExtensionHandler: Sync {
+    /// The extension block tag byte this handler processes (e.g. `0x02` for CEA-861).
+    fn tag(&self) -> u8;
+    /// Inspect `block` and push decoded modes and warnings into `sink`.
+    fn process(&self, block: &[u8; 128], sink: &mut dyn ModeSink);
 }
 
 /// Registration entry for an EDID extension block type.
@@ -168,6 +194,12 @@ impl ExtensionTagRegistry {
 impl KnownExtensions for ExtensionTagRegistry {
     fn is_known(&self, tag: u8) -> bool {
         ExtensionTagRegistry::is_known(self, tag)
+    }
+}
+
+impl KnownExtensions for [&dyn StaticExtensionHandler] {
+    fn is_known(&self, tag: u8) -> bool {
+        self.iter().any(|h| h.tag() == tag)
     }
 }
 

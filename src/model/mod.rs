@@ -9,7 +9,10 @@ pub use prelude::{Box, String, Vec};
 pub mod extension;
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use extension::ExtensionHandler;
-pub use extension::{ExtensionLibrary, ExtensionMetadata, ExtensionTagRegistry, KnownExtensions};
+pub use extension::{
+    ExtensionLibrary, ExtensionMetadata, ExtensionTagRegistry, KnownExtensions,
+    StaticExtensionHandler,
+};
 
 /// Error and warning types.
 pub mod diagnostics;
