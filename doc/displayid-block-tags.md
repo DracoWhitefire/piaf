@@ -18,7 +18,7 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 | `0x01` | Display Parameters Block (physical size, color bit depths, aspect ratio) | ✓ implemented |
 | `0x02` | Color Characteristics Block (primaries, white point) | ✓ implemented |
 | `0x03` | Detailed Timings Block (Type I — 20-byte descriptors) | ✓ implemented |
-| `0x04` | Video Format Block (Type II — formula-based) | — deferred |
+| `0x04` | Video Timing Modes Type II — Detailed Timings Block | ✓ implemented |
 | `0x05` | Type III Short Descriptor Video Timing Block | — deferred |
 | `0x06` | Type IV Short Descriptor Video Timing Block (DMT codes) | — deferred |
 | `0x07` | VESA Video Timing Block | — deferred |
@@ -118,6 +118,40 @@ Per descriptor:
 
 Refresh rate derived as `pixel_clock_hz / (h_total × v_total)` where
 `pixel_clock_hz = field × 10 000` and `h_total = h_active + h_blank`.
+
+### Detailed Timings Block — Type II (`0x04`)
+
+Each block contains one or more 11-byte timing descriptors. Both the dynamic and static
+pipelines decode Type II blocks.
+
+```
+Byte  0:     Block tag (0x04)
+Byte  1:     Revision
+Byte  2:     Payload length (multiple of 11)
+Bytes 3+:    11-byte timing descriptors
+
+Per descriptor:
+  Bytes 0–2:  Pixel clock (LE 24-bit; actual = (raw + 1) × 10 kHz)
+  Byte  3:    Flags: [7]=preferred, [6:5]=stereo, [4]=interlaced,
+                     [3]=HS polarity (+), [2]=VS polarity (+), [1:0]=reserved
+  Byte  4:    H-active mantissa bits 7:0  (8-pixel granule; h_active = 8 + 8 × 9-bit-mantissa)
+  Byte  5:    Bit 0 = H-active mantissa bit 8; bits 7:1 = H-blank mantissa (7-bit, same granule)
+  Byte  6:    Bits 7:4 = H-front-porch mantissa (4-bit, 8-pixel granule)
+              Bits 3:0 = H-sync-width mantissa  (4-bit, 8-pixel granule)
+  Byte  7:    V-active mantissa bits 7:0  (1-line granule; v_active = 1 + 12-bit-mantissa)
+  Byte  8:    Bits 3:0 = V-active mantissa bits 11:8; bits 7:4 = reserved
+  Byte  9:    Full byte: V-blank mantissa (v_blank = 1 + byte)
+              Bits 7:4:  V-front-porch mantissa (v_fp = 1 + nibble)
+              Bits 3:0:  V-sync-width mantissa  (v_sw = 1 + nibble)
+  Byte  10:   Reserved
+```
+
+Refresh rate derived as `pixel_clock_hz / (h_total × v_total)` where
+`pixel_clock_hz = (raw + 1) × 10 000` and `h_total = h_active + h_blank`.
+
+Note: byte 9 is dual-role — the full 8-bit value gives the total vertical blanking interval
+while the upper/lower nibbles give the front-porch and sync-width sub-intervals. The implied
+back porch is `v_blank − v_front_porch − v_sync_width`.
 
 ### Product Identification Block (`0x00`)
 

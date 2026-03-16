@@ -57,6 +57,9 @@ const TAG_COLOR_CHARACTERISTICS: u8 = 0x02;
 /// Data block tag for the Detailed Timings Block (Type I descriptors, DisplayID 1.x §4.4.2).
 const TAG_TYPE_I_TIMING: u8 = 0x03;
 
+/// Data block tag for the Video Timing Modes Type II — Detailed Timings Block (DisplayID 1.x §4.4.3).
+const TAG_TYPE_II_TIMING: u8 = 0x04;
+
 /// Parses the 4-byte section header common to all DisplayID fragments.
 ///
 /// Returns `(version, section_byte_count, product_type, extension_count)`.
@@ -139,6 +142,76 @@ fn decode_type_i_descriptor(d: &[u8; 20], sink: &mut dyn ModeSink) {
     });
 }
 
+/// Decodes one 11-byte Type II Video Timing descriptor and pushes a mode to `sink`.
+///
+/// Descriptor layout (DisplayID 1.x §4.4.3):
+/// - Bytes 0–2: Pixel clock in 10 kHz units (little-endian 24-bit; `actual = (raw + 1) × 10 000 Hz`)
+/// - Byte 3:    Flags: [7]=preferred, [6:5]=stereo, [4]=interlaced, [3]=HS polarity (+), [2]=VS polarity (+)
+/// - Byte 4:    H-active bits 7:0  (9-bit mantissa, 8-pixel granule; `h = 8 + 8 × mantissa`)
+/// - Byte 5:    Bit 0 = H-active bit 8; bits 7:1 = H-blank mantissa (7-bit, same granule)
+/// - Byte 6:    Bits 7:4 = H-offset mantissa (4-bit); bits 3:0 = H-sync-width mantissa (4-bit)
+/// - Byte 7:    V-active bits 7:0  (12-bit mantissa; `v = 1 + mantissa`)
+/// - Byte 8:    Bits 3:0 = V-active bits 11:8; bits 7:4 = reserved
+/// - Byte 9:    Full byte = V-blank mantissa (`v_blank = 1 + byte`);
+///   bits 7:4 = V-offset mantissa (`v_fp = 1 + nibble`);
+///   bits 3:0 = V-sync-width mantissa (`v_sw = 1 + nibble`)
+/// - Byte 10:   Reserved
+fn decode_type_ii_descriptor(d: &[u8; 11], sink: &mut dyn ModeSink) {
+    let raw_pixel_clock = (d[0] as u32) | ((d[1] as u32) << 8) | ((d[2] as u32) << 16);
+    let pixel_clock_10khz = 1u64 + raw_pixel_clock as u64;
+
+    let flags = d[3];
+    let interlaced = (flags & 0x10) != 0;
+    let h_sync_positive = (flags & 0x08) != 0;
+    let v_sync_positive = (flags & 0x04) != 0;
+
+    // Horizontal: 8-pixel granule, each value = 8 + 8 × mantissa.
+    let ha_raw = (d[4] as u16) | (((d[5] & 0x01) as u16) << 8);
+    let h_active = 8u16 + 8 * ha_raw;
+
+    let hb_raw = ((d[5] >> 1) & 0x7F) as u16;
+    let h_blank = 8u16 + 8 * hb_raw;
+
+    let h_front_porch = 8u16 + 8 * ((d[6] >> 4) as u16);
+    let h_sync_width = 8u16 + 8 * ((d[6] & 0x0F) as u16);
+
+    // Vertical: 1-line granule, each value = 1 + mantissa.
+    let va_raw = (d[7] as u16) | (((d[8] & 0x0F) as u16) << 8);
+    let v_active = 1u16 + va_raw;
+
+    // Byte 9 dual-role: full byte encodes v_blank; nibbles encode v_front_porch and v_sync_width.
+    let v_blank = 1u16 + d[9] as u16;
+    let v_front_porch = 1u16 + ((d[9] >> 4) as u16);
+    let v_sync_width = 1u16 + ((d[9] & 0x0F) as u16);
+
+    let h_total = h_active as u64 + h_blank as u64;
+    let v_total = v_active as u64 + v_blank as u64;
+    if h_total == 0 || v_total == 0 {
+        return;
+    }
+
+    let pixel_clock_hz = pixel_clock_10khz * 10_000;
+    let refresh_rate = (pixel_clock_hz / (h_total * v_total)).min(255) as u8;
+
+    sink.push_mode(VideoMode {
+        width: h_active,
+        height: v_active,
+        refresh_rate,
+        interlaced,
+        h_front_porch,
+        h_sync_width,
+        v_front_porch,
+        v_sync_width,
+        h_border: 0,
+        v_border: 0,
+        stereo: StereoMode::None,
+        sync: Some(SyncDefinition::DigitalSeparate {
+            v_sync_positive,
+            h_sync_positive,
+        }),
+    });
+}
+
 /// Calls `f(tag, block_payload)` for each well-formed data block in `payload`.
 ///
 /// Stops at the end-of-section sentinel (tag `0x00`, length `0`) or when a block's
@@ -178,6 +251,13 @@ fn process_data_blocks(payload: &[u8], sink: &mut dyn ModeSink) {
                 let descriptor: &[u8; 20] = block_payload[i..i + 20].try_into().unwrap();
                 decode_type_i_descriptor(descriptor, sink);
                 i += 20;
+            }
+        } else if tag == TAG_TYPE_II_TIMING {
+            let mut i = 0;
+            while i + 11 <= block_payload.len() {
+                let descriptor: &[u8; 11] = block_payload[i..i + 11].try_into().unwrap();
+                decode_type_ii_descriptor(descriptor, sink);
+                i += 11;
             }
         }
         // Unknown block tags are silently skipped.
@@ -455,6 +535,7 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
     TAG_DISPLAY_PARAMS,        // 0x01 — Display Parameters Block
     TAG_COLOR_CHARACTERISTICS, // 0x02 — Color Characteristics Block
     TAG_TYPE_I_TIMING,         // 0x03 — Detailed Timings Block (Type I descriptors)
+    TAG_TYPE_II_TIMING,        // 0x04 — Video Timing Modes Type II — Detailed Timings Block
 ];
 
 /// DisplayID 1.x data block tags that are defined by the specification but not
@@ -464,7 +545,7 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
 /// implemented, remove its tag from here and add it to `IMPLEMENTED_BLOCK_TAGS`.
 #[cfg(test)]
 const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
-    (0x04, 0x13), // Type II–VI timings, interface and identity blocks, Tiled Display Topology
+    (0x05, 0x13), // Type III–VI timings, interface and identity blocks, Tiled Display Topology
     (0x14, 0x7E), // Reserved for future use in DisplayID 1.x
     (0x7F, 0x7F), // Vendor-specific
     (0x80, 0xFF), // Undefined (outside the DisplayID 1.x tag space)
@@ -1184,6 +1265,186 @@ mod tests {
             caps.chromaticity,
             crate::model::color::Chromaticity::default()
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Type II Video Timing Block (tag 0x04)
+    // -----------------------------------------------------------------------
+
+    /// Builds an 11-byte Type II timing descriptor.
+    ///
+    /// `pixel_clock_10khz`: raw 24-bit value (actual = `(raw + 1) × 10 kHz`).
+    /// Horizontal values are in 8-pixel granules; vertical active in 1-line granule.
+    /// `v_blank_byte`: raw byte 9 (v_blank = 1 + byte; upper nibble = v_fp - 1; lower = v_sw - 1).
+    #[allow(clippy::too_many_arguments)]
+    fn make_type_ii_descriptor(
+        pixel_clock_10khz: u32, // raw 24-bit value
+        ha_raw: u16,            // 9-bit h_active mantissa (h_active = 8 + 8 × ha_raw)
+        hb_raw: u8,             // 7-bit h_blank mantissa (h_blank = 8 + 8 × hb_raw)
+        hfp_raw: u8,            // 4-bit h_front_porch nibble
+        hsw_raw: u8,            // 4-bit h_sync_width nibble
+        va_raw: u16,            // 12-bit v_active mantissa (v_active = 1 + va_raw)
+        v_blank_byte: u8,       // raw byte 9 (upper nibble = vfp-1, lower = vsw-1)
+        flags: u8,
+    ) -> [u8; 11] {
+        let mut d = [0u8; 11];
+        d[0] = (pixel_clock_10khz & 0xFF) as u8;
+        d[1] = ((pixel_clock_10khz >> 8) & 0xFF) as u8;
+        d[2] = ((pixel_clock_10khz >> 16) & 0xFF) as u8;
+        d[3] = flags;
+        d[4] = (ha_raw & 0xFF) as u8;
+        d[5] = (((ha_raw >> 8) & 0x01) as u8) | ((hb_raw & 0x7F) << 1);
+        d[6] = ((hfp_raw & 0x0F) << 4) | (hsw_raw & 0x0F);
+        d[7] = (va_raw & 0xFF) as u8;
+        d[8] = ((va_raw >> 8) & 0x0F) as u8;
+        d[9] = v_blank_byte;
+        d[10] = 0x00; // reserved
+        d
+    }
+
+    fn make_type_ii_data_block(descriptor: &[u8; 11]) -> [u8; 14] {
+        let mut db = [0u8; 14];
+        db[0] = TAG_TYPE_II_TIMING;
+        db[1] = 0x00; // revision
+        db[2] = 11; // payload length
+        db[3..14].copy_from_slice(descriptor);
+        db
+    }
+
+    #[test]
+    fn test_type_ii_timing_decoded() {
+        // 1920×1080@60 Hz via Type II encoding.
+        //
+        // ha_raw = (1920 - 8) / 8 = 239
+        // hb_raw = (280 - 8) / 8 = 34  → h_total = 1920 + 280 = 2200
+        // hfp_raw = (88 - 8) / 8 = 10, hsw_raw = (48 - 8) / 8 = 5
+        // va_raw = 1080 - 1 = 1079 = 0x437
+        // v_blank_byte = 0x43 → v_blank = 68, v_fp = 5, v_sw = 4
+        //   → v_total = 1080 + 68 = 1148
+        // pixel_clock_10khz raw = 15153 → actual = 15154 × 10 kHz = 151 540 000 Hz
+        //   → refresh = 151 540 000 / (2200 × 1148) ≈ 60 Hz
+        let descriptor = make_type_ii_descriptor(
+            15153, // pixel_clock_10khz raw
+            239,   // ha_raw
+            34,    // hb_raw
+            10,    // hfp_raw
+            5,     // hsw_raw
+            1079,  // va_raw
+            0x43,  // v_blank_byte
+            0x0C,  // flags: H-sync+, V-sync+
+        );
+        let data_block = make_type_ii_data_block(&descriptor);
+        let block = make_displayid_block(0x10, &data_block);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty(), "unexpected warnings: {:?}", warnings);
+        assert_eq!(caps.supported_modes.len(), 1);
+        let mode = &caps.supported_modes[0];
+        assert_eq!(mode.width, 1920);
+        assert_eq!(mode.height, 1080);
+        assert_eq!(mode.refresh_rate, 60);
+        assert_eq!(mode.h_front_porch, 88);
+        assert_eq!(mode.h_sync_width, 48);
+        assert_eq!(mode.v_front_porch, 5);
+        assert_eq!(mode.v_sync_width, 4);
+        assert!(!mode.interlaced);
+        assert_eq!(
+            mode.sync,
+            Some(SyncDefinition::DigitalSeparate {
+                h_sync_positive: true,
+                v_sync_positive: true,
+            })
+        );
+    }
+
+    #[test]
+    fn test_type_ii_static_pipeline() {
+        let descriptor = make_type_ii_descriptor(15153, 239, 34, 10, 5, 1079, 0x43, 0x0C);
+        let data_block = make_type_ii_data_block(&descriptor);
+        let block = make_displayid_block(0x10, &data_block);
+
+        let mut caps = StaticDisplayCapabilities::<16>::default();
+        let mut ctx = StaticContext::new(&mut caps);
+        StaticExtensionHandler::process(&DisplayIdHandler, &[&block], &mut ctx);
+
+        assert_eq!(caps.num_modes, 1);
+        let mode = caps.supported_modes[0].as_ref().unwrap();
+        assert_eq!(mode.width, 1920);
+        assert_eq!(mode.height, 1080);
+        assert_eq!(mode.refresh_rate, 60);
+    }
+
+    #[test]
+    fn test_type_ii_interlaced_flag() {
+        // flags byte 3 bit 4 = interlaced
+        let descriptor = make_type_ii_descriptor(15153, 239, 34, 10, 5, 1079, 0x43, 0x10);
+        let data_block = make_type_ii_data_block(&descriptor);
+        let block = make_displayid_block(0x10, &data_block);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert!(caps.supported_modes[0].interlaced);
+    }
+
+    #[test]
+    fn test_type_ii_multiple_descriptors() {
+        // Two 11-byte descriptors packed into a single Type II block.
+        let desc1 = make_type_ii_descriptor(15153, 239, 34, 10, 5, 1079, 0x43, 0x0C);
+        // 2560×1440@60: ha_raw=(2560-8)/8=319, hb_raw=(440-8)/8=54 → h_total=3000
+        // va_raw=1440-1=1439=0x59F, v_blank_byte=0x31→v_blank=50 → v_total=1490
+        // clock: 60*3000*1490=268200000 Hz → 26820 × 10kHz → raw=26819
+        let desc2 = make_type_ii_descriptor(26819, 319, 54, 10, 4, 1439, 0x31, 0x0C);
+
+        let mut payload = Vec::new();
+        // Single data block header with 22-byte payload (two 11-byte descriptors).
+        payload.push(TAG_TYPE_II_TIMING);
+        payload.push(0x00); // revision
+        payload.push(22); // payload length
+        payload.extend_from_slice(&desc1);
+        payload.extend_from_slice(&desc2);
+
+        let block = make_displayid_block(0x10, &payload);
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 2);
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 1920 && m.height == 1080)
+        );
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 2560 && m.height == 1440)
+        );
+    }
+
+    #[test]
+    fn test_type_ii_partial_descriptor_ignored() {
+        // A Type II block with only 10 bytes of payload — one short of a full descriptor.
+        // No mode should be produced.
+        let mut payload = [0u8; 13]; // header (3) + 10 bytes
+        payload[0] = TAG_TYPE_II_TIMING;
+        payload[1] = 0x00;
+        payload[2] = 10;
+        let block = make_displayid_block(0x10, &payload);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert!(caps.supported_modes.is_empty());
     }
 
     // -----------------------------------------------------------------------

@@ -115,6 +115,22 @@ pipelines. Each 20-byte descriptor maps to a `VideoMode` with full timing detail
 
 Null descriptors (pixel clock = 0) are silently skipped.
 
+**Type II Video Timing blocks** (tag `0x04`) are decoded in both the dynamic and static
+pipelines. Each 11-byte descriptor maps to a `VideoMode`:
+
+| `VideoMode` field | Source |
+|---|---|
+| `width`, `height` | Horizontal/Vertical Active (8-pixel and 1-line granules respectively) |
+| `refresh_rate` | Derived: `(raw_clock + 1) × 10 000 / (h_total × v_total)` |
+| `interlaced` | Byte 3 bit 4 |
+| `h_front_porch`, `h_sync_width` | Byte 6 nibbles (8-pixel granule) |
+| `v_front_porch`, `v_sync_width` | Byte 9 nibbles (1-line granule) |
+| `sync` | `DigitalSeparate`; polarities from byte 3 bits 3–2 |
+
+Byte 9 is dual-role: the full byte encodes the total `v_blank`; the upper/lower nibbles
+encode `v_front_porch − 1` and `v_sync_width − 1`. The implied back porch is
+`v_blank − v_front_porch − v_sync_width`.
+
 ## Warnings
 
 | Variant | Meaning |
