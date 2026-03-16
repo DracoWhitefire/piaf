@@ -143,6 +143,9 @@ fn main() {
                                 ),
                                 None => {}
                             }
+                            if let Some((w_mm, h_mm)) = caps.preferred_image_size_mm {
+                                println!("  Image size:   {}x{} mm", w_mm, h_mm);
+                            }
                             println!(
                                 "  Input type:   {}",
                                 if caps.digital { "Digital" } else { "Analog" }
@@ -692,9 +695,18 @@ fn main() {
                             if let Some(did) =
                                 caps.get_extension_data::<DisplayIdCapabilities>(0x70)
                             {
+                                let product_type_str = match did.product_type {
+                                    0 => "extension",
+                                    1 => "test/measurement",
+                                    2 => "desktop/notebook",
+                                    3 => "television",
+                                    4 => "repeater/translator",
+                                    5 => "direct-view LED",
+                                    _ => "reserved",
+                                };
                                 println!(
-                                    "  DisplayID:    version=0x{:02X} product_type={}",
-                                    did.version, did.product_type
+                                    "  DisplayID:    version=0x{:02X} product_type={} ({})",
+                                    did.version, did.product_type, product_type_str
                                 );
                             }
 
