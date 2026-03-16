@@ -32,7 +32,13 @@ use std::path::Path;
 /// Converts an arbitrary string into a valid snake_case Rust identifier segment.
 fn sanitize(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .split('_')
         .filter(|p| !p.is_empty())
@@ -78,7 +84,10 @@ fn gen_identification(mod_name: &str, bin_path: &str, caps: &piaf::DisplayCapabi
         println!("    assert_eq!(caps.display_name.as_deref(), Some(\"{name}\"));");
     }
     match caps.manufacture_date {
-        Some(ManufactureDate::Manufactured { week: Some(w), year }) => {
+        Some(ManufactureDate::Manufactured {
+            week: Some(w),
+            year,
+        }) => {
             println!(
                 "    assert_eq!(caps.manufacture_date, \
                  Some(ManufactureDate::Manufactured {{ week: Some({w}), year: {year} }}));"
@@ -126,7 +135,11 @@ fn gen_identification(mod_name: &str, bin_path: &str, caps: &piaf::DisplayCapabi
         };
         println!("    assert_eq!(caps.video_interface, Some(VideoInterface::{variant}));");
     }
-    if let Some(ScreenSize::Physical { width_cm, height_cm }) = caps.screen_size {
+    if let Some(ScreenSize::Physical {
+        width_cm,
+        height_cm,
+    }) = caps.screen_size
+    {
         println!(
             "    assert_eq!(caps.screen_size, \
              Some(ScreenSize::Physical {{ width_cm: {width_cm}, height_cm: {height_cm} }}));"
@@ -190,7 +203,9 @@ fn gen_supported_modes(mod_name: &str, bin_path: &str, caps: &piaf::DisplayCapab
 
     // Assert up to 3 distinct resolutions: highest first, then a couple of others.
     let mut modes: Vec<_> = caps.supported_modes.iter().collect();
-    modes.sort_by_key(|m| std::cmp::Reverse((m.width as u32 * m.height as u32, m.refresh_rate as u32)));
+    modes.sort_by_key(|m| {
+        std::cmp::Reverse((m.width as u32 * m.height as u32, m.refresh_rate as u32))
+    });
     modes.dedup_by_key(|m| (m.width, m.height));
     for m in modes.iter().take(3) {
         let (w, h, r) = (m.width, m.height, m.refresh_rate);
@@ -242,7 +257,10 @@ fn main() {
             continue;
         }
 
-        let connector = path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
+        let connector = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown");
 
         let caps = match parse_edid(&bytes, &library) {
             Ok(parsed) => capabilities_from_edid(&parsed, &library),
@@ -275,10 +293,11 @@ fn main() {
             continue;
         }
 
-        fs::write(&bin_path, &bytes)
-            .unwrap_or_else(|e| panic!("failed to write {bin_path}: {e}"));
+        fs::write(&bin_path, &bytes).unwrap_or_else(|e| panic!("failed to write {bin_path}: {e}"));
 
-        let has_displayid = caps.get_extension_data::<DisplayIdCapabilities>(0x70).is_some();
+        let has_displayid = caps
+            .get_extension_data::<DisplayIdCapabilities>(0x70)
+            .is_some();
         eprintln!(
             "  {connector} → {bin_path} ({} byte(s){})",
             bytes.len(),
@@ -287,7 +306,11 @@ fn main() {
         captured += 1;
 
         // Emit the test block header comment.
-        let mfr_display = caps.manufacturer.as_ref().map(|m| m.as_str()).unwrap_or("???");
+        let mfr_display = caps
+            .manufacturer
+            .as_ref()
+            .map(|m| m.as_str())
+            .unwrap_or("???");
         let name_display = caps.display_name.as_deref().unwrap_or("Unknown");
         println!("// {}", "-".repeat(75));
         println!(

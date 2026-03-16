@@ -331,7 +331,11 @@ fn auo_edp_supported_modes() {
     let caps = capabilities_from_edid(&parsed, &library);
 
     assert!(!caps.supported_modes.is_empty());
-    assert!(caps.supported_modes.iter().any(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 144));
+    assert!(
+        caps.supported_modes
+            .iter()
+            .any(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 144)
+    );
 }
 
 #[test]
@@ -353,3 +357,146 @@ fn caps_have_no_audio(bytes: &[u8]) -> bool {
 }
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// PHILIPS FTV (PHL)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn philips_ftv_phl_parses_without_error() {
+    let bytes = load("testdata/valid/philips_ftv_phl.bin");
+    let library = ExtensionLibrary::with_standard_handlers();
+    assert!(parse_edid(&bytes, &library).is_ok());
+}
+
+#[test]
+fn philips_ftv_phl_identification() {
+    let bytes = load("testdata/valid/philips_ftv_phl.bin");
+    let library = ExtensionLibrary::with_standard_handlers();
+    let parsed = parse_edid(&bytes, &library).unwrap();
+    let caps = capabilities_from_edid(&parsed, &library);
+
+    assert_eq!(caps.manufacturer.as_ref().map(|m| m.as_str()), Some("PHL"));
+    assert_eq!(caps.display_name.as_deref(), Some("PHILIPS FTV"));
+    assert_eq!(
+        caps.manufacture_date,
+        Some(ManufactureDate::Manufactured {
+            week: Some(30),
+            year: 2016
+        })
+    );
+    assert_eq!(
+        caps.edid_version,
+        Some(EdidVersion {
+            version: 1,
+            revision: 3
+        })
+    );
+    assert_eq!(caps.digital, true);
+    assert_eq!(
+        caps.screen_size,
+        Some(ScreenSize::Physical {
+            width_cm: 64,
+            height_cm: 36
+        })
+    );
+    assert_eq!(caps.preferred_image_size_mm, Some((640, 360)));
+    assert_eq!(caps.min_v_rate, Some(56));
+    assert_eq!(caps.max_v_rate, Some(76));
+}
+
+#[test]
+fn philips_ftv_phl_supported_modes() {
+    let bytes = load("testdata/valid/philips_ftv_phl.bin");
+    let library = ExtensionLibrary::with_standard_handlers();
+    let parsed = parse_edid(&bytes, &library).unwrap();
+    let caps = capabilities_from_edid(&parsed, &library);
+
+    assert!(!caps.supported_modes.is_empty());
+    assert!(
+        caps.supported_modes
+            .iter()
+            .any(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 60)
+    );
+    assert!(
+        caps.supported_modes
+            .iter()
+            .any(|m| m.width == 1280 && m.height == 1024 && m.refresh_rate == 60)
+    );
+    assert!(
+        caps.supported_modes
+            .iter()
+            .any(|m| m.width == 1360 && m.height == 768 && m.refresh_rate == 59)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// PHL 275E1 (PHL)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn phl_275e1_phl_parses_without_error() {
+    let bytes = load("testdata/valid/phl_275e1_phl.bin");
+    let library = ExtensionLibrary::with_standard_handlers();
+    assert!(parse_edid(&bytes, &library).is_ok());
+}
+
+#[test]
+fn phl_275e1_phl_identification() {
+    let bytes = load("testdata/valid/phl_275e1_phl.bin");
+    let library = ExtensionLibrary::with_standard_handlers();
+    let parsed = parse_edid(&bytes, &library).unwrap();
+    let caps = capabilities_from_edid(&parsed, &library);
+
+    assert_eq!(caps.manufacturer.as_ref().map(|m| m.as_str()), Some("PHL"));
+    assert_eq!(caps.display_name.as_deref(), Some("PHL 275E1"));
+    assert_eq!(
+        caps.manufacture_date,
+        Some(ManufactureDate::Manufactured {
+            week: Some(13),
+            year: 2022
+        })
+    );
+    assert_eq!(
+        caps.edid_version,
+        Some(EdidVersion {
+            version: 1,
+            revision: 3
+        })
+    );
+    assert_eq!(caps.digital, true);
+    assert_eq!(
+        caps.screen_size,
+        Some(ScreenSize::Physical {
+            width_cm: 60,
+            height_cm: 34
+        })
+    );
+    assert_eq!(caps.preferred_image_size_mm, Some((597, 336)));
+    assert_eq!(caps.min_v_rate, Some(48));
+    assert_eq!(caps.max_v_rate, Some(75));
+}
+
+#[test]
+fn phl_275e1_phl_supported_modes() {
+    let bytes = load("testdata/valid/phl_275e1_phl.bin");
+    let library = ExtensionLibrary::with_standard_handlers();
+    let parsed = parse_edid(&bytes, &library).unwrap();
+    let caps = capabilities_from_edid(&parsed, &library);
+
+    assert!(!caps.supported_modes.is_empty());
+    assert!(
+        caps.supported_modes
+            .iter()
+            .any(|m| m.width == 2560 && m.height == 1440 && m.refresh_rate == 74)
+    );
+    assert!(
+        caps.supported_modes
+            .iter()
+            .any(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 60)
+    );
+    assert!(
+        caps.supported_modes
+            .iter()
+            .any(|m| m.width == 1280 && m.height == 1440 && m.refresh_rate == 59)
+    );
+}
