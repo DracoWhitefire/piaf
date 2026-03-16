@@ -230,14 +230,14 @@ fn lg_ultragear_has_cea_extension() {
 
 #[test]
 fn auo_edp_parses_without_error() {
-    let bytes = load("testdata/valid/auo_edp_laptop.bin");
+    let bytes = load("testdata/valid/auo_978f_auo.bin");
     let library = ExtensionLibrary::with_standard_handlers();
     assert!(parse_edid(&bytes, &library).is_ok());
 }
 
 #[test]
 fn auo_edp_identification() {
-    let bytes = load("testdata/valid/auo_edp_laptop.bin");
+    let bytes = load("testdata/valid/auo_978f_auo.bin");
     let library = ExtensionLibrary::with_standard_handlers();
     let parsed = parse_edid(&bytes, &library).unwrap();
     let caps = capabilities_from_edid(&parsed, &library);
@@ -308,11 +308,12 @@ fn auo_edp_identification() {
             height_cm: 22
         })
     );
+    assert_eq!(caps.preferred_image_size_mm, Some((382, 215)));
 }
 
 #[test]
 fn auo_edp_range_limits() {
-    let bytes = load("testdata/valid/auo_edp_laptop.bin");
+    let bytes = load("testdata/valid/auo_978f_auo.bin");
     let library = ExtensionLibrary::with_standard_handlers();
     let parsed = parse_edid(&bytes, &library).unwrap();
     let caps = capabilities_from_edid(&parsed, &library);
@@ -323,8 +324,19 @@ fn auo_edp_range_limits() {
 }
 
 #[test]
+fn auo_edp_supported_modes() {
+    let bytes = load("testdata/valid/auo_978f_auo.bin");
+    let library = ExtensionLibrary::with_standard_handlers();
+    let parsed = parse_edid(&bytes, &library).unwrap();
+    let caps = capabilities_from_edid(&parsed, &library);
+
+    assert!(!caps.supported_modes.is_empty());
+    assert!(caps.supported_modes.iter().any(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 144));
+}
+
+#[test]
 fn auo_edp_no_extensions() {
-    let bytes = load("testdata/valid/auo_edp_laptop.bin");
+    let bytes = load("testdata/valid/auo_978f_auo.bin");
     let registry = ExtensionTagRegistry::new();
     let parsed = parse_edid(&bytes, &registry).unwrap();
 
@@ -339,3 +351,5 @@ fn caps_have_no_audio(bytes: &[u8]) -> bool {
     caps.get_extension_data::<Cea861Capabilities>(0x02)
         .is_none_or(|cea| !cea.flags.contains(Cea861Flags::BASIC_AUDIO))
 }
+// ---------------------------------------------------------------------------
+
