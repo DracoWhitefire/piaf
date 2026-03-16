@@ -16,7 +16,7 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 |---|---|---|
 | `0x00` | Product Identification Block (name, manufacturer ID, product code, serial) | ✓ implemented |
 | `0x01` | Display Parameters Block (physical size, color bit depths, aspect ratio) | ✓ implemented |
-| `0x02` | Color Characteristics Block (primaries, white point) | — deferred |
+| `0x02` | Color Characteristics Block (primaries, white point) | ✓ implemented |
 | `0x03` | Detailed Timings Block (Type I — 20-byte descriptors) | ✓ implemented |
 | `0x04` | Video Format Block (Type II — formula-based) | — deferred |
 | `0x05` | Type III Short Descriptor Video Timing Block | — deferred |
@@ -39,6 +39,30 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 | `0x80`–`0xFF` | Undefined (outside DisplayID 1.x tag space) | — reserved |
 
 ## Block structures
+
+### Color Characteristics Block (`0x02`)
+
+Provides the display's CIE xy color primaries and white point at higher precision than the
+EDID base block.
+
+```
+Byte  0:     Block tag (0x02)
+Byte  1:     Revision
+Byte  2:     Payload length (minimum 16 bytes)
+
+Per payload (16 bytes for an RGB display):
+  Bytes  0–1:  Red primary x   (LE uint16; value × 1/1024 = CIE x; lower 10 bits significant)
+  Bytes  2–3:  Red primary y
+  Bytes  4–5:  Green primary x
+  Bytes  6–7:  Green primary y
+  Bytes  8–9:  Blue primary x
+  Bytes 10–11: Blue primary y
+  Bytes 12–13: White point x
+  Bytes 14–15: White point y
+```
+
+Decoded into `caps.chromaticity`, overwriting any value from the EDID base block. Payloads
+shorter than 16 bytes are silently ignored. Only available from the dynamic pipeline.
 
 ### Display Parameters Block (`0x01`)
 

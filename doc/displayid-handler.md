@@ -87,6 +87,15 @@ Stored under tag `0x70` in `DisplayCapabilities::extension_data`:
 | `preferred_image_size_mm` | LE uint16 pairs at payload bytes 0–3; `0` on either axis = not defined |
 | `color_bit_depth` | Payload byte 5, bits 4:0; same `001=6bpc … 110=16bpc` encoding as EDID `0x14` |
 
+**Color Characteristics Block** (tag `0x02`) is decoded into the following
+`DisplayCapabilities` field (dynamic pipeline only):
+
+| `DisplayCapabilities` field | Source |
+|---|---|
+| `chromaticity` | 8 × LE uint16 at payload bytes 0–15: Red x/y, Green x/y, Blue x/y, White x/y; 1/1024 scale, lower 10 bits significant |
+
+Payloads shorter than 16 bytes are silently ignored.
+
 If the DisplayID block appears alongside an EDID base block, DisplayID values overwrite
 any base-block values for the same fields.
 

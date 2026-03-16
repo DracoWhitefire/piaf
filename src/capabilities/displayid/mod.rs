@@ -8,7 +8,9 @@ use crate::model::diagnostics::ParseWarning;
 use crate::model::extension::ExtensionHandler;
 use crate::model::extension::StaticExtensionHandler;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::color::ColorBitDepth;
+use crate::model::color::{ChromaticityPoint, ColorBitDepth};
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::color::Chromaticity;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::manufacture::{ManufactureDate, ManufacturerId, MonitorString};
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -48,6 +50,9 @@ const TAG_PRODUCT_ID: u8 = 0x00;
 
 /// Data block tag for the Display Parameters Block (DisplayID 1.x §4.3).
 const TAG_DISPLAY_PARAMS: u8 = 0x01;
+
+/// Data block tag for the Color Characteristics Block (DisplayID 1.x §4.4).
+const TAG_COLOR_CHARACTERISTICS: u8 = 0x02;
 
 /// Data block tag for the Detailed Timings Block (Type I descriptors, DisplayID 1.x §4.4.2).
 const TAG_TYPE_I_TIMING: u8 = 0x03;
@@ -292,6 +297,51 @@ fn scan_display_params_block(payload: &[u8], caps: &mut DisplayCapabilities) {
     });
 }
 
+/// Decodes a Color Characteristics Block payload into `caps.chromaticity`.
+///
+/// Payload layout (DisplayID 1.x §4.4):
+/// - Bytes  0–1:  Red primary x   (little-endian uint16; value × 1/1024 = CIE x)
+/// - Bytes  2–3:  Red primary y
+/// - Bytes  4–5:  Green primary x
+/// - Bytes  6–7:  Green primary y
+/// - Bytes  8–9:  Blue primary x
+/// - Bytes 10–11: Blue primary y
+/// - Bytes 12–13: White point x
+/// - Bytes 14–15: White point y
+///
+/// The 16-bit values use the same 1/1024 scale as the 10-bit EDID base block encoding.
+/// Only the lower 10 bits are significant; upper bits are reserved and masked out.
+/// The full 16 bytes must be present; short payloads are ignored.
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn decode_color_characteristics_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    if payload.len() < 16 {
+        return;
+    }
+
+    let read_point = |i: usize| ChromaticityPoint {
+        x_raw: u16::from_le_bytes([payload[i], payload[i + 1]]) & 0x03FF,
+        y_raw: u16::from_le_bytes([payload[i + 2], payload[i + 3]]) & 0x03FF,
+    };
+
+    caps.chromaticity = Chromaticity {
+        red:   read_point(0),
+        green: read_point(4),
+        blue:  read_point(8),
+        white: read_point(12),
+    };
+}
+
+/// Scans all data blocks in `payload` for a Color Characteristics Block (tag `0x02`)
+/// and decodes the first one found into `caps`.
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn scan_color_characteristics_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    for_each_data_block(payload, |tag, block_payload| {
+        if tag == TAG_COLOR_CHARACTERISTICS {
+            decode_color_characteristics_block(block_payload, caps);
+        }
+    });
+}
+
 /// Returns the data-block payload slice for a single DisplayID fragment.
 ///
 /// Extracts `block[4..end]` where `end = min(4 + section_byte_count, 127)`.
@@ -347,6 +397,7 @@ impl ExtensionHandler for DisplayIdHandler {
             process_data_blocks(payload, caps);
             scan_product_id_block(payload, caps);
             scan_display_params_block(payload, caps);
+            scan_color_characteristics_block(payload, caps);
         }
     }
 }
@@ -400,9 +451,10 @@ impl StaticExtensionHandler for DisplayIdHandler {
 /// specification once a real DisplayID fixture is available.
 #[cfg(test)]
 const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
-    TAG_PRODUCT_ID,     // 0x00 — Product Identification Block
-    TAG_DISPLAY_PARAMS, // 0x01 — Display Parameters Block
-    TAG_TYPE_I_TIMING,  // 0x03 — Detailed Timings Block (Type I descriptors)
+    TAG_PRODUCT_ID,           // 0x00 — Product Identification Block
+    TAG_DISPLAY_PARAMS,       // 0x01 — Display Parameters Block
+    TAG_COLOR_CHARACTERISTICS, // 0x02 — Color Characteristics Block
+    TAG_TYPE_I_TIMING,        // 0x03 — Detailed Timings Block (Type I descriptors)
 ];
 
 /// DisplayID 1.x data block tags that are defined by the specification but not
@@ -412,7 +464,6 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
 /// implemented, remove its tag from here and add it to `IMPLEMENTED_BLOCK_TAGS`.
 #[cfg(test)]
 const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
-    (0x02, 0x02), // Color Characteristics Block
     (0x04, 0x13), // Type II–VI timings, interface and identity blocks, Tiled Display Topology
     (0x14, 0x7E), // Reserved for future use in DisplayID 1.x
     (0x7F, 0x7F), // Vendor-specific
@@ -430,7 +481,7 @@ pub static DISPLAYID_HANDLER: &dyn StaticExtensionHandler = &DisplayIdHandler;
 mod tests {
     use super::*;
     use crate::model::capabilities::StaticDisplayCapabilities;
-    use crate::model::color::ColorBitDepth;
+    use crate::model::color::{Chromaticity, ChromaticityPoint, ColorBitDepth};
     use crate::model::extension::ExtensionHandler;
     use crate::model::manufacture::{ManufactureDate, ManufacturerId};
 
@@ -1031,6 +1082,104 @@ mod tests {
 
         assert!(warnings.is_empty());
         assert_eq!(caps.preferred_image_size_mm, None);
+    }
+
+    // -----------------------------------------------------------------------
+    // Color Characteristics Block (tag 0x02)
+    // -----------------------------------------------------------------------
+
+    /// Build a minimal 16-byte Color Characteristics payload with the given primaries.
+    /// Each argument is a (x_raw, y_raw) pair in 1/1024 CIE units (10-bit values).
+    fn make_color_characteristics_payload(
+        red: (u16, u16),
+        green: (u16, u16),
+        blue: (u16, u16),
+        white: (u16, u16),
+    ) -> [u8; 16] {
+        let mut p = [0u8; 16];
+        let write = |buf: &mut [u8], offset: usize, val: (u16, u16)| {
+            buf[offset..offset + 2].copy_from_slice(&val.0.to_le_bytes());
+            buf[offset + 2..offset + 4].copy_from_slice(&val.1.to_le_bytes());
+        };
+        write(&mut p, 0, red);
+        write(&mut p, 4, green);
+        write(&mut p, 8, blue);
+        write(&mut p, 12, white);
+        p
+    }
+
+    fn make_color_char_data_block(payload: &[u8]) -> Vec<u8> {
+        let mut db = Vec::new();
+        db.push(TAG_COLOR_CHARACTERISTICS);
+        db.push(0x00); // revision
+        db.push(payload.len() as u8);
+        db.extend_from_slice(payload);
+        db
+    }
+
+    #[test]
+    fn test_color_characteristics_primaries_decoded() {
+        // sRGB-like primaries: R(0.64, 0.33), G(0.30, 0.60), B(0.15, 0.06), D65(0.3127, 0.3290)
+        // Scaled × 1024: R(655, 338), G(307, 614), B(154, 61), W(320, 337)
+        let payload = make_color_characteristics_payload(
+            (655, 338),
+            (307, 614),
+            (154, 61),
+            (320, 337),
+        );
+        let db = make_color_char_data_block(&payload);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.chromaticity.red.x_raw, 655);
+        assert_eq!(caps.chromaticity.red.y_raw, 338);
+        assert_eq!(caps.chromaticity.green.x_raw, 307);
+        assert_eq!(caps.chromaticity.green.y_raw, 614);
+        assert_eq!(caps.chromaticity.blue.x_raw, 154);
+        assert_eq!(caps.chromaticity.blue.y_raw, 61);
+        assert_eq!(caps.chromaticity.white.x_raw, 320);
+        assert_eq!(caps.chromaticity.white.y_raw, 337);
+    }
+
+    #[test]
+    fn test_color_characteristics_upper_bits_masked() {
+        // Bits above 10 (mask 0x03FF) should be stripped — store 0x04FF, expect 0x00FF.
+        let payload = make_color_characteristics_payload(
+            (0x04FF, 0x04FF),
+            (0x04FF, 0x04FF),
+            (0x04FF, 0x04FF),
+            (0x04FF, 0x04FF),
+        );
+        let db = make_color_char_data_block(&payload);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.chromaticity.red.x_raw, 0x00FF);
+    }
+
+    #[test]
+    fn test_color_characteristics_short_payload_ignored() {
+        // A 15-byte payload — one byte short of the minimum 16. Must not modify chromaticity.
+        let mut db = [0u8; 18];
+        db[0] = TAG_COLOR_CHARACTERISTICS;
+        db[1] = 0x00;
+        db[2] = 15; // one byte short
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.chromaticity, crate::model::color::Chromaticity::default());
     }
 
     // -----------------------------------------------------------------------
