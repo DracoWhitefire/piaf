@@ -60,6 +60,9 @@ const TAG_TYPE_I_TIMING: u8 = 0x03;
 /// Data block tag for the Video Timing Modes Type II — Detailed Timings Block (DisplayID 1.x §4.4.3).
 const TAG_TYPE_II_TIMING: u8 = 0x04;
 
+/// Data block tag for the Video Timing Modes Type III — Short Timings Block (DisplayID 1.x §4.4.4).
+const TAG_TYPE_III_TIMING: u8 = 0x05;
+
 /// Parses the 4-byte section header common to all DisplayID fragments.
 ///
 /// Returns `(version, section_byte_count, product_type, extension_count)`.
@@ -212,6 +215,64 @@ fn decode_type_ii_descriptor(d: &[u8; 11], sink: &mut dyn ModeSink) {
     });
 }
 
+/// Decodes one 3-byte Type III Short Video Timing descriptor and pushes a mode to `sink`.
+///
+/// Descriptor layout (DisplayID 1.x §4.4.4):
+/// - Byte 0:  Bit 7 = preferred; bits 6:4 = CVT algorithm (0=standard, 1=reduced blanking);
+///   bits 3:0 = aspect ratio code (see table below)
+/// - Byte 1:  Horizontal active = `(byte + 1) × 8` pixels
+/// - Byte 2:  Bit 7 = interlaced; bits 6:0 = refresh rate = `bits + 1` Hz
+///
+/// Aspect ratio codes:
+/// `0`=1:1, `1`=5:4, `2`=4:3, `3`=15:9, `4`=16:9, `5`=16:10, `6`=64:27, `7`=256:135, `8`=undefined
+///
+/// Vertical active is derived from horizontal active and the aspect ratio. Descriptors
+/// with reserved or undefined aspect ratios (code > 7) are silently skipped, as are
+/// descriptors where the height calculation does not yield a whole number of lines.
+fn decode_type_iii_descriptor(d: &[u8; 3], sink: &mut dyn ModeSink) {
+    let aspect_code = d[0] & 0x0F;
+    let h_active = ((d[1] as u16) + 1) * 8;
+    let interlaced = (d[2] & 0x80) != 0;
+    let refresh_rate = (d[2] & 0x7F) + 1;
+
+    // Compute v_active from the aspect ratio (width:height → v = h × height / width).
+    // Aspect code 8 = undefined; codes 9–15 = reserved; both are skipped.
+    let (ar_h, ar_w): (u32, u32) = match aspect_code {
+        0 => (1, 1),     // 1:1
+        1 => (4, 5),     // 5:4
+        2 => (3, 4),     // 4:3
+        3 => (9, 15),    // 15:9
+        4 => (9, 16),    // 16:9
+        5 => (10, 16),   // 16:10
+        6 => (27, 64),   // 64:27
+        7 => (135, 256), // 256:135
+        _ => return,     // undefined or reserved
+    };
+    let v_raw = (h_active as u32) * ar_h;
+    if v_raw % ar_w != 0 {
+        return; // h_active is not a valid value for this aspect ratio
+    }
+    let v_active = (v_raw / ar_w) as u16;
+    if v_active == 0 {
+        return;
+    }
+
+    sink.push_mode(VideoMode {
+        width: h_active,
+        height: v_active,
+        refresh_rate,
+        interlaced,
+        h_front_porch: 0,
+        h_sync_width: 0,
+        v_front_porch: 0,
+        v_sync_width: 0,
+        h_border: 0,
+        v_border: 0,
+        stereo: StereoMode::None,
+        sync: None,
+    });
+}
+
 /// Calls `f(tag, block_payload)` for each well-formed data block in `payload`.
 ///
 /// Stops at the end-of-section sentinel (tag `0x00`, length `0`) or when a block's
@@ -258,6 +319,13 @@ fn process_data_blocks(payload: &[u8], sink: &mut dyn ModeSink) {
                 let descriptor: &[u8; 11] = block_payload[i..i + 11].try_into().unwrap();
                 decode_type_ii_descriptor(descriptor, sink);
                 i += 11;
+            }
+        } else if tag == TAG_TYPE_III_TIMING {
+            let mut i = 0;
+            while i + 3 <= block_payload.len() {
+                let descriptor: &[u8; 3] = block_payload[i..i + 3].try_into().unwrap();
+                decode_type_iii_descriptor(descriptor, sink);
+                i += 3;
             }
         }
         // Unknown block tags are silently skipped.
@@ -536,6 +604,7 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
     TAG_COLOR_CHARACTERISTICS, // 0x02 — Color Characteristics Block
     TAG_TYPE_I_TIMING,         // 0x03 — Detailed Timings Block (Type I descriptors)
     TAG_TYPE_II_TIMING,        // 0x04 — Video Timing Modes Type II — Detailed Timings Block
+    TAG_TYPE_III_TIMING,       // 0x05 — Video Timing Modes Type III — Short Timings Block
 ];
 
 /// DisplayID 1.x data block tags that are defined by the specification but not
@@ -545,7 +614,7 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
 /// implemented, remove its tag from here and add it to `IMPLEMENTED_BLOCK_TAGS`.
 #[cfg(test)]
 const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
-    (0x05, 0x13), // Type III–VI timings, interface and identity blocks, Tiled Display Topology
+    (0x06, 0x13), // Type IV–VI timings, interface and identity blocks, Tiled Display Topology
     (0x14, 0x7E), // Reserved for future use in DisplayID 1.x
     (0x7F, 0x7F), // Vendor-specific
     (0x80, 0xFF), // Undefined (outside the DisplayID 1.x tag space)
@@ -1445,6 +1514,169 @@ mod tests {
 
         assert!(warnings.is_empty());
         assert!(caps.supported_modes.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // Type III Short Video Timing Block (tag 0x05)
+    // -----------------------------------------------------------------------
+
+    fn make_type_iii_descriptor(
+        preferred: bool,
+        algo: u8,
+        aspect: u8,
+        h_raw: u8,
+        interlaced: bool,
+        refresh_raw: u8,
+    ) -> [u8; 3] {
+        let byte0 = ((preferred as u8) << 7) | ((algo & 0x07) << 4) | (aspect & 0x0F);
+        let byte2 = ((interlaced as u8) << 7) | (refresh_raw & 0x7F);
+        [byte0, h_raw, byte2]
+    }
+
+    fn make_type_iii_data_block(descriptors: &[[u8; 3]]) -> Vec<u8> {
+        let payload_len = descriptors.len() * 3;
+        let mut db = Vec::with_capacity(3 + payload_len);
+        db.push(TAG_TYPE_III_TIMING);
+        db.push(0x00); // revision
+        db.push(payload_len as u8);
+        for d in descriptors {
+            db.extend_from_slice(d);
+        }
+        db
+    }
+
+    #[test]
+    fn test_type_iii_16_9_decoded() {
+        // 1920×1080@60 Hz: aspect=16:9(0x04), h_raw=239→h=1920, refresh_raw=59→60 Hz
+        let d = make_type_iii_descriptor(false, 0, 0x04, 239, false, 59);
+        let db = make_type_iii_data_block(&[d]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        let mode = &caps.supported_modes[0];
+        assert_eq!(mode.width, 1920);
+        assert_eq!(mode.height, 1080);
+        assert_eq!(mode.refresh_rate, 60);
+        assert!(!mode.interlaced);
+    }
+
+    #[test]
+    fn test_type_iii_4_3_decoded() {
+        // 1024×768@75 Hz: aspect=4:3(0x02), h_raw=127→h=1024, refresh_raw=74→75 Hz
+        let d = make_type_iii_descriptor(false, 0, 0x02, 127, false, 74);
+        let db = make_type_iii_data_block(&[d]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 1024);
+        assert_eq!(caps.supported_modes[0].height, 768);
+        assert_eq!(caps.supported_modes[0].refresh_rate, 75);
+    }
+
+    #[test]
+    fn test_type_iii_static_pipeline() {
+        let d = make_type_iii_descriptor(false, 0, 0x04, 239, false, 59);
+        let db = make_type_iii_data_block(&[d]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = StaticDisplayCapabilities::<16>::default();
+        let mut ctx = StaticContext::new(&mut caps);
+        StaticExtensionHandler::process(&DisplayIdHandler, &[&block], &mut ctx);
+
+        assert_eq!(caps.num_modes, 1);
+        let mode = caps.supported_modes[0].as_ref().unwrap();
+        assert_eq!(mode.width, 1920);
+        assert_eq!(mode.height, 1080);
+        assert_eq!(mode.refresh_rate, 60);
+    }
+
+    #[test]
+    fn test_type_iii_interlaced_flag() {
+        // interlaced bit in byte 2 bit 7
+        let d = make_type_iii_descriptor(false, 0, 0x04, 239, true, 59);
+        let db = make_type_iii_data_block(&[d]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert!(caps.supported_modes[0].interlaced);
+    }
+
+    #[test]
+    fn test_type_iii_undefined_aspect_skipped() {
+        // Aspect code 0x08 = undefined; descriptor must be skipped.
+        let d = make_type_iii_descriptor(false, 0, 0x08, 239, false, 59);
+        let db = make_type_iii_data_block(&[d]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_type_iii_non_integer_height_skipped() {
+        // 16:9 requires h_active divisible by 16. h_raw=0→h=8, 8*9/16=4.5 — not integer; skip.
+        let d = make_type_iii_descriptor(false, 0, 0x04, 0, false, 59);
+        let db = make_type_iii_data_block(&[d]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_type_iii_multiple_aspect_ratios() {
+        // Three descriptors with different aspect ratios.
+        let d1 = make_type_iii_descriptor(false, 0, 0x04, 239, false, 59); // 1920×1080@60
+        let d2 = make_type_iii_descriptor(false, 0, 0x02, 159, false, 59); // 1280×960@60
+        // 16:10 → 1280×800: h_raw=159→h=1280, 1280*10/16=800
+        let d3 = make_type_iii_descriptor(false, 0, 0x05, 159, false, 59); // 1280×800@60
+        let db = make_type_iii_data_block(&[d1, d2, d3]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 3);
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 1920 && m.height == 1080)
+        );
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 1280 && m.height == 960)
+        );
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 1280 && m.height == 800)
+        );
     }
 
     // -----------------------------------------------------------------------

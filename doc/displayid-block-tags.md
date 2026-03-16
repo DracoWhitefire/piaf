@@ -19,7 +19,7 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 | `0x02` | Color Characteristics Block (primaries, white point) | ✓ implemented |
 | `0x03` | Detailed Timings Block (Type I — 20-byte descriptors) | ✓ implemented |
 | `0x04` | Video Timing Modes Type II — Detailed Timings Block | ✓ implemented |
-| `0x05` | Type III Short Descriptor Video Timing Block | — deferred |
+| `0x05` | Type III Short Descriptor Video Timing Block | ✓ implemented |
 | `0x06` | Type IV Short Descriptor Video Timing Block (DMT codes) | — deferred |
 | `0x07` | VESA Video Timing Block | — deferred |
 | `0x08` | CTA Video Timing Block | — deferred |
@@ -152,6 +152,32 @@ Refresh rate derived as `pixel_clock_hz / (h_total × v_total)` where
 Note: byte 9 is dual-role — the full 8-bit value gives the total vertical blanking interval
 while the upper/lower nibbles give the front-porch and sync-width sub-intervals. The implied
 back porch is `v_blank − v_front_porch − v_sync_width`.
+
+### Detailed Timings Block — Type III (`0x05`)
+
+Each block contains one or more 3-byte short timing descriptors. Both the dynamic and static
+pipelines decode Type III blocks. Vertical active is derived from horizontal active using the
+aspect ratio; no blanking detail is stored.
+
+```
+Byte  0:     Block tag (0x05)
+Byte  1:     Revision
+Byte  2:     Payload length (multiple of 3)
+Bytes 3+:    3-byte timing descriptors
+
+Per descriptor:
+  Byte 0:  Bit 7 = preferred timing
+           Bits 6:4 = CVT algorithm (0 = standard blanking, 1 = reduced blanking)
+           Bits 3:0 = Aspect ratio code:
+             0=1:1, 1=5:4, 2=4:3, 3=15:9, 4=16:9, 5=16:10, 6=64:27, 7=256:135, 8=undefined
+  Byte 1:  Horizontal active pixels = (byte + 1) × 8  (max 2048 px; 8-pixel granule)
+  Byte 2:  Bit 7 = interlaced
+           Bits 6:0 = Vertical refresh rate = bits + 1  Hz (range 1–128 Hz)
+```
+
+Vertical active is computed as `h_active × height / width` using the aspect ratio fraction.
+Descriptors with aspect code 8 (undefined) or codes 9–15 (reserved) are silently skipped,
+as are descriptors where the height calculation does not yield a whole number of lines.
 
 ### Product Identification Block (`0x00`)
 

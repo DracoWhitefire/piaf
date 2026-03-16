@@ -131,6 +131,22 @@ Byte 9 is dual-role: the full byte encodes the total `v_blank`; the upper/lower 
 encode `v_front_porch − 1` and `v_sync_width − 1`. The implied back porch is
 `v_blank − v_front_porch − v_sync_width`.
 
+**Type III Short Video Timing blocks** (tag `0x05`) are decoded in both the dynamic and static
+pipelines. Each 3-byte descriptor encodes only the horizontal active, aspect ratio, and refresh
+rate; vertical active is derived from the aspect ratio:
+
+| `VideoMode` field | Source |
+|---|---|
+| `width` | `(byte 1 + 1) × 8` pixels (8-pixel granule, max 2048) |
+| `height` | `width × height_factor / width_factor` from aspect ratio |
+| `refresh_rate` | Byte 2 bits 6:0, plus 1 Hz |
+| `interlaced` | Byte 2 bit 7 |
+| `h_front_porch`, `h_sync_width`, `v_front_porch`, `v_sync_width` | 0 (not encoded) |
+| `sync` | `None` (not encoded) |
+
+Descriptors with undefined or reserved aspect ratio codes are silently skipped, as are those
+where the derived vertical active is not a whole number of lines.
+
 ## Warnings
 
 | Variant | Meaning |
