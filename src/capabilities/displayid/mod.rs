@@ -63,6 +63,9 @@ const TAG_TYPE_II_TIMING: u8 = 0x04;
 /// Data block tag for the Video Timing Modes Type III — Short Timings Block (DisplayID 1.x §4.4.4).
 const TAG_TYPE_III_TIMING: u8 = 0x05;
 
+/// Data block tag for the Video Timing Modes Type IV — DMT Timing Codes Block (DisplayID 1.x §4.4.5).
+const TAG_TYPE_IV_TIMING: u8 = 0x06;
+
 /// Parses the 4-byte section header common to all DisplayID fragments.
 ///
 /// Returns `(version, section_byte_count, product_type, extension_count)`.
@@ -273,6 +276,201 @@ fn decode_type_iii_descriptor(d: &[u8; 3], sink: &mut dyn ModeSink) {
     });
 }
 
+/// A single VESA Display Monitor Timings (DMT) table entry.
+///
+/// Fields describe the same timing parameters as [`VideoMode`]. Timing values are
+/// sourced from the VESA Display Monitor Timings standard v1.13. Verify entries
+/// against the VESA document when precision is required.
+#[derive(Copy, Clone)]
+struct DmtEntry {
+    width: u16,
+    height: u16,
+    /// Nominal vertical refresh rate in Hz.
+    refresh_rate: u8,
+    interlaced: bool,
+    h_front_porch: u16,
+    h_sync_width: u16,
+    v_front_porch: u16,
+    v_sync_width: u16,
+    h_sync_positive: bool,
+    v_sync_positive: bool,
+}
+
+/// Looks up a VESA DMT timing entry by DMT code.
+///
+/// Returns `None` for codes not present in the VESA DMT 1.13 table (including
+/// codes in the range `0x55`–`0xFF`). Unknown codes in a Type IV block are
+/// silently skipped by the caller.
+///
+/// Timing parameters are sourced from the VESA Display Monitor Timings standard
+/// v1.13. Verify entries against the VESA document when precision is required.
+fn dmt_lookup(code: u8) -> Option<DmtEntry> {
+    macro_rules! e {
+        ($w:expr, $h:expr, $rr:expr, $i:expr,
+         $hfp:expr, $hsw:expr, $vfp:expr, $vsw:expr,
+         $hp:expr, $vp:expr) => {
+            DmtEntry {
+                width: $w,
+                height: $h,
+                refresh_rate: $rr,
+                interlaced: $i,
+                h_front_porch: $hfp,
+                h_sync_width: $hsw,
+                v_front_porch: $vfp,
+                v_sync_width: $vsw,
+                h_sync_positive: $hp,
+                v_sync_positive: $vp,
+            }
+        };
+    }
+
+    Some(match code {
+        // 640×350
+        0x01 => e!(640, 350, 85, false, 32, 64, 32, 3, true, false),
+        // 640×400
+        0x02 => e!(640, 400, 85, false, 32, 64, 1, 3, false, true),
+        // 720×400
+        0x03 => e!(720, 400, 85, false, 36, 72, 1, 3, false, true),
+        // 640×480
+        0x04 => e!(640, 480, 60, false, 16, 96, 10, 2, false, false),
+        0x05 => e!(640, 480, 72, false, 24, 40, 9, 3, false, false),
+        0x06 => e!(640, 480, 75, false, 16, 64, 1, 3, false, false),
+        0x07 => e!(640, 480, 85, false, 56, 56, 1, 3, false, false),
+        // 800×600
+        0x08 => e!(800, 600, 56, false, 24, 72, 1, 2, true, true),
+        0x09 => e!(800, 600, 60, false, 40, 128, 1, 4, true, true),
+        0x0A => e!(800, 600, 72, false, 56, 120, 37, 6, true, true),
+        0x0B => e!(800, 600, 75, false, 16, 80, 1, 3, true, true),
+        0x0C => e!(800, 600, 85, false, 32, 64, 1, 3, true, true),
+        0x0D => e!(800, 600, 120, false, 48, 32, 3, 4, true, false), // RB
+        // 848×480
+        0x0E => e!(848, 480, 60, false, 16, 112, 6, 8, true, true),
+        // 1024×768i (interlaced)
+        0x0F => e!(1024, 768, 43, true, 8, 176, 0, 4, false, false),
+        // 1024×768
+        0x10 => e!(1024, 768, 60, false, 24, 136, 3, 6, false, false),
+        0x11 => e!(1024, 768, 70, false, 24, 136, 3, 6, false, false),
+        0x12 => e!(1024, 768, 75, false, 16, 96, 1, 3, true, true),
+        0x13 => e!(1024, 768, 85, false, 48, 96, 1, 3, true, true),
+        0x14 => e!(1024, 768, 120, false, 48, 32, 3, 4, true, false), // RB
+        // 1152×864
+        0x15 => e!(1152, 864, 75, false, 64, 128, 1, 3, true, true),
+        // 1280×768
+        0x16 => e!(1280, 768, 60, false, 48, 32, 3, 7, true, false), // RB
+        0x17 => e!(1280, 768, 60, false, 64, 128, 3, 7, false, true),
+        0x18 => e!(1280, 768, 75, false, 80, 128, 3, 7, false, true),
+        0x19 => e!(1280, 768, 85, false, 80, 136, 3, 7, false, true),
+        0x1A => e!(1280, 768, 120, false, 48, 32, 3, 7, true, false), // RB
+        // 1280×800
+        0x1B => e!(1280, 800, 60, false, 48, 32, 3, 6, true, false), // RB
+        0x1C => e!(1280, 800, 60, false, 72, 128, 3, 6, false, true),
+        0x1D => e!(1280, 800, 75, false, 80, 128, 3, 6, false, true),
+        0x1E => e!(1280, 800, 85, false, 80, 136, 3, 6, false, true),
+        0x1F => e!(1280, 800, 120, false, 48, 32, 3, 6, true, false), // RB
+        // 1280×960
+        0x20 => e!(1280, 960, 60, false, 96, 112, 1, 3, true, true),
+        0x21 => e!(1280, 960, 85, false, 64, 160, 1, 3, true, true),
+        0x22 => e!(1280, 960, 120, false, 48, 32, 3, 4, true, false), // RB
+        // 1280×1024
+        0x23 => e!(1280, 1024, 60, false, 48, 112, 1, 3, true, true),
+        0x24 => e!(1280, 1024, 75, false, 16, 144, 1, 3, true, true),
+        0x25 => e!(1280, 1024, 85, false, 64, 160, 1, 3, true, true),
+        0x26 => e!(1280, 1024, 120, false, 48, 32, 3, 7, true, false), // RB
+        // 1360×768
+        0x27 => e!(1360, 768, 60, false, 64, 112, 3, 6, true, true),
+        0x28 => e!(1360, 768, 120, false, 48, 32, 3, 5, true, false), // RB
+        // 1400×1050
+        0x29 => e!(1400, 1050, 60, false, 48, 32, 3, 4, true, false), // RB
+        0x2A => e!(1400, 1050, 60, false, 88, 144, 3, 4, false, true),
+        0x2B => e!(1400, 1050, 75, false, 104, 144, 3, 4, false, true),
+        0x2C => e!(1400, 1050, 85, false, 104, 152, 3, 4, false, true),
+        0x2D => e!(1400, 1050, 120, false, 48, 32, 3, 4, true, false), // RB
+        // 1440×900
+        0x2E => e!(1440, 900, 60, false, 48, 32, 3, 6, true, false), // RB
+        0x2F => e!(1440, 900, 60, false, 80, 152, 3, 6, false, true),
+        0x30 => e!(1440, 900, 75, false, 96, 152, 3, 6, false, true),
+        0x31 => e!(1440, 900, 85, false, 104, 152, 3, 6, false, true),
+        0x32 => e!(1440, 900, 120, false, 48, 32, 3, 6, true, false), // RB
+        // 1600×1200
+        0x33 => e!(1600, 1200, 60, false, 64, 192, 1, 3, true, true),
+        0x34 => e!(1600, 1200, 65, false, 64, 192, 1, 3, true, true),
+        0x35 => e!(1600, 1200, 70, false, 64, 192, 1, 3, true, true),
+        0x36 => e!(1600, 1200, 75, false, 64, 192, 1, 3, true, true),
+        0x37 => e!(1600, 1200, 85, false, 64, 192, 1, 3, true, true),
+        0x38 => e!(1600, 1200, 120, false, 48, 32, 3, 4, true, false), // RB
+        // 1680×1050
+        0x39 => e!(1680, 1050, 60, false, 48, 32, 3, 6, true, false), // RB
+        0x3A => e!(1680, 1050, 60, false, 104, 176, 3, 6, false, true),
+        0x3B => e!(1680, 1050, 75, false, 120, 176, 3, 6, false, true),
+        0x3C => e!(1680, 1050, 85, false, 128, 176, 3, 6, false, true),
+        0x3D => e!(1680, 1050, 120, false, 48, 32, 3, 6, true, false), // RB
+        // 1792×1344
+        0x3E => e!(1792, 1344, 60, false, 128, 200, 1, 3, false, true),
+        0x3F => e!(1792, 1344, 75, false, 96, 216, 1, 3, false, true),
+        0x40 => e!(1792, 1344, 120, false, 48, 32, 3, 4, true, false), // RB
+        // 1856×1392
+        0x41 => e!(1856, 1392, 60, false, 96, 224, 1, 3, false, true),
+        0x42 => e!(1856, 1392, 75, false, 128, 224, 1, 3, false, true),
+        0x43 => e!(1856, 1392, 120, false, 48, 32, 3, 4, true, false), // RB
+        // 1920×1200
+        0x44 => e!(1920, 1200, 60, false, 48, 32, 3, 6, true, false), // RB
+        0x45 => e!(1920, 1200, 60, false, 136, 200, 3, 6, false, true),
+        0x46 => e!(1920, 1200, 75, false, 136, 208, 3, 6, false, true),
+        0x47 => e!(1920, 1200, 85, false, 144, 208, 3, 6, false, true),
+        0x48 => e!(1920, 1200, 120, false, 48, 32, 3, 6, true, false), // RB
+        // 1920×1440
+        0x49 => e!(1920, 1440, 60, false, 128, 208, 1, 3, false, true),
+        0x4A => e!(1920, 1440, 75, false, 144, 224, 1, 3, false, true),
+        0x4B => e!(1920, 1440, 120, false, 48, 32, 3, 4, true, false), // RB
+        // 2560×1600
+        0x4C => e!(2560, 1600, 60, false, 48, 32, 3, 6, true, false), // RB
+        0x4D => e!(2560, 1600, 60, false, 192, 280, 3, 6, false, true),
+        0x4E => e!(2560, 1600, 75, false, 208, 280, 3, 6, false, true),
+        0x4F => e!(2560, 1600, 85, false, 208, 280, 3, 6, false, true),
+        0x50 => e!(2560, 1600, 120, false, 48, 32, 3, 6, true, false), // RB
+        // Additional VESA DMT 1.13 entries (codes 0x51–0x58)
+        0x51 => e!(1366, 768, 60, false, 70, 143, 3, 3, true, true),
+        0x52 => e!(1920, 1080, 60, false, 88, 44, 4, 5, true, true),
+        0x53 => e!(1600, 900, 60, false, 48, 32, 3, 5, true, false), // RB
+        0x54 => e!(2048, 1152, 60, false, 48, 32, 3, 4, true, false), // RB
+        0x55 => e!(1280, 720, 60, false, 110, 40, 5, 5, true, true),
+        0x56 => e!(1366, 768, 60, false, 14, 56, 1, 3, true, true),
+        0x57 => e!(4096, 2160, 60, false, 8, 32, 48, 8, true, true),
+        0x58 => e!(4096, 2160, 60, false, 8, 32, 48, 8, true, true), // 59.94 Hz, stored as 60
+        _ => return None,
+    })
+}
+
+/// Iterates the 1-byte DMT codes in a Type IV block payload and pushes the corresponding
+/// modes to `sink`.
+///
+/// Each byte in the payload is a VESA DMT code. Codes not present in the DMT lookup
+/// table are silently skipped.
+fn decode_type_iv_block(block_payload: &[u8], sink: &mut dyn ModeSink) {
+    for &code in block_payload {
+        let Some(dmt) = dmt_lookup(code) else {
+            continue;
+        };
+        sink.push_mode(VideoMode {
+            width: dmt.width,
+            height: dmt.height,
+            refresh_rate: dmt.refresh_rate,
+            interlaced: dmt.interlaced,
+            h_front_porch: dmt.h_front_porch,
+            h_sync_width: dmt.h_sync_width,
+            v_front_porch: dmt.v_front_porch,
+            v_sync_width: dmt.v_sync_width,
+            h_border: 0,
+            v_border: 0,
+            stereo: StereoMode::None,
+            sync: Some(SyncDefinition::DigitalSeparate {
+                h_sync_positive: dmt.h_sync_positive,
+                v_sync_positive: dmt.v_sync_positive,
+            }),
+        });
+    }
+}
+
 /// Calls `f(tag, block_payload)` for each well-formed data block in `payload`.
 ///
 /// Stops at the end-of-section sentinel (tag `0x00`, length `0`) or when a block's
@@ -327,6 +525,8 @@ fn process_data_blocks(payload: &[u8], sink: &mut dyn ModeSink) {
                 decode_type_iii_descriptor(descriptor, sink);
                 i += 3;
             }
+        } else if tag == TAG_TYPE_IV_TIMING {
+            decode_type_iv_block(block_payload, sink);
         }
         // Unknown block tags are silently skipped.
     });
@@ -605,6 +805,7 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
     TAG_TYPE_I_TIMING,         // 0x03 — Detailed Timings Block (Type I descriptors)
     TAG_TYPE_II_TIMING,        // 0x04 — Video Timing Modes Type II — Detailed Timings Block
     TAG_TYPE_III_TIMING,       // 0x05 — Video Timing Modes Type III — Short Timings Block
+    TAG_TYPE_IV_TIMING,        // 0x06 — Video Timing Modes Type IV — DMT Timing Codes Block
 ];
 
 /// DisplayID 1.x data block tags that are defined by the specification but not
@@ -614,7 +815,7 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
 /// implemented, remove its tag from here and add it to `IMPLEMENTED_BLOCK_TAGS`.
 #[cfg(test)]
 const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
-    (0x06, 0x13), // Type IV–VI timings, interface and identity blocks, Tiled Display Topology
+    (0x07, 0x13), // Type V–VI timings, VESA/CTA video timing, range descriptor, interface and identity blocks, Tiled Display Topology
     (0x14, 0x7E), // Reserved for future use in DisplayID 1.x
     (0x7F, 0x7F), // Vendor-specific
     (0x80, 0xFF), // Undefined (outside the DisplayID 1.x tag space)
@@ -1677,6 +1878,171 @@ mod tests {
                 .iter()
                 .any(|m| m.width == 1280 && m.height == 800)
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Type IV DMT Timing Codes Block (tag 0x06)
+    // -----------------------------------------------------------------------
+
+    fn make_type_iv_data_block(codes: &[u8]) -> Vec<u8> {
+        let mut db = Vec::new();
+        db.push(TAG_TYPE_IV_TIMING);
+        db.push(0x00); // revision
+        db.push(codes.len() as u8);
+        db.extend_from_slice(codes);
+        db
+    }
+
+    #[test]
+    fn test_type_iv_known_code_decoded() {
+        // DMT 0x04 = 640×480@60 Hz
+        let db = make_type_iv_data_block(&[0x04]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        let mode = &caps.supported_modes[0];
+        assert_eq!(mode.width, 640);
+        assert_eq!(mode.height, 480);
+        assert_eq!(mode.refresh_rate, 60);
+        assert!(!mode.interlaced);
+        assert_eq!(mode.h_front_porch, 16);
+        assert_eq!(mode.h_sync_width, 96);
+        assert_eq!(mode.v_front_porch, 10);
+        assert_eq!(mode.v_sync_width, 2);
+        assert_eq!(
+            mode.sync,
+            Some(SyncDefinition::DigitalSeparate {
+                h_sync_positive: false,
+                v_sync_positive: false,
+            })
+        );
+    }
+
+    #[test]
+    fn test_type_iv_1920x1080_60hz() {
+        // DMT 0x52 = 1920×1080@60 Hz
+        let db = make_type_iv_data_block(&[0x52]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        let mode = &caps.supported_modes[0];
+        assert_eq!(mode.width, 1920);
+        assert_eq!(mode.height, 1080);
+        assert_eq!(mode.refresh_rate, 60);
+        assert!(!mode.interlaced);
+        assert_eq!(
+            mode.sync,
+            Some(SyncDefinition::DigitalSeparate {
+                h_sync_positive: true,
+                v_sync_positive: true,
+            })
+        );
+    }
+
+    #[test]
+    fn test_type_iv_unknown_code_skipped() {
+        // Code 0xFF is undefined — must produce no mode and no warning.
+        let db = make_type_iv_data_block(&[0xFF]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_type_iv_interlaced_code() {
+        // DMT 0x0F = 1024×768i@43 Hz (interlaced)
+        let db = make_type_iv_data_block(&[0x0F]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        let mode = &caps.supported_modes[0];
+        assert_eq!(mode.width, 1024);
+        assert_eq!(mode.height, 768);
+        assert_eq!(mode.refresh_rate, 43);
+        assert!(mode.interlaced);
+    }
+
+    #[test]
+    fn test_type_iv_multiple_codes() {
+        // Three codes: 640×480@60, 800×600@60, 1920×1080@60
+        let db = make_type_iv_data_block(&[0x04, 0x09, 0x52]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 3);
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 640 && m.height == 480)
+        );
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 800 && m.height == 600)
+        );
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 1920 && m.height == 1080)
+        );
+    }
+
+    #[test]
+    fn test_type_iv_mixed_known_unknown_codes() {
+        // Known code sandwiched between unknown codes — only the known one yields a mode.
+        let db = make_type_iv_data_block(&[0xFE, 0x23, 0xFF]); // 0x23 = 1280×1024@60
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 1280);
+        assert_eq!(caps.supported_modes[0].height, 1024);
+        assert_eq!(caps.supported_modes[0].refresh_rate, 60);
+    }
+
+    #[test]
+    fn test_type_iv_static_pipeline() {
+        // DMT 0x09 = 800×600@60 Hz
+        let db = make_type_iv_data_block(&[0x09]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = StaticDisplayCapabilities::<16>::default();
+        let mut ctx = StaticContext::new(&mut caps);
+        StaticExtensionHandler::process(&DisplayIdHandler, &[&block], &mut ctx);
+
+        assert_eq!(caps.num_modes, 1);
+        let mode = caps.supported_modes[0].as_ref().unwrap();
+        assert_eq!(mode.width, 800);
+        assert_eq!(mode.height, 600);
+        assert_eq!(mode.refresh_rate, 60);
     }
 
     // -----------------------------------------------------------------------

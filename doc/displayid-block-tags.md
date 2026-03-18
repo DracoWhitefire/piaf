@@ -20,7 +20,7 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 | `0x03` | Detailed Timings Block (Type I — 20-byte descriptors) | ✓ implemented |
 | `0x04` | Video Timing Modes Type II — Detailed Timings Block | ✓ implemented |
 | `0x05` | Type III Short Descriptor Video Timing Block | ✓ implemented |
-| `0x06` | Type IV Short Descriptor Video Timing Block (DMT codes) | — deferred |
+| `0x06` | Type IV Short Descriptor Video Timing Block (DMT codes) | ✓ implemented |
 | `0x07` | VESA Video Timing Block | — deferred |
 | `0x08` | CTA Video Timing Block | — deferred |
 | `0x09` | Video Timing Range Descriptor Block | — deferred |
