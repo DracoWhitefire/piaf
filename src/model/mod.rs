@@ -60,7 +60,8 @@ pub mod panel;
 /// Luminance transfer characteristic types (from DisplayID 0x0E Transfer Characteristics Block).
 pub mod transfer;
 pub use panel::{
-    BacklightType, DisplayTechnology, OperatingMode, PhysicalOrientation, PowerSequencing,
+    BacklightType, DisplayIdInterface, DisplayInterfaceType, DisplayTechnology,
+    InterfaceContentProtection, OperatingMode, PhysicalOrientation, PowerSequencing,
     RotationCapability, ScanDirection, SubpixelLayout, ZeroPixelLocation,
 };
 pub use transfer::TransferPointEncoding;

@@ -247,6 +247,102 @@ impl SubpixelLayout {
     }
 }
 
+/// Physical interface standard type, decoded from Display Interface Data Block (0x0F)
+/// byte 0 bits 3:0.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisplayInterfaceType {
+    /// Undefined / not specified (`0x0`).
+    Undefined,
+    /// Analog (VGA) interface (`0x1`).
+    Analog,
+    /// LVDS single link (`0x2`).
+    LvdsSingle,
+    /// LVDS dual link (`0x3`).
+    LvdsDual,
+    /// TMDS single link — DVI-D single or HDMI (`0x4`).
+    TmdsSingle,
+    /// TMDS dual link — DVI-DL or HDMI dual (`0x5`).
+    TmdsDual,
+    /// Embedded DisplayPort (eDP) (`0x6`).
+    EmbeddedDisplayPort,
+    /// External DisplayPort (DP) (`0x7`).
+    DisplayPort,
+    /// Proprietary interface (`0x8`).
+    Proprietary,
+    /// Reserved or unrecognized value (`0x9`–`0xF`).
+    Reserved(u8),
+}
+
+impl DisplayInterfaceType {
+    /// Decodes the interface type from the lower 4 bits of byte 0.
+    pub fn from_nibble(nibble: u8) -> Self {
+        match nibble & 0x0F {
+            0x0 => Self::Undefined,
+            0x1 => Self::Analog,
+            0x2 => Self::LvdsSingle,
+            0x3 => Self::LvdsDual,
+            0x4 => Self::TmdsSingle,
+            0x5 => Self::TmdsDual,
+            0x6 => Self::EmbeddedDisplayPort,
+            0x7 => Self::DisplayPort,
+            0x8 => Self::Proprietary,
+            v => Self::Reserved(v),
+        }
+    }
+}
+
+/// Content protection mechanism supported on the display interface, decoded from Display
+/// Interface Data Block (0x0F) byte 6 bits 1:0.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InterfaceContentProtection {
+    /// No content protection (`0`).
+    None,
+    /// High-bandwidth Digital Content Protection (HDCP) (`1`).
+    Hdcp,
+    /// DisplayPort Content Protection (DPCP) (`2`).
+    Dpcp,
+    /// Reserved or unrecognized value (`3`).
+    Reserved(u8),
+}
+
+impl InterfaceContentProtection {
+    /// Decodes the content protection type from a 2-bit value (bits 1:0 of byte 6).
+    pub fn from_bits(bits: u8) -> Self {
+        match bits & 0x03 {
+            0 => Self::None,
+            1 => Self::Hdcp,
+            2 => Self::Dpcp,
+            v => Self::Reserved(v),
+        }
+    }
+}
+
+/// Display interface capabilities, decoded from the Display Interface Data Block
+/// (DisplayID 1.x `0x0F`).
+///
+/// Identifies the physical interface type, link characteristics, pixel clock range,
+/// and supported content protection mechanism.
+///
+/// Stored in [`DisplayCapabilities::display_id_interface`][crate::DisplayCapabilities::display_id_interface].
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DisplayIdInterface {
+    /// Physical interface standard (LVDS, eDP, DisplayPort, TMDS, etc.).
+    pub interface_type: DisplayInterfaceType,
+    /// Whether spread-spectrum clocking is supported on this interface.
+    pub spread_spectrum: bool,
+    /// Number of data lanes or LVDS pairs (raw count from byte 1 bits 3:0).
+    pub num_lanes: u8,
+    /// Minimum pixel clock in units of 10 kHz (from bytes 2–3, LE uint16).
+    pub min_pixel_clock_10khz: u32,
+    /// Maximum pixel clock in units of 10 kHz (from bytes 4–5, LE uint16).
+    pub max_pixel_clock_10khz: u32,
+    /// Content protection mechanism supported on this interface.
+    pub content_protection: InterfaceContentProtection,
+}
+
 /// Panel interface power sequencing timing parameters, decoded from the Interface Power
 /// Sequencing Block (DisplayID 1.x `0x0D`).
 ///

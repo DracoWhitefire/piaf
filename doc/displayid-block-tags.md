@@ -29,7 +29,7 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 | `0x0C`        | Display Device Data Block                                                  | ✓ implemented |
 | `0x0D`        | Interface Power Sequencing Block                                           | ✓ implemented |
 | `0x0E`        | Transfer Characteristics Block                                             | ✓ implemented |
-| `0x0F`        | Display Interface Block                                                    | — deferred    |
+| `0x0F`        | Display Interface Data Block                                               | ✓ implemented |
 | `0x10`        | Stereo Display Interface Block                                             | — deferred    |
 | `0x11`        | Type V Short Timings Block                                                 | ✓ implemented |
 | `0x12`        | Tiled Display Topology Block                                               | — deferred    |
@@ -442,6 +442,43 @@ Decoded into `caps.transfer_characteristic` as a `DisplayIdTransferCharacteristi
 Sample values are normalized to `[0.0, 1.0]`. In multi-channel mode the three curve
 regions must be equal length; blocks where the sample data cannot be split evenly are
 silently skipped. Only available from the dynamic (`alloc`/`std`) pipeline.
+
+### Display Interface Data Block (`0x0F`)
+
+Describes the physical display interface: type, link count, pixel clock range, and content
+protection support. Typically present in eDP and LVDS panels.
+
+```
+Byte  0:     Block tag (0x0F)
+Byte  1:     Revision (0x00)
+Byte  2:     Payload length (minimum 7 bytes)
+
+Per payload:
+  Byte 0 bits 3:0: Interface type
+                   0x0 = undefined
+                   0x1 = analog (VGA)
+                   0x2 = LVDS single link
+                   0x3 = LVDS dual link
+                   0x4 = TMDS single link (DVI-D / HDMI)
+                   0x5 = TMDS dual link (DVI-DL / HDMI dual)
+                   0x6 = eDP (Embedded DisplayPort)
+                   0x7 = DisplayPort (external)
+                   0x8 = Proprietary
+                   0x9–0xF = Reserved
+  Byte 0 bit 4:   Spread spectrum clocking (1 = supported)
+  Byte 0 bits 7:5: Reserved
+  Byte 1 bits 3:0: Number of data lanes or LVDS pairs (raw count)
+  Byte 1 bits 7:4: Reserved
+  Bytes 2–3:       Minimum pixel clock (LE uint16, 10 kHz units)
+  Bytes 4–5:       Maximum pixel clock (LE uint16, 10 kHz units)
+  Byte 6 bits 1:0: Content protection type
+                   0 = none, 1 = HDCP, 2 = DPCP, 3 = reserved
+  Byte 6 bits 7:2: Reserved
+```
+
+Decoded into `caps.display_id_interface` as a `DisplayIdInterface` struct. All interface
+type values are decoded, including reserved ones (stored as `Reserved(n)`). Payloads
+shorter than 7 bytes are silently skipped.
 
 ### Type V Short Timings Block (`0x11`)
 

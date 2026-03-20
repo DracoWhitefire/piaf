@@ -1,7 +1,7 @@
 use super::{
-    TAG_ASCII_STRING, TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_DEVICE_DATA, TAG_DISPLAY_PARAMS,
-    TAG_POWER_SEQUENCING, TAG_PRODUCT_ID, TAG_SERIAL_NUMBER, TAG_TRANSFER_CHARACTERISTICS,
-    TAG_VIDEO_TIMING_RANGE, for_each_data_block,
+    TAG_ASCII_STRING, TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_DEVICE_DATA, TAG_DISPLAY_INTERFACE,
+    TAG_DISPLAY_PARAMS, TAG_POWER_SEQUENCING, TAG_PRODUCT_ID, TAG_SERIAL_NUMBER,
+    TAG_TRANSFER_CHARACTERISTICS, TAG_VIDEO_TIMING_RANGE, for_each_data_block,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
@@ -13,7 +13,8 @@ use crate::model::color::{Chromaticity, ChromaticityPoint};
 use crate::model::manufacture::{ManufactureDate, ManufacturerId, MonitorString};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::panel::{
-    BacklightType, DisplayTechnology, OperatingMode, PhysicalOrientation, PowerSequencing,
+    BacklightType, DisplayIdInterface, DisplayInterfaceType, DisplayTechnology,
+    InterfaceContentProtection, OperatingMode, PhysicalOrientation, PowerSequencing,
     RotationCapability, ScanDirection, SubpixelLayout, ZeroPixelLocation,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -557,6 +558,54 @@ pub(super) fn scan_transfer_characteristics_block(payload: &[u8], caps: &mut Dis
     for_each_data_block(payload, |tag, _revision, block_payload| {
         if tag == TAG_TRANSFER_CHARACTERISTICS {
             decode_transfer_characteristics_block(block_payload, caps);
+        }
+    });
+}
+
+/// Decodes a Display Interface Data Block payload into `caps`.
+///
+/// Payload layout (DisplayID 1.x §4.13, minimum 7 bytes):
+/// - Byte 0 bits 3:0: Interface type — 0=undefined, 1=analog, 2=LVDS single, 3=LVDS dual,
+///   4=TMDS single, 5=TMDS dual, 6=eDP, 7=DisplayPort, 8=proprietary, 9–F=reserved
+/// - Byte 0 bit 4:   Spread spectrum clocking supported
+/// - Byte 0 bits 7:5: Reserved
+/// - Byte 1 bits 3:0: Number of data lanes / LVDS pairs (raw count)
+/// - Byte 1 bits 7:4: Reserved
+/// - Bytes 2–3:       Minimum pixel clock, LE uint16, in units of 10 kHz
+/// - Bytes 4–5:       Maximum pixel clock, LE uint16, in units of 10 kHz
+/// - Byte 6 bits 1:0: Content protection type (0=none, 1=HDCP, 2=DPCP)
+/// - Byte 6 bits 7:2: Reserved
+///
+/// Payloads shorter than 7 bytes are silently skipped.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_display_interface_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    if payload.len() < 7 {
+        return;
+    }
+    let interface_type = DisplayInterfaceType::from_nibble(payload[0]);
+    let spread_spectrum = (payload[0] & 0x10) != 0;
+    let num_lanes = payload[1] & 0x0F;
+    let min_pixel_clock_10khz = u32::from(u16::from_le_bytes([payload[2], payload[3]]));
+    let max_pixel_clock_10khz = u32::from(u16::from_le_bytes([payload[4], payload[5]]));
+    let content_protection = InterfaceContentProtection::from_bits(payload[6]);
+
+    caps.display_id_interface = Some(DisplayIdInterface {
+        interface_type,
+        spread_spectrum,
+        num_lanes,
+        min_pixel_clock_10khz,
+        max_pixel_clock_10khz,
+        content_protection,
+    });
+}
+
+/// Scans all data blocks in `payload` for a Display Interface Data Block (tag `0x0F`)
+/// and decodes the first one found into `caps`.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn scan_display_interface_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    for_each_data_block(payload, |tag, _revision, block_payload| {
+        if tag == TAG_DISPLAY_INTERFACE {
+            decode_display_interface_block(block_payload, caps);
         }
     });
 }
@@ -1394,5 +1443,105 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         decode_transfer_characteristics_block(&payload, &mut caps);
         assert_eq!(caps.transfer_characteristic, None);
+    }
+
+    // -----------------------------------------------------------------------
+    // Display Interface Data Block (tag 0x0F)
+    // -----------------------------------------------------------------------
+
+    use crate::model::panel::{
+        DisplayIdInterface, DisplayInterfaceType, InterfaceContentProtection,
+    };
+
+    fn make_display_interface_payload(
+        interface_type: u8, // bits 3:0
+        spread_spectrum: bool,
+        num_lanes: u8, // bits 3:0
+        min_clock_10khz: u16,
+        max_clock_10khz: u16,
+        content_protection: u8, // bits 1:0
+    ) -> [u8; 7] {
+        let mut p = [0u8; 7];
+        p[0] = (interface_type & 0x0F) | if spread_spectrum { 0x10 } else { 0x00 };
+        p[1] = num_lanes & 0x0F;
+        p[2..4].copy_from_slice(&min_clock_10khz.to_le_bytes());
+        p[4..6].copy_from_slice(&max_clock_10khz.to_le_bytes());
+        p[6] = content_protection & 0x03;
+        p
+    }
+
+    #[test]
+    fn test_display_interface_displayport_no_cp() {
+        // DP interface, 4 lanes, 10 kHz min, 33750 (337.5 MHz) max, no content protection
+        let payload = make_display_interface_payload(0x07, false, 4, 10, 33750, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_interface_block(&payload, &mut caps);
+        let iface = caps.display_id_interface.expect("should be Some");
+        assert_eq!(iface.interface_type, DisplayInterfaceType::DisplayPort);
+        assert!(!iface.spread_spectrum);
+        assert_eq!(iface.num_lanes, 4);
+        assert_eq!(iface.min_pixel_clock_10khz, 10);
+        assert_eq!(iface.max_pixel_clock_10khz, 33750);
+        assert_eq!(iface.content_protection, InterfaceContentProtection::None);
+    }
+
+    #[test]
+    fn test_display_interface_edp_with_spread_spectrum() {
+        let payload = make_display_interface_payload(0x06, true, 2, 500, 14850, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_interface_block(&payload, &mut caps);
+        let iface = caps.display_id_interface.expect("should be Some");
+        assert_eq!(
+            iface.interface_type,
+            DisplayInterfaceType::EmbeddedDisplayPort
+        );
+        assert!(iface.spread_spectrum);
+        assert_eq!(iface.num_lanes, 2);
+    }
+
+    #[test]
+    fn test_display_interface_lvds_dual_hdcp() {
+        let payload = make_display_interface_payload(0x03, false, 1, 200, 8000, 1);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_interface_block(&payload, &mut caps);
+        let iface = caps.display_id_interface.expect("should be Some");
+        assert_eq!(iface.interface_type, DisplayInterfaceType::LvdsDual);
+        assert_eq!(iface.content_protection, InterfaceContentProtection::Hdcp);
+    }
+
+    #[test]
+    fn test_display_interface_tmds_single_dpcp() {
+        let payload = make_display_interface_payload(0x04, false, 0, 1000, 14850, 2);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_interface_block(&payload, &mut caps);
+        let iface = caps.display_id_interface.expect("should be Some");
+        assert_eq!(iface.interface_type, DisplayInterfaceType::TmdsSingle);
+        assert_eq!(iface.content_protection, InterfaceContentProtection::Dpcp);
+    }
+
+    #[test]
+    fn test_display_interface_reserved_type_stored() {
+        // Reserved type 0x0A should be stored as Reserved(0x0A), not discarded.
+        let payload = make_display_interface_payload(0x0A, false, 0, 0, 0, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_interface_block(&payload, &mut caps);
+        let iface = caps.display_id_interface.expect("should be Some");
+        assert_eq!(iface.interface_type, DisplayInterfaceType::Reserved(0x0A));
+    }
+
+    #[test]
+    fn test_display_interface_short_payload_skipped() {
+        // 6 bytes — one short of the minimum 7.
+        let payload = [0x07u8, 0x04, 0x0A, 0x00, 0x00, 0x82];
+        let mut caps = DisplayCapabilities::default();
+        decode_display_interface_block(&payload, &mut caps);
+        assert_eq!(caps.display_id_interface, None);
+    }
+
+    #[test]
+    fn test_display_interface_empty_payload_skipped() {
+        let mut caps = DisplayCapabilities::default();
+        decode_display_interface_block(&[], &mut caps);
+        assert_eq!(caps.display_id_interface, None);
     }
 }

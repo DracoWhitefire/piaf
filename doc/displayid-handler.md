@@ -165,6 +165,13 @@ mode (byte 0 bit 5 set) the curve is `TransferCurve::Rgb { red, green, blue }` w
 sample data split into three equal sequential regions. Blocks where the sample bytes cannot
 be split evenly are silently skipped.
 
+**Display Interface Data Block** (tag `0x0F`) is decoded into the following
+`DisplayCapabilities` field:
+
+| `DisplayCapabilities` field | Source |
+|---|---|
+| `display_id_interface` | Interface type, spread-spectrum flag, lane count, min/max pixel clock (in 10 kHz units), and content protection type decoded into a `DisplayIdInterface` struct; `None` if payload < 7 bytes |
+
 If the DisplayID block appears alongside an EDID base block, DisplayID values overwrite
 any base-block values for the same fields.
 
