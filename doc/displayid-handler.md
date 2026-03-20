@@ -175,6 +175,17 @@ ignored.
 | `h_front_porch`, `h_sync_width`, `v_front_porch`, `v_sync_width` | DMT v1.13 table entry |
 | `sync` | `DigitalSeparate`; polarities from DMT v1.13 table entry |
 
+**CTA-861 Video Timing blocks** (tag `0x08`) are decoded in both the dynamic and static
+pipelines. The payload is a presence bitmap: up to 8 bytes encoding CTA-861 VICs 1–64.
+Bit `i` (0-indexed, LSB-first within each byte) corresponds to VIC `i + 1`. Set bits are
+resolved via the CTA-861 VIC table with full timing detail; payload bytes beyond 8 are ignored.
+
+| `VideoMode` field | Source |
+|---|---|
+| `width`, `height`, `refresh_rate`, `interlaced` | CTA-861 VIC table entry |
+| `h_front_porch`, `h_sync_width`, `v_front_porch`, `v_sync_width` | CTA-861 VIC table entry |
+| `sync` | `DigitalSeparate`; polarities from CTA-861 VIC table entry |
+
 ## Warnings
 
 | Variant | Meaning |

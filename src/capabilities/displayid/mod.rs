@@ -73,6 +73,12 @@ const TAG_TYPE_IV_TIMING: u8 = 0x06;
 /// Bit `i` (0-indexed, LSB-first within each byte) is set if DMT ID `i + 1` is supported.
 const TAG_VESA_VIDEO_TIMING: u8 = 0x07;
 
+/// Data block tag for the CTA-861 Video Timing Block (DisplayID 1.x §4.4.7).
+///
+/// Payload is a compact presence bitmap: up to 8 bytes encoding CTA-861 VIC codes 1–64.
+/// Bit `i` (0-indexed, LSB-first within each byte) is set if VIC `i + 1` is supported.
+const TAG_CTA_VIDEO_TIMING: u8 = 0x08;
+
 /// Parses the 4-byte section header common to all DisplayID fragments.
 ///
 /// Returns `(version, section_byte_count, product_type, extension_count)`.
@@ -350,6 +356,26 @@ fn decode_vesa_video_timing_block(payload: &[u8], sink: &mut dyn ModeSink) {
     }
 }
 
+/// Iterates the CTA-861 Video Timing Block presence bitmap and pushes supported modes to `sink`.
+///
+/// The payload is a bitmap of up to 8 bytes (64 bits). Bit `i` (0-indexed, LSB-first within
+/// each byte) corresponds to VIC `i + 1`. A set bit means the display supports that mode.
+/// Bytes beyond the first 8 are ignored; unset bits and unrecognised VICs produce no output.
+///
+/// Source: edid-decode (swick/edid-decode), `parse-displayid-block.cpp`.
+fn decode_cta_video_timing_block(payload: &[u8], sink: &mut dyn ModeSink) {
+    for (byte_idx, &byte) in payload.iter().take(8).enumerate() {
+        for bit in 0u8..8 {
+            if byte & (1 << bit) != 0 {
+                let vic = (byte_idx as u8) * 8 + bit + 1;
+                if let Some(mode) = vic_to_mode(vic) {
+                    sink.push_mode(mode);
+                }
+            }
+        }
+    }
+}
+
 /// Calls `f(tag, revision, block_payload)` for each well-formed data block in `payload`.
 ///
 /// `revision` is the second byte of the 3-byte data block header and carries block-specific
@@ -414,6 +440,8 @@ fn process_data_blocks(payload: &[u8], sink: &mut dyn ModeSink) {
             decode_type_iv_block(block_payload, code_type, sink);
         } else if tag == TAG_VESA_VIDEO_TIMING {
             decode_vesa_video_timing_block(block_payload, sink);
+        } else if tag == TAG_CTA_VIDEO_TIMING {
+            decode_cta_video_timing_block(block_payload, sink);
         }
         // Unknown block tags are silently skipped.
     });
@@ -694,6 +722,7 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
     TAG_TYPE_III_TIMING,       // 0x05 — Video Timing Modes Type III — Short Timings Block
     TAG_TYPE_IV_TIMING,        // 0x06 — Video Timing Modes Type IV — DMT/VIC Code Block
     TAG_VESA_VIDEO_TIMING,     // 0x07 — VESA Video Timing Block (DMT presence bitmap)
+    TAG_CTA_VIDEO_TIMING,      // 0x08 — CTA-861 Video Timing Block (VIC presence bitmap)
 ];
 
 /// DisplayID 1.x data block tags that are defined by the specification but not
@@ -703,7 +732,7 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
 /// implemented, remove its tag from here and add it to `IMPLEMENTED_BLOCK_TAGS`.
 #[cfg(test)]
 const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
-    (0x08, 0x13), // CTA/Type V–VI timings, interface and identity blocks, Tiled Display Topology
+    (0x09, 0x13), // Video Timing Range Descriptor, Type V–VI timings, interface and identity blocks, Tiled Display Topology
     (0x14, 0x7E), // Reserved for future use in DisplayID 1.x
     (0x7F, 0x7F), // Vendor-specific
     (0x80, 0xFF), // Undefined (outside the DisplayID 1.x tag space)
@@ -2071,6 +2100,98 @@ mod tests {
         assert_eq!(mode.width, 800);
         assert_eq!(mode.height, 600);
         assert_eq!(mode.refresh_rate, 60);
+    }
+
+    // -----------------------------------------------------------------------
+    // CTA-861 Video Timing Block (tag 0x08)
+    // -----------------------------------------------------------------------
+
+    fn make_cta_video_timing_block(bitmap: &[u8]) -> Vec<u8> {
+        let mut db = Vec::with_capacity(3 + bitmap.len());
+        db.push(TAG_CTA_VIDEO_TIMING);
+        db.push(0x00); // revision
+        db.push(bitmap.len() as u8);
+        db.extend_from_slice(bitmap);
+        db
+    }
+
+    #[test]
+    fn test_cta_timing_single_bit_set() {
+        // Byte 0 bit 0 = VIC 1 = 640×480@60 Hz.
+        let db = make_cta_video_timing_block(&[0x01]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        let mode = &caps.supported_modes[0];
+        assert_eq!(mode.width, 640);
+        assert_eq!(mode.height, 480);
+        assert_eq!(mode.refresh_rate, 60);
+        // VIC lookups carry full timing detail.
+        assert!(mode.h_front_porch != 0 || mode.h_sync_width != 0);
+    }
+
+    #[test]
+    fn test_cta_timing_multiple_modes() {
+        // Byte 0 = 0x03 → bits 0 and 1 set → VIC 1 (640×480@60) and VIC 2 (480p@60).
+        let db = make_cta_video_timing_block(&[0x03]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 2);
+    }
+
+    #[test]
+    fn test_cta_timing_empty_payload() {
+        let db = make_cta_video_timing_block(&[]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_cta_timing_payload_truncated_at_8_bytes() {
+        // 9-byte payload; the 9th byte would be VICs 65–72, which are outside the 8-byte window.
+        let mut bitmap = vec![0u8; 9];
+        bitmap[8] = 0xFF; // outside the 8-byte limit — must be ignored
+        bitmap[0] = 0x01; // VIC 1 — should be decoded
+        let db = make_cta_video_timing_block(&bitmap);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 640);
+    }
+
+    #[test]
+    fn test_cta_timing_static_pipeline() {
+        // Byte 0 bit 0 = VIC 1 = 640×480@60 Hz.
+        let db = make_cta_video_timing_block(&[0x01]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = StaticDisplayCapabilities::<16>::default();
+        let mut ctx = StaticContext::new(&mut caps);
+        StaticExtensionHandler::process(&DisplayIdHandler, &[&block], &mut ctx);
+
+        assert_eq!(caps.num_modes, 1);
+        assert_eq!(caps.supported_modes[0].as_ref().unwrap().width, 640);
     }
 
     // -----------------------------------------------------------------------

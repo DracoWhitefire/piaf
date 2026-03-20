@@ -22,7 +22,7 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 | `0x05`        | Type III Short Descriptor Video Timing Block                               | ✓ implemented |
 | `0x06`        | Type IV Short Descriptor Video Timing Block (DMT/VIC codes)                | ✓ implemented |
 | `0x07`        | VESA Video Timing Block                                                    | ✓ implemented |
-| `0x08`        | CTA Video Timing Block                                                     | — deferred    |
+| `0x08`        | CTA Video Timing Block                                                     | ✓ implemented |
 | `0x09`        | Video Timing Range Descriptor Block                                        | — deferred    |
 | `0x0A`        | Product Serial Number Block                                                | — deferred    |
 | `0x0B`        | General Purpose ASCII String Block                                         | — deferred    |
@@ -245,3 +245,24 @@ Bytes 3+:    Presence bitmap, LSB-first
 Set bits are resolved via the VESA DMT v1.13 table, including full timing detail
 (front porch, sync width, sync polarity). DMT IDs 0x51–0x58 are not representable
 in this block. Unset bits and payload bytes beyond 10 are silently skipped.
+
+### CTA Video Timing Block (`0x08`)
+
+A compact CTA-861 VIC presence bitmap, structurally identical to `0x07` but indexed
+over VIC codes instead of DMT IDs. The payload covers VICs 1–64 (8 bytes maximum);
+bit `i` (0-indexed, LSB-first within each byte) maps to VIC `i + 1`.
+
+```
+Byte  0:     Block tag (0x08)
+Byte  1:     Revision (0x00)
+Byte  2:     Payload length (0–8; bytes beyond 8 are ignored)
+Bytes 3+:    Presence bitmap, LSB-first
+               Byte 0 bits 7:0 = VICs 8–1
+               Byte 1 bits 7:0 = VICs 16–9
+               ...
+               Byte 7 bits 7:0 = VICs 64–57
+```
+
+Set bits are resolved via the CTA-861 VIC table with full timing detail. VICs 65 and
+above are not representable in this block. Unset bits and payload bytes beyond 8 are
+silently skipped.
