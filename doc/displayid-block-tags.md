@@ -12,31 +12,31 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 
 ## Tag assignments
 
-| Tag | Block | Status |
-|---|---|---|
-| `0x00` | Product Identification Block (name, manufacturer ID, product code, serial) | ✓ implemented |
-| `0x01` | Display Parameters Block (physical size, color bit depths, aspect ratio) | ✓ implemented |
-| `0x02` | Color Characteristics Block (primaries, white point) | ✓ implemented |
-| `0x03` | Detailed Timings Block (Type I — 20-byte descriptors) | ✓ implemented |
-| `0x04` | Video Timing Modes Type II — Detailed Timings Block | ✓ implemented |
-| `0x05` | Type III Short Descriptor Video Timing Block | ✓ implemented |
-| `0x06` | Type IV Short Descriptor Video Timing Block (DMT/VIC codes) | ✓ implemented |
-| `0x07` | VESA Video Timing Block | — deferred |
-| `0x08` | CTA Video Timing Block | — deferred |
-| `0x09` | Video Timing Range Descriptor Block | — deferred |
-| `0x0A` | Product Serial Number Block | — deferred |
-| `0x0B` | General Purpose ASCII String Block | — deferred |
-| `0x0C` | Display Device Data Block | — deferred |
-| `0x0D` | Interface Power Sequencing Block | — deferred |
-| `0x0E` | Transfer Characteristics Block | — deferred |
-| `0x0F` | Display Interface Block | — deferred |
-| `0x10` | Stereo Display Interface Block | — deferred |
-| `0x11` | Type V Short Descriptor Video Timing Block | — deferred |
-| `0x12` | Tiled Display Topology Block | — deferred |
-| `0x13` | Type VI Short Descriptor Video Timing Block (added in 1.3) | — deferred |
-| `0x14`–`0x7E` | Reserved | — reserved |
-| `0x7F` | Vendor-Specific | — reserved |
-| `0x80`–`0xFF` | Undefined (outside DisplayID 1.x tag space) | — reserved |
+| Tag           | Block                                                                      | Status        |
+|---------------|----------------------------------------------------------------------------|---------------|
+| `0x00`        | Product Identification Block (name, manufacturer ID, product code, serial) | ✓ implemented |
+| `0x01`        | Display Parameters Block (physical size, color bit depths, aspect ratio)   | ✓ implemented |
+| `0x02`        | Color Characteristics Block (primaries, white point)                       | ✓ implemented |
+| `0x03`        | Detailed Timings Block (Type I — 20-byte descriptors)                      | ✓ implemented |
+| `0x04`        | Video Timing Modes Type II — Detailed Timings Block                        | ✓ implemented |
+| `0x05`        | Type III Short Descriptor Video Timing Block                               | ✓ implemented |
+| `0x06`        | Type IV Short Descriptor Video Timing Block (DMT/VIC codes)                | ✓ implemented |
+| `0x07`        | VESA Video Timing Block                                                    | — deferred    |
+| `0x08`        | CTA Video Timing Block                                                     | — deferred    |
+| `0x09`        | Video Timing Range Descriptor Block                                        | — deferred    |
+| `0x0A`        | Product Serial Number Block                                                | — deferred    |
+| `0x0B`        | General Purpose ASCII String Block                                         | — deferred    |
+| `0x0C`        | Display Device Data Block                                                  | — deferred    |
+| `0x0D`        | Interface Power Sequencing Block                                           | — deferred    |
+| `0x0E`        | Transfer Characteristics Block                                             | — deferred    |
+| `0x0F`        | Display Interface Block                                                    | — deferred    |
+| `0x10`        | Stereo Display Interface Block                                             | — deferred    |
+| `0x11`        | Type V Short Descriptor Video Timing Block                                 | — deferred    |
+| `0x12`        | Tiled Display Topology Block                                               | — deferred    |
+| `0x13`        | Type VI Short Descriptor Video Timing Block (added in 1.3)                 | — deferred    |
+| `0x14`–`0x7E` | Reserved                                                                   | — reserved    |
+| `0x7F`        | Vendor-Specific                                                            | — reserved    |
+| `0x80`–`0xFF` | Undefined (outside DisplayID 1.x tag space)                                | — reserved    |
 
 ## Block structures
 
