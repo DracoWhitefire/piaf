@@ -147,6 +147,20 @@ rate; vertical active is derived from the aspect ratio:
 Descriptors with undefined or reserved aspect ratio codes are silently skipped, as are those
 where the derived vertical active is not a whole number of lines.
 
+**Type IV Timing Code blocks** (tag `0x06`) are decoded in both the dynamic and static
+pipelines. Each payload byte is a timing identifier resolved via a lookup table. The code
+space is selected by bits 7:6 of the data block's revision byte:
+
+| Revision bits 7:6 | Code space | Lookup |
+|---|---|---|
+| `0` | VESA DMT ID | DMT v1.13 table (IDs 0x01–0x58) |
+| `1` | CTA-861 VIC | VIC table (codes 1–219) |
+| `2` | HDMI VIC | 4 codes: 1=3840×2160@30, 2=@25, 3=@24, 4=4096×2160@24 |
+| `3` | Reserved | silently skipped |
+
+Timing detail fields (`h_front_porch`, etc.) are populated for VIC-resolved modes and are
+zero for DMT and HDMI VIC modes. Unrecognised codes are silently skipped.
+
 ## Warnings
 
 | Variant | Meaning |

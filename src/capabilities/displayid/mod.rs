@@ -1,5 +1,6 @@
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
+use crate::capabilities::cea861::{dmt_to_mode, vic_to_mode};
 use crate::model::capabilities::{ModeSink, StaticContext, StereoMode, SyncDefinition, VideoMode};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::color::Chromaticity;
@@ -62,6 +63,9 @@ const TAG_TYPE_II_TIMING: u8 = 0x04;
 
 /// Data block tag for the Video Timing Modes Type III — Short Timings Block (DisplayID 1.x §4.4.4).
 const TAG_TYPE_III_TIMING: u8 = 0x05;
+
+/// Data block tag for the Video Timing Modes Type IV — DMT/VIC Code Block (DisplayID 1.x §4.4.5).
+const TAG_TYPE_IV_TIMING: u8 = 0x06;
 
 /// Parses the 4-byte section header common to all DisplayID fragments.
 ///
@@ -273,14 +277,64 @@ fn decode_type_iii_descriptor(d: &[u8; 3], sink: &mut dyn ModeSink) {
     });
 }
 
-/// Calls `f(tag, block_payload)` for each well-formed data block in `payload`.
+/// Decodes a Type IV DMT/VIC Code Block payload and pushes resolved modes to `sink`.
+///
+/// The code space is determined by the revision byte's upper 2 bits, passed in as `code_type`:
+/// - `0` — VESA DMT IDs (1-byte each); resolved via the DMT table
+/// - `1` — CTA-861 VIC codes (1-byte each); resolved via the VIC table
+/// - `2` — HDMI VIC codes (1-byte each); 4 codes defined: 1–4
+/// - `3` — reserved; descriptors silently skipped
+///
+/// Codes not found in the respective table are silently skipped.
+fn decode_type_iv_block(payload: &[u8], code_type: u8, sink: &mut dyn ModeSink) {
+    for &code in payload {
+        let mode = match code_type {
+            0 => dmt_to_mode(code as u16),
+            1 => vic_to_mode(code),
+            2 => hdmi_vic_to_mode(code),
+            _ => None,
+        };
+        if let Some(m) = mode {
+            sink.push_mode(m);
+        }
+    }
+}
+
+/// Returns the `VideoMode` for an HDMI VIC code (1–4), or `None`.
+///
+/// HDMI 1.4 defines four extended resolution codes for 4K/UHD modes:
+/// - 1: 3840×2160@30 Hz
+/// - 2: 3840×2160@25 Hz
+/// - 3: 3840×2160@24 Hz
+/// - 4: 4096×2160@24 Hz
+fn hdmi_vic_to_mode(code: u8) -> Option<VideoMode> {
+    let (w, h, r): (u16, u16, u8) = match code {
+        1 => (3840, 2160, 30),
+        2 => (3840, 2160, 25),
+        3 => (3840, 2160, 24),
+        4 => (4096, 2160, 24),
+        _ => return None,
+    };
+    Some(VideoMode {
+        width: w,
+        height: h,
+        refresh_rate: r,
+        ..Default::default()
+    })
+}
+
+/// Calls `f(tag, revision, block_payload)` for each well-formed data block in `payload`.
+///
+/// `revision` is the second byte of the 3-byte data block header and carries block-specific
+/// flags (e.g. the code-space selector for Type IV timing blocks).
 ///
 /// Stops at the end-of-section sentinel (tag `0x00`, length `0`) or when a block's
 /// declared length would extend past the available payload.
-fn for_each_data_block(payload: &[u8], mut f: impl FnMut(u8, &[u8])) {
+fn for_each_data_block(payload: &[u8], mut f: impl FnMut(u8, u8, &[u8])) {
     let mut offset = 0;
     while offset + 3 <= payload.len() {
         let tag = payload[offset];
+        let revision = payload[offset + 1];
         let length = payload[offset + 2] as usize;
 
         // End-of-section sentinel: tag 0x00 with length 0.
@@ -294,7 +348,7 @@ fn for_each_data_block(payload: &[u8], mut f: impl FnMut(u8, &[u8])) {
             break;
         }
 
-        f(tag, &payload[offset + 3..block_end]);
+        f(tag, revision, &payload[offset + 3..block_end]);
         offset = block_end;
     }
 }
@@ -305,7 +359,7 @@ fn for_each_data_block(payload: &[u8], mut f: impl FnMut(u8, &[u8])) {
 /// `payload` must be the data-block region: bytes `block[4..4+section_byte_count]`,
 /// clamped to `block[4..127]` to exclude the checksum byte.
 fn process_data_blocks(payload: &[u8], sink: &mut dyn ModeSink) {
-    for_each_data_block(payload, |tag, block_payload| {
+    for_each_data_block(payload, |tag, revision, block_payload| {
         if tag == TAG_TYPE_I_TIMING {
             let mut i = 0;
             while i + 20 <= block_payload.len() {
@@ -327,6 +381,10 @@ fn process_data_blocks(payload: &[u8], sink: &mut dyn ModeSink) {
                 decode_type_iii_descriptor(descriptor, sink);
                 i += 3;
             }
+        } else if tag == TAG_TYPE_IV_TIMING {
+            // Revision byte bits 7:6 select the code space (0=DMT, 1=VIC, 2=HDMI VIC).
+            let code_type = (revision >> 6) & 0x03;
+            decode_type_iv_block(block_payload, code_type, sink);
         }
         // Unknown block tags are silently skipped.
     });
@@ -399,7 +457,7 @@ fn decode_product_id_block(payload: &[u8], caps: &mut DisplayCapabilities) {
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
 fn scan_product_id_block(payload: &[u8], caps: &mut DisplayCapabilities) {
-    for_each_data_block(payload, |tag, block_payload| {
+    for_each_data_block(payload, |tag, _revision, block_payload| {
         if tag == TAG_PRODUCT_ID {
             decode_product_id_block(block_payload, caps);
         }
@@ -438,7 +496,7 @@ fn decode_display_params_block(payload: &[u8], caps: &mut DisplayCapabilities) {
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
 fn scan_display_params_block(payload: &[u8], caps: &mut DisplayCapabilities) {
-    for_each_data_block(payload, |tag, block_payload| {
+    for_each_data_block(payload, |tag, _revision, block_payload| {
         if tag == TAG_DISPLAY_PARAMS {
             decode_display_params_block(block_payload, caps);
         }
@@ -483,7 +541,7 @@ fn decode_color_characteristics_block(payload: &[u8], caps: &mut DisplayCapabili
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
 fn scan_color_characteristics_block(payload: &[u8], caps: &mut DisplayCapabilities) {
-    for_each_data_block(payload, |tag, block_payload| {
+    for_each_data_block(payload, |tag, _revision, block_payload| {
         if tag == TAG_COLOR_CHARACTERISTICS {
             decode_color_characteristics_block(block_payload, caps);
         }
@@ -605,6 +663,7 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
     TAG_TYPE_I_TIMING,         // 0x03 — Detailed Timings Block (Type I descriptors)
     TAG_TYPE_II_TIMING,        // 0x04 — Video Timing Modes Type II — Detailed Timings Block
     TAG_TYPE_III_TIMING,       // 0x05 — Video Timing Modes Type III — Short Timings Block
+    TAG_TYPE_IV_TIMING,        // 0x06 — Video Timing Modes Type IV — DMT/VIC Code Block
 ];
 
 /// DisplayID 1.x data block tags that are defined by the specification but not
@@ -614,7 +673,7 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
 /// implemented, remove its tag from here and add it to `IMPLEMENTED_BLOCK_TAGS`.
 #[cfg(test)]
 const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
-    (0x06, 0x13), // Type IV–VI timings, interface and identity blocks, Tiled Display Topology
+    (0x07, 0x13), // Type V–VI timings, VESA timing, interface and identity blocks, Tiled Display Topology
     (0x14, 0x7E), // Reserved for future use in DisplayID 1.x
     (0x7F, 0x7F), // Vendor-specific
     (0x80, 0xFF), // Undefined (outside the DisplayID 1.x tag space)
@@ -1677,6 +1736,183 @@ mod tests {
                 .iter()
                 .any(|m| m.width == 1280 && m.height == 800)
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Type IV DMT/VIC Code Block (tag 0x06)
+    // -----------------------------------------------------------------------
+
+    fn make_type_iv_data_block(code_type: u8, codes: &[u8]) -> Vec<u8> {
+        // Revision byte: bits 7:6 = code_type, bits 5:0 = 0.
+        let revision = (code_type & 0x03) << 6;
+        let mut db = Vec::with_capacity(3 + codes.len());
+        db.push(TAG_TYPE_IV_TIMING);
+        db.push(revision);
+        db.push(codes.len() as u8);
+        db.extend_from_slice(codes);
+        db
+    }
+
+    #[test]
+    fn test_type_iv_dmt_decoded() {
+        // DMT 0x52 = 1920×1080@60 Hz; verify full timing detail from the DMT table.
+        let db = make_type_iv_data_block(0, &[0x52]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        let mode = &caps.supported_modes[0];
+        assert_eq!(mode.width, 1920);
+        assert_eq!(mode.height, 1080);
+        assert_eq!(mode.refresh_rate, 60);
+        assert!(!mode.interlaced);
+        assert_eq!(mode.h_front_porch, 88);
+        assert_eq!(mode.h_sync_width, 44);
+        assert_eq!(mode.v_front_porch, 4);
+        assert_eq!(mode.v_sync_width, 5);
+        assert_eq!(
+            mode.sync,
+            Some(SyncDefinition::DigitalSeparate {
+                h_sync_positive: true,
+                v_sync_positive: true,
+            })
+        );
+    }
+
+    #[test]
+    fn test_type_iv_dmt_interlaced() {
+        // DMT 0x0F = 1024×768i@43 Hz (interlaced)
+        let db = make_type_iv_data_block(0, &[0x0F]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        let mode = &caps.supported_modes[0];
+        assert_eq!(mode.width, 1024);
+        assert_eq!(mode.height, 768);
+        assert_eq!(mode.refresh_rate, 43);
+        assert!(mode.interlaced);
+    }
+
+    #[test]
+    fn test_type_iv_dmt_static_pipeline() {
+        // DMT 0x09 = 800×600@60 Hz
+        let db = make_type_iv_data_block(0, &[0x09]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = StaticDisplayCapabilities::<16>::default();
+        let mut ctx = StaticContext::new(&mut caps);
+        StaticExtensionHandler::process(&DisplayIdHandler, &[&block], &mut ctx);
+
+        assert_eq!(caps.num_modes, 1);
+        let mode = caps.supported_modes[0].as_ref().unwrap();
+        assert_eq!(mode.width, 800);
+        assert_eq!(mode.height, 600);
+        assert_eq!(mode.refresh_rate, 60);
+    }
+
+    #[test]
+    fn test_type_iv_vic_decoded() {
+        // VIC 1 = 640×480@60 Hz
+        let db = make_type_iv_data_block(1, &[1]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 640);
+        assert_eq!(caps.supported_modes[0].height, 480);
+        assert_eq!(caps.supported_modes[0].refresh_rate, 60);
+    }
+
+    #[test]
+    fn test_type_iv_hdmi_vic_decoded() {
+        // HDMI VIC 1 = 3840×2160@30 Hz
+        let db = make_type_iv_data_block(2, &[1]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 3840);
+        assert_eq!(caps.supported_modes[0].height, 2160);
+        assert_eq!(caps.supported_modes[0].refresh_rate, 30);
+    }
+
+    #[test]
+    fn test_type_iv_unknown_dmt_skipped() {
+        // DMT 0xFF is not in the table; no mode should be produced.
+        let db = make_type_iv_data_block(0, &[0xFF]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_type_iv_multiple_codes() {
+        // Three DMT codes in one block.
+        let db = make_type_iv_data_block(0, &[0x10, 0x23, 0x52]); // 1024×768@60, 1280×1024@60, 1920×1080@60
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 3);
+        assert!(caps.supported_modes.iter().any(|m| m.width == 1024 && m.height == 768));
+        assert!(caps.supported_modes.iter().any(|m| m.width == 1280 && m.height == 1024));
+        assert!(caps.supported_modes.iter().any(|m| m.width == 1920 && m.height == 1080));
+    }
+
+    #[test]
+    fn test_type_iv_mixed_known_unknown_dmt_codes() {
+        // Unknown codes sandwiched around a known one — only the known one yields a mode.
+        let db = make_type_iv_data_block(0, &[0xFE, 0x23, 0xFF]); // 0x23 = 1280×1024@60
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 1280);
+        assert_eq!(caps.supported_modes[0].height, 1024);
+        assert_eq!(caps.supported_modes[0].refresh_rate, 60);
+    }
+
+    #[test]
+    fn test_type_iv_reserved_code_type_skipped() {
+        // Code type 3 is reserved; no mode should be produced.
+        let db = make_type_iv_data_block(3, &[0x52]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert!(caps.supported_modes.is_empty());
     }
 
     // -----------------------------------------------------------------------

@@ -1,5 +1,6 @@
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod audio;
+mod dmt_table;
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod extended_blocks;
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -19,6 +20,9 @@ pub use extended_blocks::{
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use hdmi_vsdb::{HdmiVsdb, HdmiVsdbFlags};
+
+pub(crate) use dmt_table::dmt_to_mode;
+pub(crate) use vic_table::vic_to_mode;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::capabilities::base::timings::decode_dtd_slot;
@@ -54,8 +58,6 @@ use extended_blocks::{
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use hdmi_vsdb::parse_hdmi_vsdb;
-use vic_table::vic_to_mode;
-
 bitflags::bitflags! {
     /// Capability flags from byte 3 of a CEA-861 extension block.
     ///

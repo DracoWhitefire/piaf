@@ -20,7 +20,7 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 | `0x03` | Detailed Timings Block (Type I — 20-byte descriptors) | ✓ implemented |
 | `0x04` | Video Timing Modes Type II — Detailed Timings Block | ✓ implemented |
 | `0x05` | Type III Short Descriptor Video Timing Block | ✓ implemented |
-| `0x06` | Type IV Short Descriptor Video Timing Block (DMT codes) | — deferred |
+| `0x06` | Type IV Short Descriptor Video Timing Block (DMT/VIC codes) | ✓ implemented |
 | `0x07` | VESA Video Timing Block | — deferred |
 | `0x08` | CTA Video Timing Block | — deferred |
 | `0x09` | Video Timing Range Descriptor Block | — deferred |
@@ -178,6 +178,28 @@ Per descriptor:
 Vertical active is computed as `h_active × height / width` using the aspect ratio fraction.
 Descriptors with aspect code 8 (undefined) or codes 9–15 (reserved) are silently skipped,
 as are descriptors where the height calculation does not yield a whole number of lines.
+
+### Timing Code Block — Type IV (`0x06`)
+
+Each block carries a list of 1-byte timing identifiers. The code space is encoded in the
+data block revision byte's upper 2 bits:
+
+```
+Byte  0:     Block tag (0x06)
+Byte  1:     Revision — bits 7:6 = code type:
+               0 = VESA DMT IDs
+               1 = CTA-861 VIC codes
+               2 = HDMI VIC codes (4 defined: 1–4)
+               3 = reserved
+             bits 5:0 = revision/reserved
+Byte  2:     Payload length (number of 1-byte codes)
+Bytes 3+:    One byte per timing code
+```
+
+DMT codes are resolved via the VESA DMT v1.13 table (IDs 0x01–0x58).
+VIC codes are resolved via the CTA-861 table.
+HDMI VIC codes 1–4 map to 3840×2160@30/25/24 Hz and 4096×2160@24 Hz respectively.
+Unrecognised codes and reserved code types are silently skipped.
 
 ### Product Identification Block (`0x00`)
 
