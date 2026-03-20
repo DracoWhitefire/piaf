@@ -1,6 +1,6 @@
 use super::{
-    TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_PARAMS, TAG_PRODUCT_ID, TAG_VIDEO_TIMING_RANGE,
-    for_each_data_block,
+    TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_PARAMS, TAG_PRODUCT_ID, TAG_SERIAL_NUMBER,
+    TAG_VIDEO_TIMING_RANGE, for_each_data_block,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
@@ -211,6 +211,39 @@ pub(super) fn scan_video_timing_range_block(payload: &[u8], caps: &mut DisplayCa
     for_each_data_block(payload, |tag, _revision, block_payload| {
         if tag == TAG_VIDEO_TIMING_RANGE {
             decode_video_timing_range_block(block_payload, caps);
+        }
+    });
+}
+
+/// Decodes a Product Serial Number Block payload into `caps.serial_number_string`.
+///
+/// Payload layout (DisplayID 1.x §4.8):
+/// - Bytes 0+: ASCII serial number string (`0x0A`-terminated, space-padded).
+///
+/// The string is stored in the same `MonitorString` format used by EDID base-block
+/// serial number descriptors (`0xFF`): up to 13 bytes, `0x0A`-terminated.
+/// Empty payloads are silently ignored.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_serial_number_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    if payload.is_empty() {
+        return;
+    }
+    let mut buf = [b' '; 13];
+    let copy_len = payload.len().min(13);
+    buf[..copy_len].copy_from_slice(&payload[..copy_len]);
+    if !buf.contains(&0x0A) {
+        buf[copy_len.min(12)] = 0x0A;
+    }
+    caps.serial_number_string = Some(MonitorString(buf));
+}
+
+/// Scans all data blocks in `payload` for a Product Serial Number Block (tag `0x0A`)
+/// and decodes the first one found into `caps`.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn scan_serial_number_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    for_each_data_block(payload, |tag, _revision, block_payload| {
+        if tag == TAG_SERIAL_NUMBER {
+            decode_serial_number_block(block_payload, caps);
         }
     });
 }
@@ -549,5 +582,45 @@ mod tests {
         assert_eq!(caps.max_pixel_clock_mhz, None);
         assert_eq!(caps.min_h_rate_khz, None);
         assert_eq!(caps.min_v_rate, None);
+    }
+
+    // -----------------------------------------------------------------------
+    // Product Serial Number Block (tag 0x0A)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_serial_number_short_string() {
+        let payload = b"SN12345\x0a     ";
+        let mut caps = DisplayCapabilities::default();
+        decode_serial_number_block(payload, &mut caps);
+        assert_eq!(caps.serial_number_string.as_deref(), Some("SN12345"));
+    }
+
+    #[test]
+    fn test_serial_number_full_13_bytes_no_terminator_gets_one_added() {
+        // 13 bytes of non-0x0A content — a terminator must be inserted at position 12.
+        let payload = b"ABCDEFGHIJKLM";
+        let mut caps = DisplayCapabilities::default();
+        decode_serial_number_block(payload, &mut caps);
+        let s = caps.serial_number_string.unwrap();
+        assert_eq!(s.0[12], 0x0A);
+    }
+
+    #[test]
+    fn test_serial_number_truncated_at_13_bytes() {
+        // Payload longer than 13 bytes; only the first 13 bytes are copied into the buffer,
+        // but the 13th is overwritten by the 0x0A terminator, so 12 visible characters remain.
+        let payload = b"ABCDEFGHIJKLMNOPQRST";
+        let mut caps = DisplayCapabilities::default();
+        decode_serial_number_block(payload, &mut caps);
+        assert_eq!(caps.serial_number_string.as_deref(), Some("ABCDEFGHIJKL"));
+    }
+
+    #[test]
+    fn test_serial_number_empty_payload_not_stored() {
+        let payload: &[u8] = &[];
+        let mut caps = DisplayCapabilities::default();
+        decode_serial_number_block(payload, &mut caps);
+        assert_eq!(caps.serial_number_string, None);
     }
 }

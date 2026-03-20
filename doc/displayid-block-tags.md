@@ -24,7 +24,7 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 | `0x07`        | VESA Video Timing Block                                                    | ✓ implemented |
 | `0x08`        | CTA Video Timing Block                                                     | ✓ implemented |
 | `0x09`        | Video Timing Range Descriptor Block                                        | ✓ implemented |
-| `0x0A`        | Product Serial Number Block                                                | — deferred    |
+| `0x0A`        | Product Serial Number Block                                                | ✓ implemented |
 | `0x0B`        | General Purpose ASCII String Block                                         | — deferred    |
 | `0x0C`        | Display Device Data Block                                                  | — deferred    |
 | `0x0D`        | Interface Power Sequencing Block                                           | — deferred    |
@@ -294,6 +294,22 @@ Note: the specification document lists payload length as `9`, but the field tabl
 
 Decoded into `caps`: `max_pixel_clock_mhz`, `min_h_rate_khz`, `max_h_rate_khz`,
 `min_v_rate`, `max_v_rate`. Fields are only written when the payload is long enough.
+Only available from the dynamic pipeline.
+
+### Product Serial Number Block (`0x0A`)
+
+Carries the display's serial number as a plain ASCII string.
+
+```
+Byte  0:     Block tag (0x0A)
+Byte  1:     Revision (0x00)
+Byte  2:     Payload length (number of ASCII bytes)
+Bytes 3+:    Serial number string (ASCII, `0x0A`-terminated, space-padded)
+```
+
+Decoded into `caps.serial_number_string`, using the same `MonitorString` format as the
+EDID base-block serial number descriptor (`0xFF`): up to 13 bytes, `0x0A`-terminated.
+Longer strings are truncated. Empty payloads are silently ignored.
 Only available from the dynamic pipeline.
 
 ### Type V Short Timings Block (`0x11`)
