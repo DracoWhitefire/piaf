@@ -172,6 +172,13 @@ be split evenly are silently skipped.
 |---|---|
 | `display_id_interface` | Interface type, spread-spectrum flag, lane count, min/max pixel clock (in 10 kHz units), and content protection type decoded into a `DisplayIdInterface` struct; `None` if payload < 7 bytes |
 
+**Stereo Display Interface Data Block** (tag `0x10`) is decoded into the following
+`DisplayCapabilities` field:
+
+| `DisplayCapabilities` field | Source |
+|---|---|
+| `stereo_interface` | Stereo viewing mode, 3D sync signal polarity, and glasses sync interface decoded into a `DisplayIdStereoInterface` struct; `None` if payload < 2 bytes |
+
 If the DisplayID block appears alongside an EDID base block, DisplayID values overwrite
 any base-block values for the same fields.
 

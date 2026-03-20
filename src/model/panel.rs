@@ -343,6 +343,99 @@ pub struct DisplayIdInterface {
     pub content_protection: InterfaceContentProtection,
 }
 
+/// Stereo content format, decoded from Stereo Display Interface Data Block (0x10) byte 0
+/// bits 3:0.
+///
+/// Describes how left-eye and right-eye images are encoded in the video signal.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StereoViewingMode {
+    /// Field sequential — left and right frames alternate at double frame rate (`0`).
+    ///
+    /// Requires an external sync signal to the glasses. The polarity of that signal
+    /// is encoded in [`DisplayIdStereoInterface::sync_polarity_positive`].
+    FieldSequential,
+    /// Side-by-side — left and right images packed horizontally at half width each (`1`).
+    SideBySide,
+    /// Top-and-bottom — left and right images packed vertically at half height each (`2`).
+    TopAndBottom,
+    /// Row interleaved — odd display rows carry the left eye, even rows the right eye (`3`).
+    RowInterleaved,
+    /// Column interleaved — odd display columns carry the left eye, even columns the right (`4`).
+    ColumnInterleaved,
+    /// Pixel interleaved / checkerboard — left and right pixels alternate in a
+    /// checkerboard pattern (`5`).
+    PixelInterleaved,
+    /// Reserved or unrecognized value (`6`–`15`).
+    Reserved(u8),
+}
+
+impl StereoViewingMode {
+    /// Decodes the stereo viewing mode from the lower 4 bits of byte 0.
+    pub fn from_nibble(nibble: u8) -> Self {
+        match nibble & 0x0F {
+            0 => Self::FieldSequential,
+            1 => Self::SideBySide,
+            2 => Self::TopAndBottom,
+            3 => Self::RowInterleaved,
+            4 => Self::ColumnInterleaved,
+            5 => Self::PixelInterleaved,
+            v => Self::Reserved(v),
+        }
+    }
+}
+
+/// Physical interface used to deliver stereo synchronization to the glasses, decoded from
+/// Stereo Display Interface Data Block (0x10) byte 1.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StereoSyncInterface {
+    /// Sync delivered via the display's own video connector — no dedicated stereo port (`0`).
+    DisplayConnector,
+    /// VESA 3-pin DIN stereo connector (`1`).
+    VesaDin,
+    /// Infrared (IR) wireless sync (`2`).
+    Infrared,
+    /// Radio frequency (RF) wireless sync (`3`).
+    RadioFrequency,
+    /// Reserved or unrecognized value (`4`–`255`).
+    Reserved(u8),
+}
+
+impl StereoSyncInterface {
+    /// Decodes the stereo sync interface from the raw byte 1 value.
+    pub fn from_byte(byte: u8) -> Self {
+        match byte {
+            0 => Self::DisplayConnector,
+            1 => Self::VesaDin,
+            2 => Self::Infrared,
+            3 => Self::RadioFrequency,
+            v => Self::Reserved(v),
+        }
+    }
+}
+
+/// Stereo display interface parameters, decoded from the Stereo Display Interface Data Block
+/// (DisplayID 1.x `0x10`).
+///
+/// Describes how stereoscopic 3D content is encoded and how synchronization is delivered
+/// to active-shutter glasses.
+///
+/// Stored in [`DisplayCapabilities::stereo_interface`][crate::DisplayCapabilities::stereo_interface].
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DisplayIdStereoInterface {
+    /// How left-eye and right-eye images are encoded in the video signal.
+    pub viewing_mode: StereoViewingMode,
+    /// Polarity of the 3D sync signal sent to the glasses.
+    ///
+    /// `true` = positive (glasses open left eye on high); `false` = negative.
+    /// Only meaningful for [`StereoViewingMode::FieldSequential`].
+    pub sync_polarity_positive: bool,
+    /// Physical channel used to deliver the sync signal to the glasses.
+    pub sync_interface: StereoSyncInterface,
+}
+
 /// Panel interface power sequencing timing parameters, decoded from the Interface Power
 /// Sequencing Block (DisplayID 1.x `0x0D`).
 ///

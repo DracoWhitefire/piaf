@@ -1,7 +1,8 @@
 use super::{
     TAG_ASCII_STRING, TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_DEVICE_DATA, TAG_DISPLAY_INTERFACE,
     TAG_DISPLAY_PARAMS, TAG_POWER_SEQUENCING, TAG_PRODUCT_ID, TAG_SERIAL_NUMBER,
-    TAG_TRANSFER_CHARACTERISTICS, TAG_VIDEO_TIMING_RANGE, for_each_data_block,
+    TAG_STEREO_DISPLAY_INTERFACE, TAG_TRANSFER_CHARACTERISTICS, TAG_VIDEO_TIMING_RANGE,
+    for_each_data_block,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
@@ -13,9 +14,10 @@ use crate::model::color::{Chromaticity, ChromaticityPoint};
 use crate::model::manufacture::{ManufactureDate, ManufacturerId, MonitorString};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::panel::{
-    BacklightType, DisplayIdInterface, DisplayInterfaceType, DisplayTechnology,
-    InterfaceContentProtection, OperatingMode, PhysicalOrientation, PowerSequencing,
-    RotationCapability, ScanDirection, SubpixelLayout, ZeroPixelLocation,
+    BacklightType, DisplayIdInterface, DisplayIdStereoInterface, DisplayInterfaceType,
+    DisplayTechnology, InterfaceContentProtection, OperatingMode, PhysicalOrientation,
+    PowerSequencing, RotationCapability, ScanDirection, StereoSyncInterface, StereoViewingMode,
+    SubpixelLayout, ZeroPixelLocation,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::transfer::{
@@ -606,6 +608,49 @@ pub(super) fn scan_display_interface_block(payload: &[u8], caps: &mut DisplayCap
     for_each_data_block(payload, |tag, _revision, block_payload| {
         if tag == TAG_DISPLAY_INTERFACE {
             decode_display_interface_block(block_payload, caps);
+        }
+    });
+}
+
+/// Decodes a Stereo Display Interface Data Block payload into `caps`.
+///
+/// Payload layout (DisplayID 1.x §4.14, minimum 2 bytes):
+/// - Byte 0 bits 3:0: Stereo viewing mode
+///   0=field sequential, 1=side-by-side, 2=top-and-bottom,
+///   3=row interleaved, 4=column interleaved, 5=pixel interleaved, 6–15=reserved
+/// - Byte 0 bit 4: 3D sync signal polarity (1=positive, 0=negative)
+///   Only meaningful for field sequential mode.
+/// - Byte 0 bits 7:5: Reserved
+/// - Byte 1: Stereo sync interface type (how sync reaches the glasses)
+///   0=via display connector, 1=VESA 3-pin DIN, 2=infrared, 3=RF wireless, 4+=reserved
+///
+/// Payloads shorter than 2 bytes are silently skipped.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_stereo_display_interface_block(
+    payload: &[u8],
+    caps: &mut DisplayCapabilities,
+) {
+    if payload.len() < 2 {
+        return;
+    }
+    let viewing_mode = StereoViewingMode::from_nibble(payload[0]);
+    let sync_polarity_positive = (payload[0] & 0x10) != 0;
+    let sync_interface = StereoSyncInterface::from_byte(payload[1]);
+
+    caps.stereo_interface = Some(DisplayIdStereoInterface {
+        viewing_mode,
+        sync_polarity_positive,
+        sync_interface,
+    });
+}
+
+/// Scans all data blocks in `payload` for a Stereo Display Interface Data Block (tag `0x10`)
+/// and decodes the first one found into `caps`.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn scan_stereo_display_interface_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    for_each_data_block(payload, |tag, _revision, block_payload| {
+        if tag == TAG_STEREO_DISPLAY_INTERFACE {
+            decode_stereo_display_interface_block(block_payload, caps);
         }
     });
 }
@@ -1543,5 +1588,99 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         decode_display_interface_block(&[], &mut caps);
         assert_eq!(caps.display_id_interface, None);
+    }
+
+    // -----------------------------------------------------------------------
+    // Stereo Display Interface Data Block (tag 0x10)
+    // -----------------------------------------------------------------------
+
+    use crate::model::panel::{DisplayIdStereoInterface, StereoSyncInterface, StereoViewingMode};
+
+    fn make_stereo_payload(
+        viewing_mode: u8,    // bits 3:0
+        sync_positive: bool, // bit 4
+        sync_interface: u8,  // byte 1
+    ) -> [u8; 2] {
+        let b0 = (viewing_mode & 0x0F) | if sync_positive { 0x10 } else { 0x00 };
+        [b0, sync_interface]
+    }
+
+    #[test]
+    fn test_stereo_field_sequential_ir() {
+        let payload = make_stereo_payload(0, true, 2); // field seq, positive polarity, IR
+        let mut caps = DisplayCapabilities::default();
+        decode_stereo_display_interface_block(&payload, &mut caps);
+        let s = caps.stereo_interface.expect("should be Some");
+        assert_eq!(s.viewing_mode, StereoViewingMode::FieldSequential);
+        assert!(s.sync_polarity_positive);
+        assert_eq!(s.sync_interface, StereoSyncInterface::Infrared);
+    }
+
+    #[test]
+    fn test_stereo_side_by_side_display_connector() {
+        let payload = make_stereo_payload(1, false, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_stereo_display_interface_block(&payload, &mut caps);
+        let s = caps.stereo_interface.expect("should be Some");
+        assert_eq!(s.viewing_mode, StereoViewingMode::SideBySide);
+        assert!(!s.sync_polarity_positive);
+        assert_eq!(s.sync_interface, StereoSyncInterface::DisplayConnector);
+    }
+
+    #[test]
+    fn test_stereo_top_and_bottom_vesa_din() {
+        let payload = make_stereo_payload(2, false, 1);
+        let mut caps = DisplayCapabilities::default();
+        decode_stereo_display_interface_block(&payload, &mut caps);
+        let s = caps.stereo_interface.expect("should be Some");
+        assert_eq!(s.viewing_mode, StereoViewingMode::TopAndBottom);
+        assert_eq!(s.sync_interface, StereoSyncInterface::VesaDin);
+    }
+
+    #[test]
+    fn test_stereo_row_interleaved_rf() {
+        let payload = make_stereo_payload(3, false, 3);
+        let mut caps = DisplayCapabilities::default();
+        decode_stereo_display_interface_block(&payload, &mut caps);
+        let s = caps.stereo_interface.expect("should be Some");
+        assert_eq!(s.viewing_mode, StereoViewingMode::RowInterleaved);
+        assert_eq!(s.sync_interface, StereoSyncInterface::RadioFrequency);
+    }
+
+    #[test]
+    fn test_stereo_pixel_interleaved_reserved_sync() {
+        // Pixel interleaved with a reserved sync interface value (e.g. 0x0A)
+        let payload = make_stereo_payload(5, false, 0x0A);
+        let mut caps = DisplayCapabilities::default();
+        decode_stereo_display_interface_block(&payload, &mut caps);
+        let s = caps.stereo_interface.expect("should be Some");
+        assert_eq!(s.viewing_mode, StereoViewingMode::PixelInterleaved);
+        assert_eq!(s.sync_interface, StereoSyncInterface::Reserved(0x0A));
+    }
+
+    #[test]
+    fn test_stereo_reserved_viewing_mode_stored() {
+        // Reserved viewing mode 0x09 should be stored as Reserved(0x09).
+        let payload = make_stereo_payload(0x09, false, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_stereo_display_interface_block(&payload, &mut caps);
+        let s = caps.stereo_interface.expect("should be Some");
+        assert_eq!(s.viewing_mode, StereoViewingMode::Reserved(0x09));
+    }
+
+    #[test]
+    fn test_stereo_short_payload_skipped() {
+        // Only 1 byte — need at least 2.
+        let payload = [0x00u8];
+        let mut caps = DisplayCapabilities::default();
+        decode_stereo_display_interface_block(&payload, &mut caps);
+        assert_eq!(caps.stereo_interface, None);
+    }
+
+    #[test]
+    fn test_stereo_empty_payload_skipped() {
+        let mut caps = DisplayCapabilities::default();
+        decode_stereo_display_interface_block(&[], &mut caps);
+        assert_eq!(caps.stereo_interface, None);
     }
 }

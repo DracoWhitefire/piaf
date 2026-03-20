@@ -30,7 +30,7 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 | `0x0D`        | Interface Power Sequencing Block                                           | ✓ implemented |
 | `0x0E`        | Transfer Characteristics Block                                             | ✓ implemented |
 | `0x0F`        | Display Interface Data Block                                               | ✓ implemented |
-| `0x10`        | Stereo Display Interface Block                                             | — deferred    |
+| `0x10`        | Stereo Display Interface Data Block                                        | ✓ implemented |
 | `0x11`        | Type V Short Timings Block                                                 | ✓ implemented |
 | `0x12`        | Tiled Display Topology Block                                               | — deferred    |
 | `0x13`        | Type VI Detailed Timings Block                                             | ✓ implemented |
@@ -479,6 +479,40 @@ Per payload:
 Decoded into `caps.display_id_interface` as a `DisplayIdInterface` struct. All interface
 type values are decoded, including reserved ones (stored as `Reserved(n)`). Payloads
 shorter than 7 bytes are silently skipped.
+
+### Stereo Display Interface Data Block (`0x10`)
+
+Describes how stereoscopic 3D content is encoded and how the sync signal is delivered to
+active-shutter glasses.
+
+```
+Byte  0:     Block tag (0x10)
+Byte  1:     Revision (0x00)
+Byte  2:     Payload length (minimum 2 bytes)
+
+Per payload:
+  Byte 0 bits 3:0: Stereo viewing mode
+                   0 = field sequential (alternating frames, requires glasses sync)
+                   1 = side-by-side (left/right packed horizontally at half width)
+                   2 = top-and-bottom (left/right packed vertically at half height)
+                   3 = row interleaved (odd rows = left, even rows = right)
+                   4 = column interleaved (odd cols = left, even cols = right)
+                   5 = pixel interleaved / checkerboard
+                   6–15 = reserved
+  Byte 0 bit 4:   3D sync signal polarity (1 = positive, 0 = negative)
+                  Only meaningful for field sequential mode.
+  Byte 0 bits 7:5: Reserved
+  Byte 1:          Stereo sync interface (channel to the glasses)
+                   0 = via display connector (no dedicated stereo port)
+                   1 = VESA 3-pin DIN stereo connector
+                   2 = infrared (IR) wireless
+                   3 = RF wireless
+                   4–255 = reserved
+```
+
+Decoded into `caps.stereo_interface` as a `DisplayIdStereoInterface` struct. All mode and
+interface values are decoded, including reserved ones. Payloads shorter than 2 bytes are
+silently skipped.
 
 ### Type V Short Timings Block (`0x11`)
 

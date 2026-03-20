@@ -266,6 +266,9 @@ pub struct DisplayCapabilities {
     /// Physical display interface capabilities from DisplayID 0x0F.
     /// `None` when the Display Interface Data Block is absent.
     pub display_id_interface: Option<crate::model::panel::DisplayIdInterface>,
+    /// Stereo display interface parameters from DisplayID 0x10.
+    /// `None` when the Stereo Display Interface Data Block is absent.
+    pub stereo_interface: Option<crate::model::panel::DisplayIdStereoInterface>,
     /// CIE xy chromaticity coordinates for the color primaries and white point,
     /// decoded from bytes `0x19`–`0x22`.
     pub chromaticity: crate::model::color::Chromaticity,
@@ -522,6 +525,9 @@ pub struct StaticDisplayCapabilities<const MAX_MODES: usize> {
     /// Physical display interface capabilities from DisplayID 0x0F.
     /// `None` when the Display Interface Data Block is absent.
     pub display_id_interface: Option<crate::model::panel::DisplayIdInterface>,
+    /// Stereo display interface parameters from DisplayID 0x10.
+    /// `None` when the Stereo Display Interface Data Block is absent.
+    pub stereo_interface: Option<crate::model::panel::DisplayIdStereoInterface>,
     /// CIE xy chromaticity coordinates for the color primaries and white point,
     /// decoded from bytes `0x19`–`0x22`.
     pub chromaticity: crate::model::color::Chromaticity,
@@ -611,6 +617,7 @@ impl<const MAX_MODES: usize> Default for StaticDisplayCapabilities<MAX_MODES> {
             pixel_response_time_ms: None,
             power_sequencing: None,
             display_id_interface: None,
+            stereo_interface: None,
             chromaticity: Default::default(),
             gamma: None,
             display_features: None,
