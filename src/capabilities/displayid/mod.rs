@@ -67,6 +67,12 @@ const TAG_TYPE_III_TIMING: u8 = 0x05;
 /// Data block tag for the Video Timing Modes Type IV — DMT/VIC Code Block (DisplayID 1.x §4.4.5).
 const TAG_TYPE_IV_TIMING: u8 = 0x06;
 
+/// Data block tag for the VESA Video Timing Block (DisplayID 1.x §4.4.6).
+///
+/// Payload is a compact presence bitmap: up to 10 bytes encoding DMT IDs 0x01–0x50.
+/// Bit `i` (0-indexed, LSB-first within each byte) is set if DMT ID `i + 1` is supported.
+const TAG_VESA_VIDEO_TIMING: u8 = 0x07;
+
 /// Parses the 4-byte section header common to all DisplayID fragments.
 ///
 /// Returns `(version, section_byte_count, product_type, extension_count)`.
@@ -323,6 +329,27 @@ fn hdmi_vic_to_mode(code: u8) -> Option<VideoMode> {
     })
 }
 
+/// Iterates the VESA Video Timing Block presence bitmap and pushes supported modes to `sink`.
+///
+/// The payload is a bitmap of up to 10 bytes (80 bits). Bit `i` (0-indexed, LSB-first within
+/// each byte) corresponds to DMT ID `i + 1`. A set bit means the display supports that mode.
+/// Bytes beyond the first 10 are ignored; unknown or unset bits produce no output.
+///
+/// Source: edid-decode (timvideos/edid-decode); confirmed against `DATA_BLOCK_VESA_TIMING`
+/// in the Linux kernel `drivers/gpu/drm/drm_displayid_internal.h`.
+fn decode_vesa_video_timing_block(payload: &[u8], sink: &mut dyn ModeSink) {
+    for (byte_idx, &byte) in payload.iter().take(10).enumerate() {
+        for bit in 0u16..8 {
+            if byte & (1 << bit) != 0 {
+                let dmt_id = (byte_idx as u16) * 8 + bit + 1;
+                if let Some(mode) = dmt_to_mode(dmt_id) {
+                    sink.push_mode(mode);
+                }
+            }
+        }
+    }
+}
+
 /// Calls `f(tag, revision, block_payload)` for each well-formed data block in `payload`.
 ///
 /// `revision` is the second byte of the 3-byte data block header and carries block-specific
@@ -385,6 +412,8 @@ fn process_data_blocks(payload: &[u8], sink: &mut dyn ModeSink) {
             // Revision byte bits 7:6 select the code space (0=DMT, 1=VIC, 2=HDMI VIC).
             let code_type = (revision >> 6) & 0x03;
             decode_type_iv_block(block_payload, code_type, sink);
+        } else if tag == TAG_VESA_VIDEO_TIMING {
+            decode_vesa_video_timing_block(block_payload, sink);
         }
         // Unknown block tags are silently skipped.
     });
@@ -664,6 +693,7 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
     TAG_TYPE_II_TIMING,        // 0x04 — Video Timing Modes Type II — Detailed Timings Block
     TAG_TYPE_III_TIMING,       // 0x05 — Video Timing Modes Type III — Short Timings Block
     TAG_TYPE_IV_TIMING,        // 0x06 — Video Timing Modes Type IV — DMT/VIC Code Block
+    TAG_VESA_VIDEO_TIMING,     // 0x07 — VESA Video Timing Block (DMT presence bitmap)
 ];
 
 /// DisplayID 1.x data block tags that are defined by the specification but not
@@ -673,7 +703,7 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
 /// implemented, remove its tag from here and add it to `IMPLEMENTED_BLOCK_TAGS`.
 #[cfg(test)]
 const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
-    (0x07, 0x13), // Type V–VI timings, VESA timing, interface and identity blocks, Tiled Display Topology
+    (0x08, 0x13), // CTA/Type V–VI timings, interface and identity blocks, Tiled Display Topology
     (0x14, 0x7E), // Reserved for future use in DisplayID 1.x
     (0x7F, 0x7F), // Vendor-specific
     (0x80, 0xFF), // Undefined (outside the DisplayID 1.x tag space)
@@ -1913,6 +1943,114 @@ mod tests {
 
         assert!(warnings.is_empty());
         assert!(caps.supported_modes.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // VESA Video Timing Block (tag 0x07)
+    // -----------------------------------------------------------------------
+
+    fn make_vesa_video_timing_block(bitmap: &[u8]) -> Vec<u8> {
+        let mut db = Vec::with_capacity(3 + bitmap.len());
+        db.push(TAG_VESA_VIDEO_TIMING);
+        db.push(0x00); // revision
+        db.push(bitmap.len() as u8);
+        db.extend_from_slice(bitmap);
+        db
+    }
+
+    #[test]
+    fn test_vesa_timing_single_bit_set() {
+        // Bitmap byte 0, bit 3 (0-indexed) = DMT ID 0x04 = 640×480@60 Hz.
+        let db = make_vesa_video_timing_block(&[0b0000_1000]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        let mode = &caps.supported_modes[0];
+        assert_eq!(mode.width, 640);
+        assert_eq!(mode.height, 480);
+        assert_eq!(mode.refresh_rate, 60);
+        assert_eq!(mode.h_front_porch, 16);
+        assert_eq!(mode.h_sync_width, 96);
+        assert_eq!(mode.v_front_porch, 10);
+        assert_eq!(mode.v_sync_width, 2);
+        assert_eq!(
+            mode.sync,
+            Some(SyncDefinition::DigitalSeparate {
+                h_sync_positive: false,
+                v_sync_positive: false,
+            })
+        );
+    }
+
+    #[test]
+    fn test_vesa_timing_multiple_modes() {
+        // Byte 0 bit 0 = DMT 0x01 (640×350@85), byte 1 bit 0 = DMT 0x09 (800×600@60).
+        let db = make_vesa_video_timing_block(&[0x01, 0x01]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 2);
+        assert!(caps.supported_modes.iter().any(|m| m.width == 640 && m.height == 350));
+        assert!(caps.supported_modes.iter().any(|m| m.width == 800 && m.height == 600));
+    }
+
+    #[test]
+    fn test_vesa_timing_empty_payload() {
+        let db = make_vesa_video_timing_block(&[]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_vesa_timing_payload_truncated_at_10_bytes() {
+        // 11-byte payload; the 11th byte has bits set that would correspond to DMT IDs
+        // 0x51–0x58. Those IDs are above the 10-byte limit and must be ignored.
+        let mut bitmap = vec![0u8; 11];
+        bitmap[10] = 0xFF; // bits for DMT IDs 0x51–0x58 — outside the 10-byte window
+        bitmap[0] = 0x01;  // DMT 0x01 = 640×350@85 — should be decoded
+        let db = make_vesa_video_timing_block(&bitmap);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+
+        assert!(warnings.is_empty());
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 640);
+        assert_eq!(caps.supported_modes[0].height, 350);
+    }
+
+    #[test]
+    fn test_vesa_timing_static_pipeline() {
+        // Byte 1 bit 0 = DMT 0x09 = 800×600@60 Hz.
+        let db = make_vesa_video_timing_block(&[0x00, 0x01]);
+        let block = make_displayid_block(0x10, &db);
+
+        let mut caps = StaticDisplayCapabilities::<16>::default();
+        let mut ctx = StaticContext::new(&mut caps);
+        StaticExtensionHandler::process(&DisplayIdHandler, &[&block], &mut ctx);
+
+        assert_eq!(caps.num_modes, 1);
+        let mode = caps.supported_modes[0].as_ref().unwrap();
+        assert_eq!(mode.width, 800);
+        assert_eq!(mode.height, 600);
+        assert_eq!(mode.refresh_rate, 60);
     }
 
     // -----------------------------------------------------------------------

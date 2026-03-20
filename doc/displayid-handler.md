@@ -158,8 +158,22 @@ space is selected by bits 7:6 of the data block's revision byte:
 | `2` | HDMI VIC | 4 codes: 1=3840×2160@30, 2=@25, 3=@24, 4=4096×2160@24 |
 | `3` | Reserved | silently skipped |
 
-Timing detail fields (`h_front_porch`, etc.) are populated for VIC-resolved modes and are
-zero for DMT and HDMI VIC modes. Unrecognised codes are silently skipped.
+Timing detail fields (`h_front_porch`, `h_sync_width`, `v_front_porch`, `v_sync_width`,
+`sync`) are fully populated for both DMT-resolved and VIC-resolved modes. HDMI VIC modes
+carry only `width`, `height`, and `refresh_rate` (timing detail is not defined for them).
+Unrecognised codes are silently skipped.
+
+**VESA Video Timing blocks** (tag `0x07`) are decoded in both the dynamic and static
+pipelines. The payload is a presence bitmap: up to 10 bytes encoding DMT IDs 0x01–0x50.
+Bit `i` (0-indexed, LSB-first within each byte) corresponds to DMT ID `i + 1`. Set bits
+are resolved via the DMT v1.13 table with full timing detail; payload bytes beyond 10 are
+ignored.
+
+| `VideoMode` field | Source |
+|---|---|
+| `width`, `height`, `refresh_rate`, `interlaced` | DMT v1.13 table entry |
+| `h_front_porch`, `h_sync_width`, `v_front_porch`, `v_sync_width` | DMT v1.13 table entry |
+| `sync` | `DigitalSeparate`; polarities from DMT v1.13 table entry |
 
 ## Warnings
 

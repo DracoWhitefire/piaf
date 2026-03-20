@@ -21,7 +21,7 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 | `0x04`        | Video Timing Modes Type II — Detailed Timings Block                        | ✓ implemented |
 | `0x05`        | Type III Short Descriptor Video Timing Block                               | ✓ implemented |
 | `0x06`        | Type IV Short Descriptor Video Timing Block (DMT/VIC codes)                | ✓ implemented |
-| `0x07`        | VESA Video Timing Block                                                    | — deferred    |
+| `0x07`        | VESA Video Timing Block                                                    | ✓ implemented |
 | `0x08`        | CTA Video Timing Block                                                     | — deferred    |
 | `0x09`        | Video Timing Range Descriptor Block                                        | — deferred    |
 | `0x0A`        | Product Serial Number Block                                                | — deferred    |
@@ -224,3 +224,24 @@ DMT codes are resolved via the VESA DMT v1.13 table (IDs 0x01–0x58).
 VIC codes are resolved via the CTA-861 table.
 HDMI VIC codes 1–4 map to 3840×2160@30/25/24 Hz and 4096×2160@24 Hz respectively.
 Unrecognised codes and reserved code types are silently skipped.
+
+### VESA Video Timing Block (`0x07`)
+
+A compact DMT presence bitmap. Each bit indicates whether the display supports the
+corresponding VESA DMT mode. The payload covers DMT IDs 0x01–0x50 (80 modes, 10 bytes);
+bit `i` (0-indexed, LSB-first within each byte) maps to DMT ID `i + 1`.
+
+```
+Byte  0:     Block tag (0x07)
+Byte  1:     Revision (0x00)
+Byte  2:     Payload length (0–10; bytes beyond 10 are ignored)
+Bytes 3+:    Presence bitmap, LSB-first
+               Byte 0 bits 7:0 = DMT IDs 0x08–0x01
+               Byte 1 bits 7:0 = DMT IDs 0x10–0x09
+               ...
+               Byte 9 bits 7:0 = DMT IDs 0x50–0x49
+```
+
+Set bits are resolved via the VESA DMT v1.13 table, including full timing detail
+(front porch, sync width, sync polarity). DMT IDs 0x51–0x58 are not representable
+in this block. Unset bits and payload bytes beyond 10 are silently skipped.
