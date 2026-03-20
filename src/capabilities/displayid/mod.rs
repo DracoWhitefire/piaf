@@ -1,6 +1,6 @@
+use crate::capabilities::cea861::{dmt_to_mode, vic_to_mode};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
-use crate::capabilities::cea861::{dmt_to_mode, vic_to_mode};
 use crate::model::capabilities::{ModeSink, StaticContext, StereoMode, SyncDefinition, VideoMode};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::color::Chromaticity;
@@ -1909,9 +1909,21 @@ mod tests {
 
         assert!(warnings.is_empty());
         assert_eq!(caps.supported_modes.len(), 3);
-        assert!(caps.supported_modes.iter().any(|m| m.width == 1024 && m.height == 768));
-        assert!(caps.supported_modes.iter().any(|m| m.width == 1280 && m.height == 1024));
-        assert!(caps.supported_modes.iter().any(|m| m.width == 1920 && m.height == 1080));
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 1024 && m.height == 768)
+        );
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 1280 && m.height == 1024)
+        );
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 1920 && m.height == 1080)
+        );
     }
 
     #[test]
@@ -1999,8 +2011,16 @@ mod tests {
 
         assert!(warnings.is_empty());
         assert_eq!(caps.supported_modes.len(), 2);
-        assert!(caps.supported_modes.iter().any(|m| m.width == 640 && m.height == 350));
-        assert!(caps.supported_modes.iter().any(|m| m.width == 800 && m.height == 600));
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 640 && m.height == 350)
+        );
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 800 && m.height == 600)
+        );
     }
 
     #[test]
@@ -2022,7 +2042,7 @@ mod tests {
         // 0x51–0x58. Those IDs are above the 10-byte limit and must be ignored.
         let mut bitmap = vec![0u8; 11];
         bitmap[10] = 0xFF; // bits for DMT IDs 0x51–0x58 — outside the 10-byte window
-        bitmap[0] = 0x01;  // DMT 0x01 = 640×350@85 — should be decoded
+        bitmap[0] = 0x01; // DMT 0x01 = 640×350@85 — should be decoded
         let db = make_vesa_video_timing_block(&bitmap);
         let block = make_displayid_block(0x10, &db);
 

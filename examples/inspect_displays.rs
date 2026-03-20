@@ -93,6 +93,23 @@ fn main() {
                         Ok(parsed) => {
                             let caps = capabilities_from_edid(&parsed, &library);
 
+                            if parsed.num_extensions > 0 {
+                                let ext_list: Vec<String> = (0..parsed.num_extensions)
+                                    .filter_map(|i| parsed.extension_block(i))
+                                    .map(|b| {
+                                        let tag = b[0];
+                                        let name = library
+                                            .extensions
+                                            .iter()
+                                            .find(|e| e.tag == tag)
+                                            .map(|e| e.display_name.as_str())
+                                            .unwrap_or("Unknown");
+                                        format!("{} (0x{:02X})", name, tag)
+                                    })
+                                    .collect();
+                                println!("  Extensions:   {}", ext_list.join(", "));
+                            }
+
                             if let Some(v) = caps.edid_version {
                                 println!("  EDID version: {}", v);
                             }
@@ -758,9 +775,39 @@ fn main() {
                             if !caps.supported_modes.is_empty() {
                                 println!("  Supported Modes ({}):", caps.supported_modes.len());
                                 for mode in caps.supported_modes.iter() {
+                                    let interlaced = if mode.interlaced { "i" } else { "" };
+                                    let sync = match mode.sync {
+                                        Some(piaf::SyncDefinition::DigitalSeparate {
+                                            h_sync_positive,
+                                            v_sync_positive,
+                                        }) => format!(
+                                            " {}H{}V",
+                                            if h_sync_positive { "+" } else { "-" },
+                                            if v_sync_positive { "+" } else { "-" },
+                                        ),
+                                        Some(_) => " (analog sync)".to_string(),
+                                        None => String::new(),
+                                    };
+                                    let timing =
+                                        if mode.h_front_porch != 0 || mode.h_sync_width != 0 {
+                                            format!(
+                                                " [hfp={} hsw={} vfp={} vsw={}]",
+                                                mode.h_front_porch,
+                                                mode.h_sync_width,
+                                                mode.v_front_porch,
+                                                mode.v_sync_width,
+                                            )
+                                        } else {
+                                            String::new()
+                                        };
                                     println!(
-                                        "    - {}x{}@{}Hz",
-                                        mode.width, mode.height, mode.refresh_rate
+                                        "    - {}x{}{}@{}Hz{}{}",
+                                        mode.width,
+                                        mode.height,
+                                        interlaced,
+                                        mode.refresh_rate,
+                                        sync,
+                                        timing,
                                     );
                                 }
                             }
