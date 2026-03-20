@@ -26,7 +26,7 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 | `0x09`        | Video Timing Range Descriptor Block                                        | ✓ implemented |
 | `0x0A`        | Product Serial Number Block                                                | ✓ implemented |
 | `0x0B`        | General Purpose ASCII String Block                                         | ✓ implemented |
-| `0x0C`        | Display Device Data Block                                                  | — deferred    |
+| `0x0C`        | Display Device Data Block                                                  | ✓ implemented |
 | `0x0D`        | Interface Power Sequencing Block                                           | — deferred    |
 | `0x0E`        | Transfer Characteristics Block                                             | — deferred    |
 | `0x0F`        | Display Interface Block                                                    | — deferred    |
@@ -328,6 +328,47 @@ Each string is stored using the same `MonitorString` format as EDID base-block
 unspecified-text descriptors: up to 13 bytes, `0x0A`-terminated. Longer strings are
 truncated. Empty payloads and blocks beyond the fourth are silently dropped.
 Only available from the dynamic pipeline.
+
+### Display Device Data Block (`0x0C`)
+
+Describes panel characteristics for embedded display applications: display technology,
+operating mode, native pixel format, sub-pixel layout, pixel pitch, and color bit depth.
+
+```
+Byte  0:     Block tag (0x0C)
+Byte  1:     Revision (0x00)
+Byte  2:     Payload length (13 bytes)
+
+Per payload:
+  Byte  0:    Bits 7:4 = display technology type:
+                0=TFT(unspecified), 1=DSTN/STN, 2=TFT-IPS, 3=TFT-MVA/PVA, 4=CRT,
+                5=PDP, 6=OLED, 7=EL, 8=FED/SED, 9=LCoS, 10–15=reserved
+              Bits 3:0 = technology-specific sub-type code (raw)
+  Byte  1:    Bits 3:0 = operating mode (0=continuous, 1=non-continuous)
+              Bits 5:4 = backlight type (0=none, 1=AC/CCFL, 2=DC/LED, 3=reserved)
+              Bit  6   = Data Enable (DE) signal is used (1=yes)
+              Bit  7   = DE signal polarity (1=positive, 0=negative)
+  Bytes 2–3:  Horizontal native pixel count (LE uint16; 0 = not defined)
+  Bytes 4–5:  Vertical native pixel count (LE uint16; 0 = not defined)
+  Byte  6:    Aspect ratio encoded as (AR − 1) × 100 (raw; 0 = not defined)
+  Byte  7:    Bits 1:0 = physical orientation (0=landscape, 1=portrait, 2=n/a, 3=undefined)
+              Bits 3:2 = rotation capability (0=none, 1=90°CW, 2=180°, 3=270°CW)
+              Bits 5:4 = zero pixel location (0=upper-left, 1=upper-right,
+                                              2=lower-left, 3=lower-right)
+              Bits 7:6 = scan direction (0=not defined, 1=normal, 2=reversed, 3=reserved)
+  Byte  8:    Sub-pixel layout:
+                0x00=not defined, 0x01=RGB-vertical, 0x02=BGR-vertical,
+                0x03=RGB-horizontal, 0x04=BGR-horizontal, 0x05=quad-RGBG,
+                0x06=quad-BGRG, 0x07=delta-RGB, 0x08=delta-BGR, ≥0x09=reserved
+  Byte  9:    Horizontal pixel pitch in 0.01 mm steps (0 = not defined)
+  Byte 10:    Vertical pixel pitch in 0.01 mm steps (0 = not defined)
+  Byte 11:    Bits 3:0 = color bit depth: bpc − 1 (i.e. 5=6bpc, 7=8bpc, 9=10bpc…)
+  Byte 12:    Pixel response time in ms (0 = not defined)
+```
+
+All payload fields are decoded into `DisplayCapabilities`. Zero values for native pixels,
+pixel pitch, and response time are treated as "not defined" and not stored. Only available
+from the dynamic pipeline.
 
 ### Type V Short Timings Block (`0x11`)
 

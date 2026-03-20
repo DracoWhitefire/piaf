@@ -96,6 +96,56 @@ Stored under tag `0x70` in `DisplayCapabilities::extension_data`:
 
 Payloads shorter than 16 bytes are silently ignored.
 
+**Video Timing Range Limits Block** (tag `0x09`) is decoded into the following
+`DisplayCapabilities` fields (dynamic pipeline only):
+
+| `DisplayCapabilities` field | Source |
+|---|---|
+| `max_pixel_clock_mhz` | Payload bytes 3–5 (LE 24-bit, 10 kHz units ÷ 100) |
+| `min_h_rate_khz` | Payload byte 6 |
+| `max_h_rate_khz` | Payload byte 7 |
+| `min_v_rate` | Payload byte 10 |
+| `max_v_rate` | Payload byte 11 |
+
+Fields are written only when the payload is long enough to contain them.
+
+**Product Serial Number Block** (tag `0x0A`) is decoded into the following
+`DisplayCapabilities` field (dynamic pipeline only):
+
+| `DisplayCapabilities` field | Source |
+|---|---|
+| `serial_number_string` | Payload bytes (ASCII, up to 13 bytes, `0x0A`-terminated) |
+
+**General Purpose ASCII String Blocks** (tag `0x0B`) are decoded into successive
+`unspecified_text` slots (dynamic pipeline only). Up to four blocks are stored; extras
+are silently dropped.
+
+| `DisplayCapabilities` field | Source |
+|---|---|
+| `unspecified_text[0..4]` | Each `0x0B` block payload (up to 13 bytes, `0x0A`-terminated) |
+
+**Display Device Data Block** (tag `0x0C`) is decoded into the following
+`DisplayCapabilities` fields (dynamic pipeline only):
+
+| `DisplayCapabilities` field | Source |
+|---|---|
+| `display_technology` | Byte 0 bits 7:4 — `DisplayTechnology` enum |
+| `display_subtype` | Byte 0 bits 3:0 — raw technology-specific sub-type (0–15) |
+| `operating_mode` | Byte 1 bits 3:0 — `OperatingMode` enum |
+| `backlight_type` | Byte 1 bits 5:4 — `BacklightType` enum |
+| `data_enable_used` | Byte 1 bit 6 — `true` if DE signal is used |
+| `data_enable_positive` | Byte 1 bit 7 — DE polarity (`true` = positive) |
+| `native_pixels` | Bytes 2–5, two LE uint16 — `(width_px, height_px)`; `None` if either is 0 |
+| `panel_aspect_ratio_100` | Byte 6 — raw byte; AR = value / 100 + 1 |
+| `physical_orientation` | Byte 7 bits 1:0 — `PhysicalOrientation` enum |
+| `rotation_capability` | Byte 7 bits 3:2 — `RotationCapability` enum |
+| `zero_pixel_location` | Byte 7 bits 5:4 — `ZeroPixelLocation` enum |
+| `scan_direction` | Byte 7 bits 7:6 — `ScanDirection` enum |
+| `subpixel_layout` | Byte 8 — `SubpixelLayout` enum |
+| `pixel_pitch_hundredths_mm` | Bytes 9–10 — `(h, v)` in 0.01 mm; `None` if either is 0 |
+| `color_bit_depth` | Byte 11 bits 3:0 — bpc − 1 converted to `ColorBitDepth` |
+| `pixel_response_time_ms` | Byte 12 — milliseconds; `None` if 0 |
+
 If the DisplayID block appears alongside an EDID base block, DisplayID values overwrite
 any base-block values for the same fields.
 

@@ -1,6 +1,6 @@
 use super::{
-    TAG_ASCII_STRING, TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_PARAMS, TAG_PRODUCT_ID,
-    TAG_SERIAL_NUMBER, TAG_VIDEO_TIMING_RANGE, for_each_data_block,
+    TAG_ASCII_STRING, TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_DEVICE_DATA, TAG_DISPLAY_PARAMS,
+    TAG_PRODUCT_ID, TAG_SERIAL_NUMBER, TAG_VIDEO_TIMING_RANGE, for_each_data_block,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
@@ -10,6 +10,11 @@ use crate::model::color::ColorBitDepth;
 use crate::model::color::{Chromaticity, ChromaticityPoint};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::manufacture::{ManufactureDate, ManufacturerId, MonitorString};
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::panel::{
+    BacklightType, DisplayTechnology, OperatingMode, PhysicalOrientation, RotationCapability,
+    ScanDirection, SubpixelLayout, ZeroPixelLocation,
+};
 
 /// Decodes a Product Identification Block payload into `caps`.
 ///
@@ -282,6 +287,110 @@ pub(super) fn scan_ascii_string_blocks(payload: &[u8], caps: &mut DisplayCapabil
     for_each_data_block(payload, |tag, _revision, block_payload| {
         if tag == TAG_ASCII_STRING {
             decode_ascii_string_block(block_payload, caps);
+        }
+    });
+}
+
+/// Decodes a Display Device Data Block payload into `caps`.
+///
+/// Payload layout (DisplayID 1.x §4.10, 13 bytes):
+/// - Byte  0:    Bits 7:4 = display technology; bits 3:0 = sub-type code
+/// - Byte  1:    Bits 3:0 = operating mode; bits 5:4 = backlight type;
+///   bit 6 = DE signal used; bit 7 = DE polarity (1 = positive)
+/// - Bytes 2–3:  Horizontal native pixel count (LE uint16; 0 = not defined)
+/// - Bytes 4–5:  Vertical native pixel count (LE uint16; 0 = not defined)
+/// - Byte  6:    Aspect ratio = byte / 100 + 1 (raw value stored as-is)
+/// - Byte  7:    Bits 1:0 = physical orientation; bits 3:2 = rotation capability;
+///   bits 5:4 = zero pixel location; bits 7:6 = scan direction
+/// - Byte  8:    RGB sub-pixel layout code
+/// - Byte  9:    Horizontal pixel pitch in 0.01 mm steps (0 = not defined)
+/// - Byte 10:    Vertical pixel pitch in 0.01 mm steps (0 = not defined)
+/// - Byte 11:    Color bit depth: bits 3:0 = bpc − 1
+/// - Byte 12:    Pixel response time in ms (0 = not defined)
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_display_device_data_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    // Byte 0: display technology (bits 7:4) and sub-type (bits 3:0).
+    if !payload.is_empty() {
+        caps.display_technology = Some(DisplayTechnology::from_nibble(payload[0] >> 4));
+        caps.display_subtype = Some(payload[0] & 0x0F);
+    }
+
+    // Byte 1: operating mode (bits 3:0), backlight type (bits 5:4), DE flags (bits 7:6).
+    if payload.len() >= 2 {
+        caps.operating_mode = Some(OperatingMode::from_nibble(payload[1] & 0x0F));
+        caps.backlight_type = Some(BacklightType::from_bits((payload[1] >> 4) & 0x03));
+        caps.data_enable_used = Some((payload[1] & 0x40) != 0);
+        caps.data_enable_positive = Some((payload[1] & 0x80) != 0);
+    }
+
+    // Bytes 2–5: native pixel format (h × v, LE uint16 each; 0 = not defined).
+    if payload.len() >= 6 {
+        let h = u16::from_le_bytes([payload[2], payload[3]]);
+        let v = u16::from_le_bytes([payload[4], payload[5]]);
+        if h != 0 && v != 0 {
+            caps.native_pixels = Some((h, v));
+        }
+    }
+
+    // Byte 6: aspect ratio raw byte ((AR − 1) × 100).
+    if payload.len() >= 7 {
+        caps.panel_aspect_ratio_100 = Some(payload[6]);
+    }
+
+    // Byte 7: orientation flags.
+    if payload.len() >= 8 {
+        caps.physical_orientation = Some(PhysicalOrientation::from_bits(payload[7] & 0x03));
+        caps.rotation_capability = Some(RotationCapability::from_bits((payload[7] >> 2) & 0x03));
+        caps.zero_pixel_location = Some(ZeroPixelLocation::from_bits((payload[7] >> 4) & 0x03));
+        caps.scan_direction = Some(ScanDirection::from_bits((payload[7] >> 6) & 0x03));
+    }
+
+    // Byte 8: sub-pixel layout.
+    if payload.len() >= 9 {
+        caps.subpixel_layout = Some(SubpixelLayout::from_byte(payload[8]));
+    }
+
+    // Bytes 9–10: pixel pitch H and V in 0.01 mm steps (0 = not defined).
+    if payload.len() >= 11 {
+        let h_pitch = payload[9];
+        let v_pitch = payload[10];
+        if h_pitch != 0 && v_pitch != 0 {
+            caps.pixel_pitch_hundredths_mm = Some((h_pitch, v_pitch));
+        }
+    }
+
+    // Byte 11: color bit depth (bits 3:0 = bpc − 1).
+    // Convert: bpc = raw + 1; EDID-style mapping: 6→1, 8→2, 10→3, 12→4, 14→5, 16→6.
+    if payload.len() >= 12 {
+        let bpc = (payload[11] & 0x0F) + 1;
+        let edid_bits: u8 = match bpc {
+            6 => 1,
+            8 => 2,
+            10 => 3,
+            12 => 4,
+            14 => 5,
+            16 => 6,
+            _ => 0,
+        };
+        caps.color_bit_depth = ColorBitDepth::from_edid_bits(edid_bits);
+    }
+
+    // Byte 12: pixel response time in ms (0 = not defined).
+    if payload.len() >= 13 {
+        let rt = payload[12];
+        if rt != 0 {
+            caps.pixel_response_time_ms = Some(rt);
+        }
+    }
+}
+
+/// Scans all data blocks in `payload` for a Display Device Data Block (tag `0x0C`)
+/// and decodes the first one found into `caps`.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn scan_display_device_data_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    for_each_data_block(payload, |tag, _revision, block_payload| {
+        if tag == TAG_DISPLAY_DEVICE_DATA {
+            decode_display_device_data_block(block_payload, caps);
         }
     });
 }
@@ -701,5 +810,229 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         decode_ascii_string_block(&[], &mut caps);
         assert!(caps.unspecified_text[0].is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // Display Device Data Block (tag 0x0C)
+    // -----------------------------------------------------------------------
+
+    use crate::model::panel::{
+        BacklightType, DisplayTechnology, OperatingMode, PhysicalOrientation, RotationCapability,
+        ScanDirection, SubpixelLayout, ZeroPixelLocation,
+    };
+
+    /// Builds a full 13-byte Display Device Data payload.
+    #[allow(clippy::too_many_arguments)]
+    fn make_display_device_data_payload(
+        tech: u8,      // bits 7:4 of byte 0
+        subtype: u8,   // bits 3:0 of byte 0
+        b1: u8,        // byte 1 raw
+        h_native: u16, // bytes 2–3
+        v_native: u16, // bytes 4–5
+        ar_100: u8,    // byte 6
+        orient: u8,    // byte 7
+        subpixel: u8,  // byte 8
+        h_pitch: u8,   // byte 9
+        v_pitch: u8,   // byte 10
+        bpc_raw: u8,   // byte 11 bits 3:0
+        response: u8,  // byte 12
+    ) -> [u8; 13] {
+        let mut p = [0u8; 13];
+        p[0] = (tech << 4) | (subtype & 0x0F);
+        p[1] = b1;
+        p[2..4].copy_from_slice(&h_native.to_le_bytes());
+        p[4..6].copy_from_slice(&v_native.to_le_bytes());
+        p[6] = ar_100;
+        p[7] = orient;
+        p[8] = subpixel;
+        p[9] = h_pitch;
+        p[10] = v_pitch;
+        p[11] = bpc_raw & 0x0F;
+        p[12] = response;
+        p
+    }
+
+    #[test]
+    fn test_display_device_data_technology_decoded() {
+        // tech=6 → OLED; subtype=2
+        let p = make_display_device_data_payload(6, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_device_data_block(&p, &mut caps);
+        assert_eq!(caps.display_technology, Some(DisplayTechnology::Oled));
+        assert_eq!(caps.display_subtype, Some(2));
+    }
+
+    #[test]
+    fn test_display_device_data_unknown_technology() {
+        // tech=0xF → Unknown(15)
+        let p = make_display_device_data_payload(0xF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_device_data_block(&p, &mut caps);
+        assert_eq!(
+            caps.display_technology,
+            Some(DisplayTechnology::Unknown(15))
+        );
+    }
+
+    #[test]
+    fn test_display_device_data_operating_mode_and_backlight() {
+        // operating mode=1 (NonContinuous), backlight=2 (Dc), DE used=1 (+ve)
+        // byte1: mode bits 3:0 = 0x01, backlight bits 5:4 = 0b10 → 0x21, DE bit6=1, DE pol bit7=1
+        // 0b1110_0001 = 0xE1
+        let p = make_display_device_data_payload(0, 0, 0xE1, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_device_data_block(&p, &mut caps);
+        assert_eq!(caps.operating_mode, Some(OperatingMode::NonContinuous));
+        assert_eq!(caps.backlight_type, Some(BacklightType::Dc));
+        assert_eq!(caps.data_enable_used, Some(true));
+        assert_eq!(caps.data_enable_positive, Some(true));
+    }
+
+    #[test]
+    fn test_display_device_data_no_de_signal() {
+        // DE bit = 0, polarity irrelevant but reads as false
+        let p = make_display_device_data_payload(0, 0, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_device_data_block(&p, &mut caps);
+        assert_eq!(caps.data_enable_used, Some(false));
+    }
+
+    #[test]
+    fn test_display_device_data_native_pixels_decoded() {
+        let p = make_display_device_data_payload(0, 0, 0, 1920, 1080, 0, 0, 0, 0, 0, 0, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_device_data_block(&p, &mut caps);
+        assert_eq!(caps.native_pixels, Some((1920, 1080)));
+    }
+
+    #[test]
+    fn test_display_device_data_zero_native_pixels_not_stored() {
+        let p = make_display_device_data_payload(0, 0, 0, 0, 1080, 0, 0, 0, 0, 0, 0, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_device_data_block(&p, &mut caps);
+        assert_eq!(caps.native_pixels, None);
+    }
+
+    #[test]
+    fn test_display_device_data_aspect_ratio_stored() {
+        // 16:9 ≈ AR 1.78 → (AR-1)×100 ≈ 78; raw byte = 78
+        let p = make_display_device_data_payload(0, 0, 0, 0, 0, 78, 0, 0, 0, 0, 0, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_device_data_block(&p, &mut caps);
+        assert_eq!(caps.panel_aspect_ratio_100, Some(78));
+    }
+
+    #[test]
+    fn test_display_device_data_orientation_flags() {
+        // orient byte: bits 1:0=1 (Portrait), bits 3:2=1 (CW90), bits 5:4=2 (LowerLeft), bits 7:6=1 (Normal)
+        // = 0b01_10_01_01 = 0x65
+        let p = make_display_device_data_payload(0, 0, 0, 0, 0, 0, 0x65, 0, 0, 0, 0, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_device_data_block(&p, &mut caps);
+        assert_eq!(
+            caps.physical_orientation,
+            Some(PhysicalOrientation::Portrait)
+        );
+        assert_eq!(caps.rotation_capability, Some(RotationCapability::Cw90));
+        assert_eq!(caps.zero_pixel_location, Some(ZeroPixelLocation::LowerLeft));
+        assert_eq!(caps.scan_direction, Some(ScanDirection::Normal));
+    }
+
+    #[test]
+    fn test_display_device_data_subpixel_layout_rgb_vertical() {
+        let p = make_display_device_data_payload(0, 0, 0, 0, 0, 0, 0, 0x01, 0, 0, 0, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_device_data_block(&p, &mut caps);
+        assert_eq!(caps.subpixel_layout, Some(SubpixelLayout::RgbVertical));
+    }
+
+    #[test]
+    fn test_display_device_data_subpixel_layout_unknown() {
+        let p = make_display_device_data_payload(0, 0, 0, 0, 0, 0, 0, 0xAB, 0, 0, 0, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_device_data_block(&p, &mut caps);
+        assert_eq!(caps.subpixel_layout, Some(SubpixelLayout::Unknown(0xAB)));
+    }
+
+    #[test]
+    fn test_display_device_data_pixel_pitch_decoded() {
+        // h_pitch=28 (0.28 mm), v_pitch=29 (0.29 mm)
+        let p = make_display_device_data_payload(0, 0, 0, 0, 0, 0, 0, 0, 28, 29, 0, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_device_data_block(&p, &mut caps);
+        assert_eq!(caps.pixel_pitch_hundredths_mm, Some((28, 29)));
+    }
+
+    #[test]
+    fn test_display_device_data_zero_pixel_pitch_not_stored() {
+        let p = make_display_device_data_payload(0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_device_data_block(&p, &mut caps);
+        assert_eq!(caps.pixel_pitch_hundredths_mm, None);
+    }
+
+    #[test]
+    fn test_display_device_data_8bpc_decoded() {
+        // bpc_raw = 7 → bpc = 8 → ColorBitDepth::Depth8
+        let p = make_display_device_data_payload(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_device_data_block(&p, &mut caps);
+        assert_eq!(caps.color_bit_depth, Some(ColorBitDepth::Depth8));
+    }
+
+    #[test]
+    fn test_display_device_data_10bpc_decoded() {
+        // bpc_raw = 9 → bpc = 10 → ColorBitDepth::Depth10
+        let p = make_display_device_data_payload(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_device_data_block(&p, &mut caps);
+        assert_eq!(caps.color_bit_depth, Some(ColorBitDepth::Depth10));
+    }
+
+    #[test]
+    fn test_display_device_data_unknown_bpc_clears_field() {
+        // bpc_raw = 0 → bpc = 1 → no EDID mapping → None
+        let p = make_display_device_data_payload(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        let mut caps = DisplayCapabilities::default();
+        caps.color_bit_depth = Some(ColorBitDepth::Depth8); // pre-populated
+        decode_display_device_data_block(&p, &mut caps);
+        assert_eq!(caps.color_bit_depth, None);
+    }
+
+    #[test]
+    fn test_display_device_data_response_time_decoded() {
+        // response_time = 5 ms
+        let p = make_display_device_data_payload(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_device_data_block(&p, &mut caps);
+        assert_eq!(caps.pixel_response_time_ms, Some(5));
+    }
+
+    #[test]
+    fn test_display_device_data_zero_response_time_not_stored() {
+        let p = make_display_device_data_payload(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_device_data_block(&p, &mut caps);
+        assert_eq!(caps.pixel_response_time_ms, None);
+    }
+
+    #[test]
+    fn test_display_device_data_short_payload_decodes_available_bytes() {
+        // 2-byte payload: only technology and operating mode fields should be set.
+        let payload = [0x60u8, 0x01]; // tech=6 (OLED), mode=1 (NonContinuous)
+        let mut caps = DisplayCapabilities::default();
+        decode_display_device_data_block(&payload, &mut caps);
+        assert_eq!(caps.display_technology, Some(DisplayTechnology::Oled));
+        assert_eq!(caps.operating_mode, Some(OperatingMode::NonContinuous));
+        assert_eq!(caps.native_pixels, None);
+        assert_eq!(caps.color_bit_depth, None);
+    }
+
+    #[test]
+    fn test_display_device_data_empty_payload_does_not_panic() {
+        let mut caps = DisplayCapabilities::default();
+        decode_display_device_data_block(&[], &mut caps);
+        assert_eq!(caps.display_technology, None);
+        assert_eq!(caps.color_bit_depth, None);
     }
 }

@@ -54,6 +54,13 @@ pub use timing::{
     TimingFormula,
 };
 
+/// Panel hardware characteristic types (from DisplayID 0x0C Display Device Data Block).
+pub mod panel;
+pub use panel::{
+    BacklightType, DisplayTechnology, OperatingMode, PhysicalOrientation, RotationCapability,
+    ScanDirection, SubpixelLayout, ZeroPixelLocation,
+};
+
 /// Consumer-facing capability types.
 pub mod capabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
