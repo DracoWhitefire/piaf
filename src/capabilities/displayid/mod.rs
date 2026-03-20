@@ -14,8 +14,8 @@ use crate::model::extension::StaticExtensionHandler;
 use crate::model::prelude::{Arc, Vec};
 
 use metadata::{
-    scan_color_characteristics_block, scan_display_params_block, scan_product_id_block,
-    scan_serial_number_block, scan_video_timing_range_block,
+    scan_ascii_string_blocks, scan_color_characteristics_block, scan_display_params_block,
+    scan_product_id_block, scan_serial_number_block, scan_video_timing_range_block,
 };
 use timing::process_data_blocks;
 
@@ -86,6 +86,9 @@ const TAG_VIDEO_TIMING_RANGE: u8 = 0x09;
 
 /// Data block tag for the Product Serial Number Block (DisplayID 1.x §4.8).
 const TAG_SERIAL_NUMBER: u8 = 0x0A;
+
+/// Data block tag for the General Purpose ASCII String Block (DisplayID 1.x §4.9).
+const TAG_ASCII_STRING: u8 = 0x0B;
 
 /// Data block tag for the Video Timing Modes Type V — Short Timings Block (DisplayID 1.x §4.6).
 const TAG_TYPE_V_TIMING: u8 = 0x11;
@@ -197,6 +200,7 @@ impl ExtensionHandler for DisplayIdHandler {
             scan_color_characteristics_block(payload, caps);
             scan_video_timing_range_block(payload, caps);
             scan_serial_number_block(payload, caps);
+            scan_ascii_string_blocks(payload, caps);
         }
     }
 }
@@ -258,6 +262,7 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
     TAG_CTA_VIDEO_TIMING,      // 0x08 — CTA-861 Video Timing Block (VIC presence bitmap)
     TAG_VIDEO_TIMING_RANGE,    // 0x09 — Video Timing Range Limits Block
     TAG_SERIAL_NUMBER,         // 0x0A — Product Serial Number Block
+    TAG_ASCII_STRING,          // 0x0B — General Purpose ASCII String Block
     TAG_TYPE_V_TIMING,         // 0x11 — Video Timing Modes Type V — Short Timings Block
     TAG_TYPE_VI_TIMING,        // 0x13 — Video Timing Modes Type VI — Detailed Timings Block
 ];
@@ -269,7 +274,7 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
 /// implemented, remove its tag from here and add it to `IMPLEMENTED_BLOCK_TAGS`.
 #[cfg(test)]
 const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
-    (0x0B, 0x10), // ASCII string, device data, power seq, transfer char, display interface, stereo interface
+    (0x0C, 0x10), // Device data, power seq, transfer char, display interface, stereo interface
     (0x12, 0x12), // Tiled Display Topology
     (0x14, 0x7E), // Reserved for future use in DisplayID 1.x
     (0x7F, 0x7F), // Vendor-specific

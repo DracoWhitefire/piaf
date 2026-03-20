@@ -25,7 +25,7 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 | `0x08`        | CTA Video Timing Block                                                     | ✓ implemented |
 | `0x09`        | Video Timing Range Descriptor Block                                        | ✓ implemented |
 | `0x0A`        | Product Serial Number Block                                                | ✓ implemented |
-| `0x0B`        | General Purpose ASCII String Block                                         | — deferred    |
+| `0x0B`        | General Purpose ASCII String Block                                         | ✓ implemented |
 | `0x0C`        | Display Device Data Block                                                  | — deferred    |
 | `0x0D`        | Interface Power Sequencing Block                                           | — deferred    |
 | `0x0E`        | Transfer Characteristics Block                                             | — deferred    |
@@ -310,6 +310,23 @@ Bytes 3+:    Serial number string (ASCII, `0x0A`-terminated, space-padded)
 Decoded into `caps.serial_number_string`, using the same `MonitorString` format as the
 EDID base-block serial number descriptor (`0xFF`): up to 13 bytes, `0x0A`-terminated.
 Longer strings are truncated. Empty payloads are silently ignored.
+Only available from the dynamic pipeline.
+
+### General Purpose ASCII String Block (`0x0B`)
+
+Carries an application-defined text string. Multiple `0x0B` blocks may appear in one
+section; each is stored in a successive `unspecified_text` slot (up to 4).
+
+```
+Byte  0:     Block tag (0x0B)
+Byte  1:     Revision (0x00)
+Byte  2:     Payload length (number of ASCII bytes)
+Bytes 3+:    String (ASCII, `0x0A`-terminated, space-padded)
+```
+
+Each string is stored using the same `MonitorString` format as EDID base-block
+unspecified-text descriptors: up to 13 bytes, `0x0A`-terminated. Longer strings are
+truncated. Empty payloads and blocks beyond the fourth are silently dropped.
 Only available from the dynamic pipeline.
 
 ### Type V Short Timings Block (`0x11`)

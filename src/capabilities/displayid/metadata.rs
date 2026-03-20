@@ -1,6 +1,6 @@
 use super::{
-    TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_PARAMS, TAG_PRODUCT_ID, TAG_SERIAL_NUMBER,
-    TAG_VIDEO_TIMING_RANGE, for_each_data_block,
+    TAG_ASCII_STRING, TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_PARAMS, TAG_PRODUCT_ID,
+    TAG_SERIAL_NUMBER, TAG_VIDEO_TIMING_RANGE, for_each_data_block,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
@@ -244,6 +244,44 @@ pub(super) fn scan_serial_number_block(payload: &[u8], caps: &mut DisplayCapabil
     for_each_data_block(payload, |tag, _revision, block_payload| {
         if tag == TAG_SERIAL_NUMBER {
             decode_serial_number_block(block_payload, caps);
+        }
+    });
+}
+
+/// Decodes a General Purpose ASCII String Block payload into the next free slot in
+/// `caps.unspecified_text`.
+///
+/// Payload layout (DisplayID 1.x §4.9):
+/// - Bytes 0+: ASCII string (`0x0A`-terminated, space-padded).
+///
+/// Uses the same `MonitorString` format (up to 13 bytes, `0x0A`-terminated) as the
+/// EDID base-block unspecified-text descriptor. If all four `unspecified_text` slots
+/// are already populated the block is silently dropped.
+/// Empty payloads are silently ignored.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_ascii_string_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    if payload.is_empty() {
+        return;
+    }
+    let Some(slot) = caps.unspecified_text.iter_mut().find(|s| s.is_none()) else {
+        return;
+    };
+    let mut buf = [b' '; 13];
+    let copy_len = payload.len().min(13);
+    buf[..copy_len].copy_from_slice(&payload[..copy_len]);
+    if !buf.contains(&0x0A) {
+        buf[copy_len.min(12)] = 0x0A;
+    }
+    *slot = Some(MonitorString(buf));
+}
+
+/// Scans all data blocks in `payload` for General Purpose ASCII String Blocks (tag `0x0B`)
+/// and decodes each one found into successive `caps.unspecified_text` slots.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn scan_ascii_string_blocks(payload: &[u8], caps: &mut DisplayCapabilities) {
+    for_each_data_block(payload, |tag, _revision, block_payload| {
+        if tag == TAG_ASCII_STRING {
+            decode_ascii_string_block(block_payload, caps);
         }
     });
 }
@@ -622,5 +660,46 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         decode_serial_number_block(payload, &mut caps);
         assert_eq!(caps.serial_number_string, None);
+    }
+
+    // -----------------------------------------------------------------------
+    // General Purpose ASCII String Block (tag 0x0B)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_ascii_string_stored_in_first_slot() {
+        let payload = b"Hello\x0a       ";
+        let mut caps = DisplayCapabilities::default();
+        decode_ascii_string_block(payload, &mut caps);
+        assert_eq!(caps.unspecified_text[0].as_deref(), Some("Hello"));
+        assert!(caps.unspecified_text[1].is_none());
+    }
+
+    #[test]
+    fn test_ascii_string_multiple_blocks_fill_slots() {
+        let mut caps = DisplayCapabilities::default();
+        decode_ascii_string_block(b"First\x0a       ", &mut caps);
+        decode_ascii_string_block(b"Second\x0a      ", &mut caps);
+        assert_eq!(caps.unspecified_text[0].as_deref(), Some("First"));
+        assert_eq!(caps.unspecified_text[1].as_deref(), Some("Second"));
+        assert!(caps.unspecified_text[2].is_none());
+    }
+
+    #[test]
+    fn test_ascii_string_overflow_beyond_four_slots_dropped() {
+        let mut caps = DisplayCapabilities::default();
+        for i in 0u8..5 {
+            decode_ascii_string_block(&[b'A' + i, 0x0A], &mut caps);
+        }
+        // Only 4 slots available; fifth block is silently dropped.
+        assert!(caps.unspecified_text.iter().all(|s| s.is_some()));
+        assert_eq!(caps.unspecified_text[3].as_deref(), Some("D"));
+    }
+
+    #[test]
+    fn test_ascii_string_empty_payload_not_stored() {
+        let mut caps = DisplayCapabilities::default();
+        decode_ascii_string_block(&[], &mut caps);
+        assert!(caps.unspecified_text[0].is_none());
     }
 }
