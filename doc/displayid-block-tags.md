@@ -40,29 +40,29 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 
 ## Block structures
 
-### Color Characteristics Block (`0x02`)
+### Product Identification Block (`0x00`)
 
-Provides the display's CIE xy color primaries and white point at higher precision than the
-EDID base block.
+Contains the display name string, manufacturer PNP ID, product code, and serial number.
+The end-of-section sentinel (tag `0x00`, length `0`) shares the tag byte; a Product
+Identification Block is distinguished by having a non-zero length field.
 
 ```
-Byte  0:     Block tag (0x02)
+Bytes 0:     Block tag (0x00)
 Byte  1:     Revision
-Byte  2:     Payload length (minimum 16 bytes)
+Byte  2:     Payload length
 
-Per payload (16 bytes for an RGB display):
-  Bytes  0–1:  Red primary x   (LE uint16; value × 1/1024 = CIE x; lower 10 bits significant)
-  Bytes  2–3:  Red primary y
-  Bytes  4–5:  Green primary x
-  Bytes  6–7:  Green primary y
-  Bytes  8–9:  Blue primary x
-  Bytes 10–11: Blue primary y
-  Bytes 12–13: White point x
-  Bytes 14–15: White point y
+Per payload:
+  Bytes 0–1: Manufacturer ID (2-byte PNP-encoded, same as EDID base block bytes 0x08–0x09)
+  Bytes 2–3: Product code (LE uint16)
+  Bytes 4–7: Serial number (LE uint32; 0x00000000 = not specified)
+  Byte  8:   Week of manufacture (0 = unspecified, 0xFF = model year)
+  Byte  9:   Year (byte value + 1990; when week = 0xFF this is the model year)
+  Bytes 10+: Product name (ASCII, 0x0A-terminated, space-padded; up to 13 bytes stored)
 ```
 
-Decoded into `caps.chromaticity`, overwriting any value from the EDID base block. Payloads
-shorter than 16 bytes are silently ignored. Only available from the dynamic pipeline.
+Decoded fields are written to `DisplayCapabilities`: `manufacturer`, `product_code`,
+`serial_number`, `manufacture_date`, and `display_name`. A zero serial number is treated
+as unspecified and not stored.
 
 ### Display Parameters Block (`0x01`)
 
@@ -90,6 +90,30 @@ Per payload:
 When both image size fields are non-zero they are written to `preferred_image_size_mm`.
 Color bit depth is decoded from bits 4:0 of byte 5 into `color_bit_depth`. Both fields
 are only available from the dynamic pipeline.
+
+### Color Characteristics Block (`0x02`)
+
+Provides the display's CIE xy color primaries and white point at higher precision than the
+EDID base block.
+
+```
+Byte  0:     Block tag (0x02)
+Byte  1:     Revision
+Byte  2:     Payload length (minimum 16 bytes)
+
+Per payload (16 bytes for an RGB display):
+  Bytes  0–1:  Red primary x   (LE uint16; value × 1/1024 = CIE x; lower 10 bits significant)
+  Bytes  2–3:  Red primary y
+  Bytes  4–5:  Green primary x
+  Bytes  6–7:  Green primary y
+  Bytes  8–9:  Blue primary x
+  Bytes 10–11: Blue primary y
+  Bytes 12–13: White point x
+  Bytes 14–15: White point y
+```
+
+Decoded into `caps.chromaticity`, overwriting any value from the EDID base block. Payloads
+shorter than 16 bytes are silently ignored. Only available from the dynamic pipeline.
 
 ### Detailed Timings Block — Type I (`0x03`)
 
@@ -200,27 +224,3 @@ DMT codes are resolved via the VESA DMT v1.13 table (IDs 0x01–0x58).
 VIC codes are resolved via the CTA-861 table.
 HDMI VIC codes 1–4 map to 3840×2160@30/25/24 Hz and 4096×2160@24 Hz respectively.
 Unrecognised codes and reserved code types are silently skipped.
-
-### Product Identification Block (`0x00`)
-
-Contains the display name string, manufacturer PNP ID, product code, and serial number.
-The end-of-section sentinel (tag `0x00`, length `0`) shares the tag byte; a Product
-Identification Block is distinguished by having a non-zero length field.
-
-```
-Bytes 0:     Block tag (0x00)
-Byte  1:     Revision
-Byte  2:     Payload length
-
-Per payload:
-  Bytes 0–1: Manufacturer ID (2-byte PNP-encoded, same as EDID base block bytes 0x08–0x09)
-  Bytes 2–3: Product code (LE uint16)
-  Bytes 4–7: Serial number (LE uint32; 0x00000000 = not specified)
-  Byte  8:   Week of manufacture (0 = unspecified, 0xFF = model year)
-  Byte  9:   Year (byte value + 1990; when week = 0xFF this is the model year)
-  Bytes 10+: Product name (ASCII, 0x0A-terminated, space-padded; up to 13 bytes stored)
-```
-
-Decoded fields are written to `DisplayCapabilities`: `manufacturer`, `product_code`,
-`serial_number`, `manufacture_date`, and `display_name`. A zero serial number is treated
-as unspecified and not stored.
