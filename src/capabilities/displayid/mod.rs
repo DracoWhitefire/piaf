@@ -84,6 +84,12 @@ const TAG_CTA_VIDEO_TIMING: u8 = 0x08;
 /// Data block tag for the Video Timing Range Limits Block (DisplayID 1.x §4.5).
 const TAG_VIDEO_TIMING_RANGE: u8 = 0x09;
 
+/// Data block tag for the Video Timing Modes Type V — Short Timings Block (DisplayID 1.x §4.6).
+const TAG_TYPE_V_TIMING: u8 = 0x11;
+
+/// Data block tag for the Video Timing Modes Type VI — Detailed Timings Block (DisplayID 1.x §4.7).
+const TAG_TYPE_VI_TIMING: u8 = 0x13;
+
 /// Calls `f(tag, revision, block_payload)` for each well-formed data block in `payload`.
 ///
 /// `revision` is the second byte of the 3-byte data block header and carries block-specific
@@ -247,6 +253,8 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
     TAG_VESA_VIDEO_TIMING,     // 0x07 — VESA Video Timing Block (DMT presence bitmap)
     TAG_CTA_VIDEO_TIMING,      // 0x08 — CTA-861 Video Timing Block (VIC presence bitmap)
     TAG_VIDEO_TIMING_RANGE,    // 0x09 — Video Timing Range Limits Block
+    TAG_TYPE_V_TIMING,         // 0x11 — Video Timing Modes Type V — Short Timings Block
+    TAG_TYPE_VI_TIMING,        // 0x13 — Video Timing Modes Type VI — Detailed Timings Block
 ];
 
 /// DisplayID 1.x data block tags that are defined by the specification but not
@@ -256,7 +264,8 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
 /// implemented, remove its tag from here and add it to `IMPLEMENTED_BLOCK_TAGS`.
 #[cfg(test)]
 const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
-    (0x0A, 0x13), // Type V–VI timings, interface and identity blocks, Tiled Display Topology
+    (0x0A, 0x10), // Product serial, ASCII string, device data, power seq, transfer char, display interface, stereo interface
+    (0x12, 0x12), // Tiled Display Topology
     (0x14, 0x7E), // Reserved for future use in DisplayID 1.x
     (0x7F, 0x7F), // Vendor-specific
     (0x80, 0xFF), // Undefined (outside the DisplayID 1.x tag space)

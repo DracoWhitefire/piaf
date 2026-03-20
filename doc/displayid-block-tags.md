@@ -31,9 +31,9 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 | `0x0E`        | Transfer Characteristics Block                                             | — deferred    |
 | `0x0F`        | Display Interface Block                                                    | — deferred    |
 | `0x10`        | Stereo Display Interface Block                                             | — deferred    |
-| `0x11`        | Type V Short Descriptor Video Timing Block                                 | — deferred    |
+| `0x11`        | Type V Short Timings Block                                                 | ✓ implemented |
 | `0x12`        | Tiled Display Topology Block                                               | — deferred    |
-| `0x13`        | Type VI Short Descriptor Video Timing Block (added in 1.3)                 | — deferred    |
+| `0x13`        | Type VI Detailed Timings Block                                             | ✓ implemented |
 | `0x14`–`0x7E` | Reserved                                                                   | — reserved    |
 | `0x7F`        | Vendor-Specific                                                            | — reserved    |
 | `0x80`–`0xFF` | Undefined (outside DisplayID 1.x tag space)                                | — reserved    |
@@ -266,3 +266,84 @@ Bytes 3+:    Presence bitmap, LSB-first
 Set bits are resolved via the CTA-861 VIC table with full timing detail. VICs 65 and
 above are not representable in this block. Unset bits and payload bytes beyond 8 are
 silently skipped.
+
+### Video Timing Range Limits Block (`0x09`)
+
+Describes the range of timings a display can accept: minimum/maximum pixel clock,
+horizontal scan rate, and vertical refresh rate.
+
+```
+Byte  0:     Block tag (0x09)
+Byte  1:     Revision (0x00)
+Byte  2:     Payload length (15 bytes)
+
+Per payload:
+  Bytes  0–2:  Minimum pixel clock, 10 kHz steps (LE 24-bit; not stored)
+  Bytes  3–5:  Maximum pixel clock, 10 kHz steps (LE 24-bit; stored ÷ 100 → MHz)
+  Byte   6:    Minimum horizontal scan frequency, kHz
+  Byte   7:    Maximum horizontal scan frequency, kHz
+  Bytes  8–9:  Minimum horizontal blanking pixels (LE uint16; not stored)
+  Byte  10:    Minimum vertical refresh rate, Hz
+  Byte  11:    Maximum vertical refresh rate, Hz
+  Bytes 12–13: Minimum vertical blanking lines (LE uint16; not stored)
+  Byte  14:    Video timing support flags (not stored)
+```
+
+Note: the specification document lists payload length as `9`, but the field table spans
+15 payload bytes. The 15-byte interpretation is used here as it is self-consistent.
+
+Decoded into `caps`: `max_pixel_clock_mhz`, `min_h_rate_khz`, `max_h_rate_khz`,
+`min_v_rate`, `max_v_rate`. Fields are only written when the payload is long enough.
+Only available from the dynamic pipeline.
+
+### Type V Short Timings Block (`0x11`)
+
+Each block contains one or more 7-byte short timing descriptors. Width and height are
+stored directly (no aspect-ratio derivation). Only progressive timings are defined
+(CVT-RB or CVT-RB2). No blanking detail is stored.
+
+```
+Byte  0:     Block tag (0x11)
+Byte  1:     Revision (0x00)
+Byte  2:     Payload length (N × 7, 1 ≤ N ≤ 35)
+Bytes 3+:    7-byte timing descriptors
+
+Per descriptor:
+  Byte  0:   Options: bits 1:0 = CVT algorithm (0=CVT-RB2, 1=CVT-RB);
+             bit 4 = NTSC optimized; bits 6:5 = stereo; bit 7 = preferred
+  Bytes 1–2: Horizontal active pixels (exact, LE uint16)
+  Bytes 3–4: Vertical active lines (exact, LE uint16)
+  Byte  5:   Vertical refresh rate = byte + 1 Hz (1–256 Hz; clamped to 255)
+  Byte  6:   Reserved
+```
+
+Descriptors with zero width or height are silently skipped.
+
+### Type VI Detailed Timings Block (`0x13`)
+
+Each block contains one or more variable-length detailed timing descriptors (14 or
+17 bytes each). Based on Type I but uses 1 kHz pixel clock steps for higher precision.
+
+```
+Byte  0:     Block tag (0x13)
+Byte  1:     Revision (0x00)
+Byte  2:     Payload length (N × 17 + M × 14)
+Bytes 3+:    14- or 17-byte timing descriptors
+
+Per descriptor:
+  Bytes 0–2:  Pixel clock in 1 kHz steps (LE 22-bit, bits 21:0; max ~4194 MHz);
+              bit 22 = aspect/size info present (17-byte form); bit 23 = preferred
+  Bytes 3–4:  H-active pixels (15-bit, bits 14:0); bit 15 = H-sync polarity (1=+)
+  Bytes 5–6:  V-active lines  (15-bit, bits 14:0); bit 15 = V-sync polarity (1=+)
+  Bytes 7–9:  H-blank (12-bit) and H-front-porch (12-bit) packed:
+                byte7 = H-blank[7:0], byte8 = H-fp[7:0],
+                byte9[3:0] = H-blank[11:8], byte9[7:4] = H-fp[11:8]
+  Byte  10:   H-sync width
+  Byte  11:   V-blank lines
+  Byte  12:   V-front-porch lines
+  Byte  13:   bits 3:0 = V-sync width; bit 7 = interlaced (1=interlaced)
+  Bytes 14–16 (optional): aspect/size info — present iff bit 22 of bytes 0–2 is set
+```
+
+Null descriptors (pixel clock = 0) advance the cursor without emitting a mode.
+The descriptor size (14 or 17) is determined by bit 22 of the first field.

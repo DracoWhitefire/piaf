@@ -4,12 +4,13 @@ mod short;
 
 use super::{
     TAG_CTA_VIDEO_TIMING, TAG_TYPE_I_TIMING, TAG_TYPE_II_TIMING, TAG_TYPE_III_TIMING,
-    TAG_TYPE_IV_TIMING, TAG_VESA_VIDEO_TIMING, for_each_data_block,
+    TAG_TYPE_IV_TIMING, TAG_TYPE_V_TIMING, TAG_TYPE_VI_TIMING, TAG_VESA_VIDEO_TIMING,
+    for_each_data_block,
 };
 use crate::model::capabilities::ModeSink;
 use coded::{decode_cta_video_timing_block, decode_type_iv_block, decode_vesa_video_timing_block};
-use detailed::{decode_type_i_descriptor, decode_type_ii_descriptor};
-use short::decode_type_iii_descriptor;
+use detailed::{decode_type_i_descriptor, decode_type_ii_descriptor, decode_type_vi_descriptor};
+use short::{decode_type_iii_descriptor, decode_type_v_descriptor};
 
 /// Iterates DisplayID 1.x data blocks within a fragment's payload region and pushes
 /// decoded modes to `sink`.
@@ -47,6 +48,22 @@ pub(super) fn process_data_blocks(payload: &[u8], sink: &mut dyn ModeSink) {
             decode_vesa_video_timing_block(block_payload, sink);
         } else if tag == TAG_CTA_VIDEO_TIMING {
             decode_cta_video_timing_block(block_payload, sink);
+        } else if tag == TAG_TYPE_V_TIMING {
+            let mut i = 0;
+            while i + 7 <= block_payload.len() {
+                let descriptor: &[u8; 7] = block_payload[i..i + 7].try_into().unwrap();
+                decode_type_v_descriptor(descriptor, sink);
+                i += 7;
+            }
+        } else if tag == TAG_TYPE_VI_TIMING {
+            let mut i = 0;
+            while i + 14 <= block_payload.len() {
+                let consumed = decode_type_vi_descriptor(&block_payload[i..], sink);
+                if consumed == 0 {
+                    break;
+                }
+                i += consumed;
+            }
         }
         // Unknown block tags are silently skipped.
     });
@@ -257,5 +274,53 @@ mod tests {
         process_data_blocks(&payload, &mut ctx);
         assert_eq!(caps.num_modes, 1);
         assert_eq!(caps.supported_modes[0].as_ref().unwrap().width, 640);
+    }
+
+    #[test]
+    fn test_type_v_static_pipeline() {
+        // 1920×1080@60 Hz: h=1920 (LE), v=1080 (LE), refresh_raw=59→60 Hz
+        let mut payload = vec![TAG_TYPE_V_TIMING, 0x00, 7];
+        payload.extend_from_slice(&[0x00]); // options
+        payload.extend_from_slice(&1920u16.to_le_bytes()); // h_active
+        payload.extend_from_slice(&1080u16.to_le_bytes()); // v_active
+        payload.push(59); // refresh_raw
+        payload.push(0x00); // reserved
+        let mut caps = StaticDisplayCapabilities::<16>::default();
+        let mut ctx = StaticContext::new(&mut caps);
+        process_data_blocks(&payload, &mut ctx);
+        assert_eq!(caps.num_modes, 1);
+        let mode = caps.supported_modes[0].as_ref().unwrap();
+        assert_eq!(mode.width, 1920);
+        assert_eq!(mode.height, 1080);
+        assert_eq!(mode.refresh_rate, 60);
+    }
+
+    #[test]
+    fn test_type_vi_static_pipeline() {
+        // 1920×1080@60 Hz: pixel clock 148_500 kHz, h_total=2200, v_total=1125
+        let pc: u32 = 148_500;
+        let h_word: u16 = 1920 | (1 << 15); // H sync +
+        let v_word: u16 = 1080 | (1 << 15); // V sync +
+        let h_blank: u16 = 280;
+        let v_blank: u8 = 45;
+        let mut descriptor = [0u8; 14];
+        descriptor[0] = (pc & 0xFF) as u8;
+        descriptor[1] = ((pc >> 8) & 0xFF) as u8;
+        descriptor[2] = ((pc >> 16) & 0x3F) as u8;
+        descriptor[3..5].copy_from_slice(&h_word.to_le_bytes());
+        descriptor[5..7].copy_from_slice(&v_word.to_le_bytes());
+        descriptor[7] = (h_blank & 0xFF) as u8;
+        descriptor[9] = ((h_blank >> 8) & 0x0F) as u8;
+        descriptor[11] = v_blank;
+        let mut payload = vec![TAG_TYPE_VI_TIMING, 0x00, 14];
+        payload.extend_from_slice(&descriptor);
+        let mut caps = StaticDisplayCapabilities::<16>::default();
+        let mut ctx = StaticContext::new(&mut caps);
+        process_data_blocks(&payload, &mut ctx);
+        assert_eq!(caps.num_modes, 1);
+        let mode = caps.supported_modes[0].as_ref().unwrap();
+        assert_eq!(mode.width, 1920);
+        assert_eq!(mode.height, 1080);
+        assert_eq!(mode.refresh_rate, 60);
     }
 }

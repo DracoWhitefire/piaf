@@ -58,6 +58,42 @@ pub(super) fn decode_type_iii_descriptor(d: &[u8; 3], sink: &mut dyn ModeSink) {
     });
 }
 
+/// Decodes one 7-byte Type V Short Video Timing descriptor and pushes a mode to `sink`.
+///
+/// Descriptor layout (DisplayID 1.x §4.6):
+/// - Byte 0:    Options: bits 1:0 = CVT algorithm (0=CVT-RB2, 1=CVT-RB); bit 4 = NTSC;
+///   bits 6:5 = stereo; bit 7 = preferred
+/// - Bytes 1–2: Horizontal active in pixels (exact, little-endian uint16)
+/// - Bytes 3–4: Vertical active in lines (exact, little-endian uint16)
+/// - Byte 5:    Vertical refresh rate — `byte + 1` Hz (range 1–256 Hz; clamped to 255)
+/// - Byte 6:    Reserved
+///
+/// Descriptors with zero width or height are silently skipped.
+pub(super) fn decode_type_v_descriptor(d: &[u8; 7], sink: &mut dyn ModeSink) {
+    let h_active = u16::from_le_bytes([d[1], d[2]]);
+    let v_active = u16::from_le_bytes([d[3], d[4]]);
+    let refresh_rate = ((d[5] as u16) + 1).min(255) as u8;
+
+    if h_active == 0 || v_active == 0 {
+        return;
+    }
+
+    sink.push_mode(VideoMode {
+        width: h_active,
+        height: v_active,
+        refresh_rate,
+        interlaced: false, // Type V supports only progressive (CVT-RB/RB2)
+        h_front_porch: 0,
+        h_sync_width: 0,
+        v_front_porch: 0,
+        v_sync_width: 0,
+        h_border: 0,
+        v_border: 0,
+        stereo: StereoMode::None,
+        sync: None,
+    });
+}
+
 #[cfg(test)]
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod tests {
@@ -155,5 +191,69 @@ mod tests {
                 .iter()
                 .any(|m| m.width == 1280 && m.height == 800)
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Type V Short Descriptor Video Timing (tag 0x11)
+    // -----------------------------------------------------------------------
+
+    fn make_type_v_descriptor(h_active: u16, v_active: u16, refresh_raw: u8) -> [u8; 7] {
+        let mut d = [0u8; 7];
+        d[1..3].copy_from_slice(&h_active.to_le_bytes());
+        d[3..5].copy_from_slice(&v_active.to_le_bytes());
+        d[5] = refresh_raw;
+        d
+    }
+
+    #[test]
+    fn test_type_v_1920x1080_at_60hz() {
+        // refresh_raw = 59 → refresh = 60 Hz
+        let d = make_type_v_descriptor(1920, 1080, 59);
+        let mut caps = DisplayCapabilities::default();
+        decode_type_v_descriptor(&d, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        let mode = &caps.supported_modes[0];
+        assert_eq!(mode.width, 1920);
+        assert_eq!(mode.height, 1080);
+        assert_eq!(mode.refresh_rate, 60);
+        assert!(!mode.interlaced);
+    }
+
+    #[test]
+    fn test_type_v_refresh_raw_255_clamped_to_255() {
+        // refresh_raw = 255 → raw + 1 = 256, clamped to 255
+        let d = make_type_v_descriptor(3840, 2160, 255);
+        let mut caps = DisplayCapabilities::default();
+        decode_type_v_descriptor(&d, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].refresh_rate, 255);
+    }
+
+    #[test]
+    fn test_type_v_zero_width_skipped() {
+        let d = make_type_v_descriptor(0, 1080, 59);
+        let mut caps = DisplayCapabilities::default();
+        decode_type_v_descriptor(&d, &mut caps);
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_type_v_zero_height_skipped() {
+        let d = make_type_v_descriptor(1920, 0, 59);
+        let mut caps = DisplayCapabilities::default();
+        decode_type_v_descriptor(&d, &mut caps);
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_type_v_large_resolution() {
+        // 7680×4320@120 Hz (8K@120): refresh_raw = 119 → 120 Hz
+        let d = make_type_v_descriptor(7680, 4320, 119);
+        let mut caps = DisplayCapabilities::default();
+        decode_type_v_descriptor(&d, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 7680);
+        assert_eq!(caps.supported_modes[0].height, 4320);
+        assert_eq!(caps.supported_modes[0].refresh_rate, 120);
     }
 }
