@@ -16,7 +16,7 @@ use crate::model::prelude::{Arc, Vec};
 use metadata::{
     scan_ascii_string_blocks, scan_color_characteristics_block, scan_display_device_data_block,
     scan_display_params_block, scan_power_sequencing_block, scan_product_id_block,
-    scan_serial_number_block, scan_video_timing_range_block,
+    scan_serial_number_block, scan_transfer_characteristics_block, scan_video_timing_range_block,
 };
 use timing::process_data_blocks;
 
@@ -96,6 +96,9 @@ const TAG_DISPLAY_DEVICE_DATA: u8 = 0x0C;
 
 /// Data block tag for the Interface Power Sequencing Block (DisplayID 1.x §4.11).
 const TAG_POWER_SEQUENCING: u8 = 0x0D;
+
+/// Data block tag for the Transfer Characteristics Block (DisplayID 1.x §4.12).
+const TAG_TRANSFER_CHARACTERISTICS: u8 = 0x0E;
 
 /// Data block tag for the Video Timing Modes Type V — Short Timings Block (DisplayID 1.x §4.6).
 const TAG_TYPE_V_TIMING: u8 = 0x11;
@@ -210,6 +213,7 @@ impl ExtensionHandler for DisplayIdHandler {
             scan_ascii_string_blocks(payload, caps);
             scan_display_device_data_block(payload, caps);
             scan_power_sequencing_block(payload, caps);
+            scan_transfer_characteristics_block(payload, caps);
         }
     }
 }
@@ -260,22 +264,23 @@ impl StaticExtensionHandler for DisplayIdHandler {
 /// deferred, and reserved ranges covers every value 0x00–0xFF.
 #[cfg(test)]
 const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
-    TAG_PRODUCT_ID,            // 0x00 — Product Identification Block
-    TAG_DISPLAY_PARAMS,        // 0x01 — Display Parameters Block
-    TAG_COLOR_CHARACTERISTICS, // 0x02 — Color Characteristics Block
-    TAG_TYPE_I_TIMING,         // 0x03 — Detailed Timings Block (Type I descriptors)
-    TAG_TYPE_II_TIMING,        // 0x04 — Video Timing Modes Type II — Detailed Timings Block
-    TAG_TYPE_III_TIMING,       // 0x05 — Video Timing Modes Type III — Short Timings Block
-    TAG_TYPE_IV_TIMING,        // 0x06 — Video Timing Modes Type IV — DMT/VIC Code Block
-    TAG_VESA_VIDEO_TIMING,     // 0x07 — VESA Video Timing Block (DMT presence bitmap)
-    TAG_CTA_VIDEO_TIMING,      // 0x08 — CTA-861 Video Timing Block (VIC presence bitmap)
-    TAG_VIDEO_TIMING_RANGE,    // 0x09 — Video Timing Range Limits Block
-    TAG_SERIAL_NUMBER,         // 0x0A — Product Serial Number Block
-    TAG_ASCII_STRING,          // 0x0B — General Purpose ASCII String Block
-    TAG_DISPLAY_DEVICE_DATA,   // 0x0C — Display Device Data Block
-    TAG_POWER_SEQUENCING,      // 0x0D — Interface Power Sequencing Block
-    TAG_TYPE_V_TIMING,         // 0x11 — Video Timing Modes Type V — Short Timings Block
-    TAG_TYPE_VI_TIMING,        // 0x13 — Video Timing Modes Type VI — Detailed Timings Block
+    TAG_PRODUCT_ID,               // 0x00 — Product Identification Block
+    TAG_DISPLAY_PARAMS,           // 0x01 — Display Parameters Block
+    TAG_COLOR_CHARACTERISTICS,    // 0x02 — Color Characteristics Block
+    TAG_TYPE_I_TIMING,            // 0x03 — Detailed Timings Block (Type I descriptors)
+    TAG_TYPE_II_TIMING,           // 0x04 — Video Timing Modes Type II — Detailed Timings Block
+    TAG_TYPE_III_TIMING,          // 0x05 — Video Timing Modes Type III — Short Timings Block
+    TAG_TYPE_IV_TIMING,           // 0x06 — Video Timing Modes Type IV — DMT/VIC Code Block
+    TAG_VESA_VIDEO_TIMING,        // 0x07 — VESA Video Timing Block (DMT presence bitmap)
+    TAG_CTA_VIDEO_TIMING,         // 0x08 — CTA-861 Video Timing Block (VIC presence bitmap)
+    TAG_VIDEO_TIMING_RANGE,       // 0x09 — Video Timing Range Limits Block
+    TAG_SERIAL_NUMBER,            // 0x0A — Product Serial Number Block
+    TAG_ASCII_STRING,             // 0x0B — General Purpose ASCII String Block
+    TAG_DISPLAY_DEVICE_DATA,      // 0x0C — Display Device Data Block
+    TAG_POWER_SEQUENCING,         // 0x0D — Interface Power Sequencing Block
+    TAG_TRANSFER_CHARACTERISTICS, // 0x0E — Transfer Characteristics Block
+    TAG_TYPE_V_TIMING,            // 0x11 — Video Timing Modes Type V — Short Timings Block
+    TAG_TYPE_VI_TIMING,           // 0x13 — Video Timing Modes Type VI — Detailed Timings Block
 ];
 
 /// DisplayID 1.x data block tags that are defined by the specification but not
@@ -285,7 +290,7 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
 /// implemented, remove its tag from here and add it to `IMPLEMENTED_BLOCK_TAGS`.
 #[cfg(test)]
 const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
-    (0x0E, 0x10), // Transfer char, display interface, stereo interface
+    (0x0F, 0x10), // Display Interface Data Block, Stereo Display Interface Data Block
     (0x12, 0x12), // Tiled Display Topology
     (0x14, 0x7E), // Reserved for future use in DisplayID 1.x
     (0x7F, 0x7F), // Vendor-specific

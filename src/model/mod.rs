@@ -56,10 +56,16 @@ pub use timing::{
 
 /// Panel hardware characteristic types (from DisplayID 0x0C Display Device Data Block).
 pub mod panel;
+
+/// Luminance transfer characteristic types (from DisplayID 0x0E Transfer Characteristics Block).
+pub mod transfer;
 pub use panel::{
     BacklightType, DisplayTechnology, OperatingMode, PhysicalOrientation, PowerSequencing,
     RotationCapability, ScanDirection, SubpixelLayout, ZeroPixelLocation,
 };
+pub use transfer::TransferPointEncoding;
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use transfer::{DisplayIdTransferCharacteristic, TransferCurve};
 
 /// Consumer-facing capability types.
 pub mod capabilities;

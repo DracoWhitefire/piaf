@@ -153,6 +153,18 @@ are silently dropped.
 |---|---|
 | `power_sequencing` | All 6 timing fields (T1–T6) decoded into a `PowerSequencing` struct; raw counts in 2 ms units; `None` if payload < 6 bytes |
 
+**Transfer Characteristics Block** (tag `0x0E`) is decoded into the following
+`DisplayCapabilities` field (dynamic pipeline only):
+
+| `DisplayCapabilities` field | Source |
+|---|---|
+| `transfer_characteristic` | Sample encoding (8/10/12-bit), channel mode (luminance or RGB), and normalized `[0.0, 1.0]` sample points decoded into a `DisplayIdTransferCharacteristic`; `None` if payload < 2 bytes or encoding byte is reserved |
+
+In single-channel mode the curve is `TransferCurve::Luminance(Vec<f32>)`. In multi-channel
+mode (byte 0 bit 5 set) the curve is `TransferCurve::Rgb { red, green, blue }` with the
+sample data split into three equal sequential regions. Blocks where the sample bytes cannot
+be split evenly are silently skipped.
+
 If the DisplayID block appears alongside an EDID base block, DisplayID values overwrite
 any base-block values for the same fields.
 

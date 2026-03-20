@@ -259,6 +259,10 @@ pub struct DisplayCapabilities {
     /// Interface power sequencing timing parameters from DisplayID 0x0D.
     /// `None` when the Interface Power Sequencing Block is absent.
     pub power_sequencing: Option<crate::model::panel::PowerSequencing>,
+    /// Display luminance transfer function from DisplayID 0x0E.
+    /// `None` when the Transfer Characteristics Block is absent.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub transfer_characteristic: Option<crate::model::transfer::DisplayIdTransferCharacteristic>,
     /// CIE xy chromaticity coordinates for the color primaries and white point,
     /// decoded from bytes `0x19`–`0x22`.
     pub chromaticity: crate::model::color::Chromaticity,

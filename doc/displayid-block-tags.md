@@ -28,7 +28,7 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 | `0x0B`        | General Purpose ASCII String Block                                         | ✓ implemented |
 | `0x0C`        | Display Device Data Block                                                  | ✓ implemented |
 | `0x0D`        | Interface Power Sequencing Block                                           | ✓ implemented |
-| `0x0E`        | Transfer Characteristics Block                                             | — deferred    |
+| `0x0E`        | Transfer Characteristics Block                                             | ✓ implemented |
 | `0x0F`        | Display Interface Block                                                    | — deferred    |
 | `0x10`        | Stereo Display Interface Block                                             | — deferred    |
 | `0x11`        | Type V Short Timings Block                                                 | ✓ implemented |
@@ -397,6 +397,51 @@ Minimum off times: T5 (VCC), T6 (backlight)
 Decoded into `caps.power_sequencing` as a `PowerSequencing` struct. Raw counts are stored
 as-is; multiply by 2 to obtain milliseconds. Payloads shorter than 6 bytes are silently
 skipped. Only available from the dynamic pipeline.
+
+### Transfer Characteristics Block (`0x0E`)
+
+Encodes the display's native luminance transfer function as evenly-spaced sample points
+from black (0) to white (1). Supports single-channel (luminance) and multi-channel (RGB)
+modes, and three sample packing densities.
+
+```
+Byte  0:     Block tag (0x0E)
+Byte  1:     Revision (0x00)
+Byte  2:     Payload length
+
+Per payload:
+  Byte 0 bits 7:6: Point encoding
+                   00 = 8-bit  (1 byte/point,  values 0–255,  normalize ÷ 255)
+                   01 = 10-bit (5 bytes/4 pts, values 0–1023, normalize ÷ 1023)
+                   10 = 12-bit (3 bytes/2 pts, values 0–4095, normalize ÷ 4095)
+                   11 = reserved (block silently skipped)
+  Byte 0 bit 5:   Multi-channel flag
+                   0 = single luminance curve
+                   1 = three equal sequential regions: red, green, blue
+  Byte 0 bits 4:0: Reserved
+  Bytes 1+:       Packed sample data (format determined by bits 7:6 above)
+```
+
+**10-bit packing** — 5 bytes encode 4 points, MSB-first:
+```
+byte0[7:0] = p0[9:2]
+byte1[7:6] = p0[1:0],  byte1[5:0] = p1[9:4]
+byte2[7:4] = p1[3:0],  byte2[3:0] = p2[9:6]
+byte3[7:2] = p2[5:0],  byte3[1:0] = p3[9:8]
+byte4[7:0] = p3[7:0]
+```
+
+**12-bit packing** — 3 bytes encode 2 points, MSB-first:
+```
+byte0[7:0] = p0[11:4]
+byte1[7:4] = p0[3:0],  byte1[3:0] = p1[11:8]
+byte2[7:0] = p1[7:0]
+```
+
+Decoded into `caps.transfer_characteristic` as a `DisplayIdTransferCharacteristic`.
+Sample values are normalized to `[0.0, 1.0]`. In multi-channel mode the three curve
+regions must be equal length; blocks where the sample data cannot be split evenly are
+silently skipped. Only available from the dynamic (`alloc`/`std`) pipeline.
 
 ### Type V Short Timings Block (`0x11`)
 

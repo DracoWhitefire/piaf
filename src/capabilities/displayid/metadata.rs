@@ -1,7 +1,7 @@
 use super::{
     TAG_ASCII_STRING, TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_DEVICE_DATA, TAG_DISPLAY_PARAMS,
-    TAG_POWER_SEQUENCING, TAG_PRODUCT_ID, TAG_SERIAL_NUMBER, TAG_VIDEO_TIMING_RANGE,
-    for_each_data_block,
+    TAG_POWER_SEQUENCING, TAG_PRODUCT_ID, TAG_SERIAL_NUMBER, TAG_TRANSFER_CHARACTERISTICS,
+    TAG_VIDEO_TIMING_RANGE, for_each_data_block,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
@@ -15,6 +15,10 @@ use crate::model::manufacture::{ManufactureDate, ManufacturerId, MonitorString};
 use crate::model::panel::{
     BacklightType, DisplayTechnology, OperatingMode, PhysicalOrientation, PowerSequencing,
     RotationCapability, ScanDirection, SubpixelLayout, ZeroPixelLocation,
+};
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::transfer::{
+    DisplayIdTransferCharacteristic, TransferCurve, TransferPointEncoding,
 };
 
 /// Decodes a Product Identification Block payload into `caps`.
@@ -429,6 +433,130 @@ pub(super) fn scan_power_sequencing_block(payload: &[u8], caps: &mut DisplayCapa
     for_each_data_block(payload, |tag, _revision, block_payload| {
         if tag == TAG_POWER_SEQUENCING {
             decode_power_sequencing_block(block_payload, caps);
+        }
+    });
+}
+
+/// Decodes a Transfer Characteristics Block payload into `caps`.
+///
+/// Payload layout (DisplayID 1.x §4.12):
+/// - Byte 0 bits 7:6: Point encoding — `00` = 8-bit, `01` = 10-bit, `10` = 12-bit
+/// - Byte 0 bit 5: Multi-channel flag — when set, sample data encodes three equal-length
+///   sequential regions: red, green, blue (in that order)
+/// - Bytes 1+: Packed sample data (see encoding variants below)
+///
+/// **8-bit encoding** — 1 byte per point, values 0–255, normalized to `[0.0, 1.0]`.
+///
+/// **10-bit encoding** — 5 bytes per 4 points, packed MSB-first:
+/// ```text
+/// byte0[7:0] = p0[9:2]
+/// byte1[7:6] = p0[1:0],  byte1[5:0] = p1[9:4]
+/// byte2[7:4] = p1[3:0],  byte2[3:0] = p2[9:6]
+/// byte3[7:2] = p2[5:0],  byte3[1:0] = p3[9:8]
+/// byte4[7:0] = p3[7:0]
+/// ```
+///
+/// **12-bit encoding** — 3 bytes per 2 points, packed MSB-first:
+/// ```text
+/// byte0[7:0] = p0[11:4]
+/// byte1[7:4] = p0[3:0],  byte1[3:0] = p1[11:8]
+/// byte2[7:0] = p1[7:0]
+/// ```
+///
+/// Payloads with a reserved encoding byte (bits 7:6 = `11`) are silently skipped.
+/// Payloads shorter than 2 bytes are silently skipped.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_transfer_characteristics_block(
+    payload: &[u8],
+    caps: &mut DisplayCapabilities,
+) {
+    if payload.len() < 2 {
+        return;
+    }
+
+    let encoding = match (payload[0] >> 6) & 0x03 {
+        0x00 => TransferPointEncoding::Bits8,
+        0x01 => TransferPointEncoding::Bits10,
+        0x02 => TransferPointEncoding::Bits12,
+        _ => return, // reserved
+    };
+    let multi_channel = (payload[0] & 0x20) != 0;
+
+    let data = &payload[1..];
+
+    /// Unpack all 8-bit samples from `src` into normalized `[0.0, 1.0]` f32 values.
+    fn unpack8(src: &[u8]) -> Vec<f32> {
+        src.iter().map(|&b| b as f32 / 255.0).collect()
+    }
+
+    /// Unpack all 10-bit samples (5 bytes per 4 points) from `src`.
+    fn unpack10(src: &[u8]) -> Vec<f32> {
+        let mut pts = Vec::new();
+        let mut i = 0;
+        while i + 5 <= src.len() {
+            let [b0, b1, b2, b3, b4] = [
+                src[i] as u16,
+                src[i + 1] as u16,
+                src[i + 2] as u16,
+                src[i + 3] as u16,
+                src[i + 4] as u16,
+            ];
+            pts.push(((b0 << 2) | (b1 >> 6)) as f32 / 1023.0);
+            pts.push((((b1 & 0x3F) << 4) | (b2 >> 4)) as f32 / 1023.0);
+            pts.push((((b2 & 0x0F) << 6) | (b3 >> 2)) as f32 / 1023.0);
+            pts.push((((b3 & 0x03) << 8) | b4) as f32 / 1023.0);
+            i += 5;
+        }
+        pts
+    }
+
+    /// Unpack all 12-bit samples (3 bytes per 2 points) from `src`.
+    fn unpack12(src: &[u8]) -> Vec<f32> {
+        let mut pts = Vec::new();
+        let mut i = 0;
+        while i + 3 <= src.len() {
+            let [b0, b1, b2] = [src[i] as u16, src[i + 1] as u16, src[i + 2] as u16];
+            pts.push(((b0 << 4) | (b1 >> 4)) as f32 / 4095.0);
+            pts.push((((b1 & 0x0F) << 8) | b2) as f32 / 4095.0);
+            i += 3;
+        }
+        pts
+    }
+
+    let curve = if multi_channel {
+        // Sample data is three equal sequential regions: red, green, blue.
+        let total = data.len();
+        if total % 3 != 0 {
+            return; // malformed: cannot split evenly
+        }
+        let region = total / 3;
+        let (r_data, rest) = data.split_at(region);
+        let (g_data, b_data) = rest.split_at(region);
+        let (red, green, blue) = match encoding {
+            TransferPointEncoding::Bits8 => (unpack8(r_data), unpack8(g_data), unpack8(b_data)),
+            TransferPointEncoding::Bits10 => (unpack10(r_data), unpack10(g_data), unpack10(b_data)),
+            TransferPointEncoding::Bits12 => (unpack12(r_data), unpack12(g_data), unpack12(b_data)),
+        };
+        TransferCurve::Rgb { red, green, blue }
+    } else {
+        let points = match encoding {
+            TransferPointEncoding::Bits8 => unpack8(data),
+            TransferPointEncoding::Bits10 => unpack10(data),
+            TransferPointEncoding::Bits12 => unpack12(data),
+        };
+        TransferCurve::Luminance(points)
+    };
+
+    caps.transfer_characteristic = Some(DisplayIdTransferCharacteristic { encoding, curve });
+}
+
+/// Scans all data blocks in `payload` for a Transfer Characteristics Block (tag `0x0E`)
+/// and decodes the first one found into `caps`.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn scan_transfer_characteristics_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    for_each_data_block(payload, |tag, _revision, block_payload| {
+        if tag == TAG_TRANSFER_CHARACTERISTICS {
+            decode_transfer_characteristics_block(block_payload, caps);
         }
     });
 }
@@ -1089,7 +1217,9 @@ mod tests {
         let payload = make_power_sequencing_payload(10, 5, 3, 2, 50, 20);
         let mut caps = DisplayCapabilities::default();
         decode_power_sequencing_block(&payload, &mut caps);
-        let ps = caps.power_sequencing.expect("power_sequencing should be Some");
+        let ps = caps
+            .power_sequencing
+            .expect("power_sequencing should be Some");
         assert_eq!(ps.t1_power_to_signal, 10);
         assert_eq!(ps.t2_signal_to_backlight, 5);
         assert_eq!(ps.t3_backlight_to_signal_off, 3);
@@ -1145,5 +1275,124 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         decode_power_sequencing_block(&[], &mut caps);
         assert_eq!(caps.power_sequencing, None);
+    }
+
+    // -----------------------------------------------------------------------
+    // Transfer Characteristics Block (tag 0x0E)
+    // -----------------------------------------------------------------------
+
+    use crate::model::transfer::{
+        DisplayIdTransferCharacteristic, TransferCurve, TransferPointEncoding,
+    };
+
+    #[test]
+    fn test_transfer_characteristics_8bit_luminance() {
+        // byte 0 = 0x00 (8-bit, single-channel); bytes 1–3 = black, mid, white
+        let payload = [0x00u8, 0x00, 0x80, 0xFF];
+        let mut caps = DisplayCapabilities::default();
+        decode_transfer_characteristics_block(&payload, &mut caps);
+        let tc = caps.transfer_characteristic.expect("should be Some");
+        assert_eq!(tc.encoding, TransferPointEncoding::Bits8);
+        let TransferCurve::Luminance(pts) = tc.curve else {
+            panic!("expected Luminance")
+        };
+        assert_eq!(pts.len(), 3);
+        assert!((pts[0] - 0.0).abs() < 0.001);
+        assert!((pts[1] - 0x80 as f32 / 255.0).abs() < 0.001);
+        assert!((pts[2] - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_transfer_characteristics_10bit_luminance() {
+        // byte 0 = 0x40 (10-bit, single-channel)
+        // 5-byte group encodes 4 points: 1023, 512, 255, 0
+        // p0 = 1023 (0x3FF): byte0=0xFF, byte1[7:6]=0b11
+        // p1 = 512  (0x200): byte1[5:0]=0b00_1000=0x08, byte2[7:4]=0b0000
+        // p2 = 255  (0x0FF): byte2[3:0]=0b0000, byte3[7:2]=0b11_1111=0x3F... let's just pick easy values
+        // Use p0=1023, p1=0, p2=0, p3=0:
+        // 5 bytes: [0xFF, 0xC0, 0x00, 0x00, 0x00]
+        let payload = [0x40u8, 0xFF, 0xC0, 0x00, 0x00, 0x00];
+        let mut caps = DisplayCapabilities::default();
+        decode_transfer_characteristics_block(&payload, &mut caps);
+        let tc = caps.transfer_characteristic.expect("should be Some");
+        assert_eq!(tc.encoding, TransferPointEncoding::Bits10);
+        let TransferCurve::Luminance(pts) = tc.curve else {
+            panic!("expected Luminance")
+        };
+        assert_eq!(pts.len(), 4);
+        assert!((pts[0] - 1.0).abs() < 0.001);
+        assert!((pts[1] - 0.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_transfer_characteristics_12bit_luminance() {
+        // byte 0 = 0x80 (12-bit, single-channel)
+        // 3 bytes encode 2 points: p0=0xFFF (4095), p1=0x000 (0)
+        // byte0=0xFF, byte1=0xF0, byte2=0x00
+        let payload = [0x80u8, 0xFF, 0xF0, 0x00];
+        let mut caps = DisplayCapabilities::default();
+        decode_transfer_characteristics_block(&payload, &mut caps);
+        let tc = caps.transfer_characteristic.expect("should be Some");
+        assert_eq!(tc.encoding, TransferPointEncoding::Bits12);
+        let TransferCurve::Luminance(pts) = tc.curve else {
+            panic!("expected Luminance")
+        };
+        assert_eq!(pts.len(), 2);
+        assert!((pts[0] - 1.0).abs() < 0.001);
+        assert!((pts[1] - 0.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_transfer_characteristics_8bit_rgb() {
+        // byte 0 = 0x20 (8-bit, multi-channel)
+        // 6 sample bytes → 2 per channel: R=[0xFF,0x80], G=[0x40,0x20], B=[0x10,0x08]
+        let payload = [0x20u8, 0xFF, 0x80, 0x40, 0x20, 0x10, 0x08];
+        let mut caps = DisplayCapabilities::default();
+        decode_transfer_characteristics_block(&payload, &mut caps);
+        let tc = caps.transfer_characteristic.expect("should be Some");
+        assert_eq!(tc.encoding, TransferPointEncoding::Bits8);
+        let TransferCurve::Rgb { red, green, blue } = tc.curve else {
+            panic!("expected Rgb")
+        };
+        assert_eq!(red.len(), 2);
+        assert_eq!(green.len(), 2);
+        assert_eq!(blue.len(), 2);
+        assert!((red[0] - 1.0).abs() < 0.001);
+        assert!((red[1] - 0x80 as f32 / 255.0).abs() < 0.001);
+        assert!((green[0] - 0x40 as f32 / 255.0).abs() < 0.001);
+        assert!((blue[1] - 0x08 as f32 / 255.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_transfer_characteristics_reserved_encoding_skipped() {
+        // bits 7:6 = 0b11 → reserved → no field written
+        let payload = [0xC0u8, 0x00, 0x80, 0xFF];
+        let mut caps = DisplayCapabilities::default();
+        decode_transfer_characteristics_block(&payload, &mut caps);
+        assert_eq!(caps.transfer_characteristic, None);
+    }
+
+    #[test]
+    fn test_transfer_characteristics_too_short_skipped() {
+        let payload = [0x00u8]; // only 1 byte — need at least 2
+        let mut caps = DisplayCapabilities::default();
+        decode_transfer_characteristics_block(&payload, &mut caps);
+        assert_eq!(caps.transfer_characteristic, None);
+    }
+
+    #[test]
+    fn test_transfer_characteristics_empty_skipped() {
+        let mut caps = DisplayCapabilities::default();
+        decode_transfer_characteristics_block(&[], &mut caps);
+        assert_eq!(caps.transfer_characteristic, None);
+    }
+
+    #[test]
+    fn test_transfer_characteristics_rgb_non_divisible_by_3_skipped() {
+        // Multi-channel flag set, but 7 sample bytes can't be split evenly → skip
+        let payload = [0x20u8, 0xFF, 0x80, 0x40, 0x20, 0x10, 0x08, 0x04]; // 7 sample bytes
+        let mut caps = DisplayCapabilities::default();
+        decode_transfer_characteristics_block(&payload, &mut caps);
+        assert_eq!(caps.transfer_characteristic, None);
     }
 }
