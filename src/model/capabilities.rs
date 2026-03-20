@@ -168,9 +168,13 @@ impl ModeSink for StaticContext<'_> {
 
 /// Consumer-facing display capability model derived from a parsed EDID.
 ///
+/// All fields defined by the relevant specification are decoded and exposed here.
+/// No field is omitted because it appears obscure or unlikely to be needed — that
+/// judgement belongs to the consumer, not the library.
+///
 /// Fields are `Option` where the underlying EDID data may be absent or undecodable.
-/// `None` means the information was not present or could not be reliably determined —
-/// the library never invents data.
+/// `None` means the value was not present or could not be reliably determined; it does
+/// not imply the field is unimportant. The library never invents or defaults data.
 ///
 /// Produced by [`capabilities_from_edid`][crate::capabilities_from_edid].
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

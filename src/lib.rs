@@ -5,6 +5,12 @@
 //! 1. [`parse_edid`] — validate and decode raw bytes into [`ParsedEdidRef`] (zero-copy).
 //! 2. [`capabilities_from_edid`] — run extension handlers to produce [`DisplayCapabilities`].
 //!
+//! # Decoding philosophy
+//!
+//! PIAF decodes everything a specification defines. No field is omitted because it appears
+//! obscure or unlikely to be needed — that judgement belongs to the consumer. [`Option`]
+//! fields communicate presence or absence in the source data, not relative importance.
+//!
 //! # Quick start
 //!
 //! ```no_run
