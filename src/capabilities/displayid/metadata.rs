@@ -1,4 +1,7 @@
-use super::{TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_PARAMS, TAG_PRODUCT_ID, for_each_data_block};
+use super::{
+    TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_PARAMS, TAG_PRODUCT_ID, TAG_VIDEO_TIMING_RANGE,
+    for_each_data_block,
+};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -162,6 +165,52 @@ pub(super) fn scan_color_characteristics_block(payload: &[u8], caps: &mut Displa
     for_each_data_block(payload, |tag, _revision, block_payload| {
         if tag == TAG_COLOR_CHARACTERISTICS {
             decode_color_characteristics_block(block_payload, caps);
+        }
+    });
+}
+
+/// Decodes a Video Timing Range Limits Block payload into `caps`.
+///
+/// Payload layout (DisplayID 1.x §4.5, 15 bytes):
+/// - Bytes 0–2:  Minimum pixel clock in 10 kHz steps (24-bit LE; not stored)
+/// - Bytes 3–5:  Maximum pixel clock in 10 kHz steps (24-bit LE; stored ÷ 100 → MHz)
+/// - Byte  6:    Minimum horizontal frequency in kHz
+/// - Byte  7:    Maximum horizontal frequency in kHz
+/// - Bytes 8–9:  Minimum horizontal blanking in pixels (LE uint16; not stored)
+/// - Byte  10:   Minimum vertical refresh rate in Hz
+/// - Byte  11:   Maximum vertical refresh rate in Hz
+/// - Bytes 12–13: Minimum vertical blanking in lines (LE uint16; not stored)
+/// - Byte  14:   Video timing support flags (not stored)
+///
+/// Each field is written only when the payload is long enough to contain it.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_video_timing_range_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    // Maximum pixel clock (bytes 3–5): stored as MHz = raw_10khz / 100.
+    if payload.len() >= 6 {
+        let raw = (payload[3] as u32) | ((payload[4] as u32) << 8) | ((payload[5] as u32) << 16);
+        caps.max_pixel_clock_mhz = Some((raw / 100) as u16);
+    }
+
+    // Horizontal frequency range (bytes 6–7).
+    if payload.len() >= 8 {
+        caps.min_h_rate_khz = Some(payload[6] as u16);
+        caps.max_h_rate_khz = Some(payload[7] as u16);
+    }
+
+    // Vertical refresh rate range (bytes 10–11).
+    if payload.len() >= 12 {
+        caps.min_v_rate = Some(payload[10] as u16);
+        caps.max_v_rate = Some(payload[11] as u16);
+    }
+}
+
+/// Scans all data blocks in `payload` for a Video Timing Range Limits Block (tag `0x09`)
+/// and decodes the first one found into `caps`.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn scan_video_timing_range_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    for_each_data_block(payload, |tag, _revision, block_payload| {
+        if tag == TAG_VIDEO_TIMING_RANGE {
+            decode_video_timing_range_block(block_payload, caps);
         }
     });
 }
@@ -412,5 +461,93 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         decode_color_characteristics_block(&payload, &mut caps);
         assert_eq!(caps.chromaticity, Chromaticity::default());
+    }
+
+    // -----------------------------------------------------------------------
+    // Video Timing Range Limits Block (tag 0x09)
+    // -----------------------------------------------------------------------
+
+    fn make_video_timing_range_payload(
+        min_pixel_clock_10khz: u32,
+        max_pixel_clock_10khz: u32,
+        min_h_khz: u8,
+        max_h_khz: u8,
+        min_h_blank: u16,
+        min_v_rate: u8,
+        max_v_rate: u8,
+        min_v_blank: u16,
+        flags: u8,
+    ) -> [u8; 15] {
+        let mut p = [0u8; 15];
+        p[0] = (min_pixel_clock_10khz & 0xFF) as u8;
+        p[1] = ((min_pixel_clock_10khz >> 8) & 0xFF) as u8;
+        p[2] = ((min_pixel_clock_10khz >> 16) & 0xFF) as u8;
+        p[3] = (max_pixel_clock_10khz & 0xFF) as u8;
+        p[4] = ((max_pixel_clock_10khz >> 8) & 0xFF) as u8;
+        p[5] = ((max_pixel_clock_10khz >> 16) & 0xFF) as u8;
+        p[6] = min_h_khz;
+        p[7] = max_h_khz;
+        p[8..10].copy_from_slice(&min_h_blank.to_le_bytes());
+        p[10] = min_v_rate;
+        p[11] = max_v_rate;
+        p[12..14].copy_from_slice(&min_v_blank.to_le_bytes());
+        p[14] = flags;
+        p
+    }
+
+    #[test]
+    fn test_video_timing_range_all_fields_decoded() {
+        // max_pixel_clock = 33750 × 10 kHz = 337.5 MHz → stored as 337 MHz
+        // h range: 30–135 kHz, v range: 48–240 Hz
+        let payload = make_video_timing_range_payload(1000, 33750, 30, 135, 160, 48, 240, 45, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_video_timing_range_block(&payload, &mut caps);
+        assert_eq!(caps.max_pixel_clock_mhz, Some(337));
+        assert_eq!(caps.min_h_rate_khz, Some(30));
+        assert_eq!(caps.max_h_rate_khz, Some(135));
+        assert_eq!(caps.min_v_rate, Some(48));
+        assert_eq!(caps.max_v_rate, Some(240));
+    }
+
+    #[test]
+    fn test_video_timing_range_typical_monitor() {
+        // 1920×1080@60 Hz monitor: max clock ~148.5 MHz = 14850 × 10 kHz → 148 MHz
+        // h: 30–83 kHz, v: 56–75 Hz
+        let payload = make_video_timing_range_payload(3000, 14850, 30, 83, 160, 56, 75, 45, 0x00);
+        let mut caps = DisplayCapabilities::default();
+        decode_video_timing_range_block(&payload, &mut caps);
+        assert_eq!(caps.max_pixel_clock_mhz, Some(148));
+        assert_eq!(caps.min_h_rate_khz, Some(30));
+        assert_eq!(caps.max_h_rate_khz, Some(83));
+        assert_eq!(caps.min_v_rate, Some(56));
+        assert_eq!(caps.max_v_rate, Some(75));
+    }
+
+    #[test]
+    fn test_video_timing_range_short_payload_partial_decode() {
+        // Only 8 bytes — enough for max_pixel_clock and h rates, not v rates.
+        let mut payload = [0u8; 8];
+        payload[3] = 0x52; // max_pixel_clock low byte
+        payload[4] = 0x39; // max_pixel_clock mid byte (0x3952 = 14674 × 10 kHz → 146 MHz)
+        payload[6] = 25; // min_h_rate_khz
+        payload[7] = 90; // max_h_rate_khz
+        let mut caps = DisplayCapabilities::default();
+        decode_video_timing_range_block(&payload, &mut caps);
+        assert_eq!(caps.max_pixel_clock_mhz, Some(146));
+        assert_eq!(caps.min_h_rate_khz, Some(25));
+        assert_eq!(caps.max_h_rate_khz, Some(90));
+        assert_eq!(caps.min_v_rate, None);
+        assert_eq!(caps.max_v_rate, None);
+    }
+
+    #[test]
+    fn test_video_timing_range_too_short_does_not_panic() {
+        // Only 5 bytes — too short even for max_pixel_clock.
+        let payload = [0u8; 5];
+        let mut caps = DisplayCapabilities::default();
+        decode_video_timing_range_block(&payload, &mut caps);
+        assert_eq!(caps.max_pixel_clock_mhz, None);
+        assert_eq!(caps.min_h_rate_khz, None);
+        assert_eq!(caps.min_v_rate, None);
     }
 }

@@ -23,7 +23,7 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 | `0x06`        | Type IV Short Descriptor Video Timing Block (DMT/VIC codes)                | ✓ implemented |
 | `0x07`        | VESA Video Timing Block                                                    | ✓ implemented |
 | `0x08`        | CTA Video Timing Block                                                     | ✓ implemented |
-| `0x09`        | Video Timing Range Descriptor Block                                        | — deferred    |
+| `0x09`        | Video Timing Range Descriptor Block                                        | ✓ implemented |
 | `0x0A`        | Product Serial Number Block                                                | — deferred    |
 | `0x0B`        | General Purpose ASCII String Block                                         | — deferred    |
 | `0x0C`        | Display Device Data Block                                                  | — deferred    |

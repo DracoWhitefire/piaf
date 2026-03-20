@@ -15,6 +15,7 @@ use crate::model::prelude::{Arc, Vec};
 
 use metadata::{
     scan_color_characteristics_block, scan_display_params_block, scan_product_id_block,
+    scan_video_timing_range_block,
 };
 use timing::process_data_blocks;
 
@@ -79,6 +80,9 @@ const TAG_VESA_VIDEO_TIMING: u8 = 0x07;
 /// Payload is a compact presence bitmap: up to 8 bytes encoding CTA-861 VIC codes 1–64.
 /// Bit `i` (0-indexed, LSB-first within each byte) is set if VIC `i + 1` is supported.
 const TAG_CTA_VIDEO_TIMING: u8 = 0x08;
+
+/// Data block tag for the Video Timing Range Limits Block (DisplayID 1.x §4.5).
+const TAG_VIDEO_TIMING_RANGE: u8 = 0x09;
 
 /// Calls `f(tag, revision, block_payload)` for each well-formed data block in `payload`.
 ///
@@ -182,6 +186,7 @@ impl ExtensionHandler for DisplayIdHandler {
             scan_product_id_block(payload, caps);
             scan_display_params_block(payload, caps);
             scan_color_characteristics_block(payload, caps);
+            scan_video_timing_range_block(payload, caps);
         }
     }
 }
@@ -241,6 +246,7 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
     TAG_TYPE_IV_TIMING,        // 0x06 — Video Timing Modes Type IV — DMT/VIC Code Block
     TAG_VESA_VIDEO_TIMING,     // 0x07 — VESA Video Timing Block (DMT presence bitmap)
     TAG_CTA_VIDEO_TIMING,      // 0x08 — CTA-861 Video Timing Block (VIC presence bitmap)
+    TAG_VIDEO_TIMING_RANGE,    // 0x09 — Video Timing Range Limits Block
 ];
 
 /// DisplayID 1.x data block tags that are defined by the specification but not
@@ -250,7 +256,7 @@ const IMPLEMENTED_BLOCK_TAGS: &[u8] = &[
 /// implemented, remove its tag from here and add it to `IMPLEMENTED_BLOCK_TAGS`.
 #[cfg(test)]
 const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
-    (0x09, 0x13), // Video Timing Range Descriptor, Type V–VI timings, interface and identity blocks, Tiled Display Topology
+    (0x0A, 0x13), // Type V–VI timings, interface and identity blocks, Tiled Display Topology
     (0x14, 0x7E), // Reserved for future use in DisplayID 1.x
     (0x7F, 0x7F), // Vendor-specific
     (0x80, 0xFF), // Undefined (outside the DisplayID 1.x tag space)
