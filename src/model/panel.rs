@@ -246,3 +246,34 @@ impl SubpixelLayout {
         }
     }
 }
+
+/// Panel interface power sequencing timing parameters, decoded from the Interface Power
+/// Sequencing Block (DisplayID 1.x `0x0D`).
+///
+/// Describes the minimum delays required when powering the display panel on and off.
+/// All fields are raw counts in **2 ms units** per the DisplayID 1.x §4.11 specification;
+/// multiply by 2 to obtain milliseconds.
+///
+/// The six parameters (T1–T6) follow the standard LVDS/eDP power sequencing model:
+///
+/// ```text
+/// Power-on:   [VCC on] →T1→ [Signal on] →T2→ [Backlight on]
+/// Power-off:  [Backlight off] →T3→ [Signal off] →T4→ [VCC off]
+/// Minimum off time: T5 (VCC), T6 (Backlight)
+/// ```
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PowerSequencing {
+    /// T1: minimum delay from power supply enable to interface signal valid (2 ms units).
+    pub t1_power_to_signal: u8,
+    /// T2: minimum delay from interface signal enable to backlight enable (2 ms units).
+    pub t2_signal_to_backlight: u8,
+    /// T3: minimum delay from backlight disable to interface signal disable (2 ms units).
+    pub t3_backlight_to_signal_off: u8,
+    /// T4: minimum delay from interface signal disable to power supply disable (2 ms units).
+    pub t4_signal_to_power_off: u8,
+    /// T5: minimum power supply off time before power can be re-applied (2 ms units).
+    pub t5_power_off_min: u8,
+    /// T6: minimum backlight off time (2 ms units).
+    pub t6_backlight_off_min: u8,
+}

@@ -252,6 +252,9 @@ pub struct DisplayCapabilities {
     /// Pixel response time in milliseconds, from DisplayID 0x0C byte 12.
     /// `None` when the Display Device Data Block is absent or the value is zero.
     pub pixel_response_time_ms: Option<u8>,
+    /// Interface power sequencing timing parameters from DisplayID 0x0D.
+    /// `None` when the Interface Power Sequencing Block is absent.
+    pub power_sequencing: Option<crate::model::panel::PowerSequencing>,
     /// CIE xy chromaticity coordinates for the color primaries and white point,
     /// decoded from bytes `0x19`–`0x22`.
     pub chromaticity: crate::model::color::Chromaticity,
@@ -502,6 +505,9 @@ pub struct StaticDisplayCapabilities<const MAX_MODES: usize> {
     /// Pixel response time in milliseconds, from DisplayID 0x0C byte 12.
     /// `None` when the Display Device Data Block is absent or the value is zero.
     pub pixel_response_time_ms: Option<u8>,
+    /// Interface power sequencing timing parameters from DisplayID 0x0D.
+    /// `None` when the Interface Power Sequencing Block is absent.
+    pub power_sequencing: Option<crate::model::panel::PowerSequencing>,
     /// CIE xy chromaticity coordinates for the color primaries and white point,
     /// decoded from bytes `0x19`–`0x22`.
     pub chromaticity: crate::model::color::Chromaticity,
@@ -589,6 +595,7 @@ impl<const MAX_MODES: usize> Default for StaticDisplayCapabilities<MAX_MODES> {
             subpixel_layout: None,
             pixel_pitch_hundredths_mm: None,
             pixel_response_time_ms: None,
+            power_sequencing: None,
             chromaticity: Default::default(),
             gamma: None,
             display_features: None,

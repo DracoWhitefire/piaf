@@ -146,6 +146,13 @@ are silently dropped.
 | `color_bit_depth` | Byte 11 bits 3:0 — bpc − 1 converted to `ColorBitDepth` |
 | `pixel_response_time_ms` | Byte 12 — milliseconds; `None` if 0 |
 
+**Interface Power Sequencing Block** (tag `0x0D`) is decoded into the following
+`DisplayCapabilities` field (dynamic pipeline only):
+
+| `DisplayCapabilities` field | Source |
+|---|---|
+| `power_sequencing` | All 6 timing fields (T1–T6) decoded into a `PowerSequencing` struct; raw counts in 2 ms units; `None` if payload < 6 bytes |
+
 If the DisplayID block appears alongside an EDID base block, DisplayID values overwrite
 any base-block values for the same fields.
 

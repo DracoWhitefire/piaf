@@ -1,6 +1,7 @@
 use super::{
     TAG_ASCII_STRING, TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_DEVICE_DATA, TAG_DISPLAY_PARAMS,
-    TAG_PRODUCT_ID, TAG_SERIAL_NUMBER, TAG_VIDEO_TIMING_RANGE, for_each_data_block,
+    TAG_POWER_SEQUENCING, TAG_PRODUCT_ID, TAG_SERIAL_NUMBER, TAG_VIDEO_TIMING_RANGE,
+    for_each_data_block,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
@@ -12,8 +13,8 @@ use crate::model::color::{Chromaticity, ChromaticityPoint};
 use crate::model::manufacture::{ManufactureDate, ManufacturerId, MonitorString};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::panel::{
-    BacklightType, DisplayTechnology, OperatingMode, PhysicalOrientation, RotationCapability,
-    ScanDirection, SubpixelLayout, ZeroPixelLocation,
+    BacklightType, DisplayTechnology, OperatingMode, PhysicalOrientation, PowerSequencing,
+    RotationCapability, ScanDirection, SubpixelLayout, ZeroPixelLocation,
 };
 
 /// Decodes a Product Identification Block payload into `caps`.
@@ -391,6 +392,43 @@ pub(super) fn scan_display_device_data_block(payload: &[u8], caps: &mut DisplayC
     for_each_data_block(payload, |tag, _revision, block_payload| {
         if tag == TAG_DISPLAY_DEVICE_DATA {
             decode_display_device_data_block(block_payload, caps);
+        }
+    });
+}
+
+/// Decodes an Interface Power Sequencing Block payload into `caps`.
+///
+/// Payload layout (DisplayID 1.x §4.11, 8 bytes):
+/// - Byte 0:  T1 minimum — power supply enable to interface signal valid (2 ms units)
+/// - Byte 1:  T2 minimum — interface signal enable to backlight enable (2 ms units)
+/// - Byte 2:  T3 minimum — backlight disable to interface signal disable (2 ms units)
+/// - Byte 3:  T4 minimum — interface signal disable to power supply disable (2 ms units)
+/// - Byte 4:  T5 minimum — power supply off time (2 ms units)
+/// - Byte 5:  T6 minimum — backlight off time (2 ms units)
+/// - Bytes 6–7: Reserved (ignored)
+///
+/// Payloads shorter than 6 bytes are silently skipped.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_power_sequencing_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    if payload.len() >= 6 {
+        caps.power_sequencing = Some(PowerSequencing {
+            t1_power_to_signal: payload[0],
+            t2_signal_to_backlight: payload[1],
+            t3_backlight_to_signal_off: payload[2],
+            t4_signal_to_power_off: payload[3],
+            t5_power_off_min: payload[4],
+            t6_backlight_off_min: payload[5],
+        });
+    }
+}
+
+/// Scans all data blocks in `payload` for an Interface Power Sequencing Block (tag `0x0D`)
+/// and decodes the first one found into `caps`.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn scan_power_sequencing_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    for_each_data_block(payload, |tag, _revision, block_payload| {
+        if tag == TAG_POWER_SEQUENCING {
+            decode_power_sequencing_block(block_payload, caps);
         }
     });
 }
@@ -1034,5 +1072,78 @@ mod tests {
         decode_display_device_data_block(&[], &mut caps);
         assert_eq!(caps.display_technology, None);
         assert_eq!(caps.color_bit_depth, None);
+    }
+
+    // -----------------------------------------------------------------------
+    // Interface Power Sequencing Block (tag 0x0D)
+    // -----------------------------------------------------------------------
+
+    use crate::model::panel::PowerSequencing;
+
+    fn make_power_sequencing_payload(t1: u8, t2: u8, t3: u8, t4: u8, t5: u8, t6: u8) -> [u8; 8] {
+        [t1, t2, t3, t4, t5, t6, 0x00, 0x00]
+    }
+
+    #[test]
+    fn test_power_sequencing_all_fields_decoded() {
+        let payload = make_power_sequencing_payload(10, 5, 3, 2, 50, 20);
+        let mut caps = DisplayCapabilities::default();
+        decode_power_sequencing_block(&payload, &mut caps);
+        let ps = caps.power_sequencing.expect("power_sequencing should be Some");
+        assert_eq!(ps.t1_power_to_signal, 10);
+        assert_eq!(ps.t2_signal_to_backlight, 5);
+        assert_eq!(ps.t3_backlight_to_signal_off, 3);
+        assert_eq!(ps.t4_signal_to_power_off, 2);
+        assert_eq!(ps.t5_power_off_min, 50);
+        assert_eq!(ps.t6_backlight_off_min, 20);
+    }
+
+    #[test]
+    fn test_power_sequencing_zero_delays_stored() {
+        // Zero is a valid value (0 ms minimum delay).
+        let payload = make_power_sequencing_payload(0, 0, 0, 0, 0, 0);
+        let mut caps = DisplayCapabilities::default();
+        decode_power_sequencing_block(&payload, &mut caps);
+        assert!(caps.power_sequencing.is_some());
+        let ps = caps.power_sequencing.unwrap();
+        assert_eq!(ps.t1_power_to_signal, 0);
+        assert_eq!(ps.t5_power_off_min, 0);
+    }
+
+    #[test]
+    fn test_power_sequencing_reserved_bytes_ignored() {
+        // Reserved bytes 6–7 must not affect the decoded struct.
+        let mut payload = make_power_sequencing_payload(1, 2, 3, 4, 5, 6);
+        payload[6] = 0xFF;
+        payload[7] = 0xFF;
+        let mut caps = DisplayCapabilities::default();
+        decode_power_sequencing_block(&payload, &mut caps);
+        let ps = caps.power_sequencing.unwrap();
+        assert_eq!(ps.t6_backlight_off_min, 6);
+    }
+
+    #[test]
+    fn test_power_sequencing_exact_6_bytes_accepted() {
+        // A 6-byte payload (without reserved bytes) should still decode successfully.
+        let payload = [10u8, 5, 3, 2, 50, 20];
+        let mut caps = DisplayCapabilities::default();
+        decode_power_sequencing_block(&payload, &mut caps);
+        assert!(caps.power_sequencing.is_some());
+    }
+
+    #[test]
+    fn test_power_sequencing_short_payload_skipped() {
+        // Payloads shorter than 6 bytes must be silently ignored.
+        let payload = [10u8, 5, 3, 2, 50]; // only 5 bytes
+        let mut caps = DisplayCapabilities::default();
+        decode_power_sequencing_block(&payload, &mut caps);
+        assert_eq!(caps.power_sequencing, None);
+    }
+
+    #[test]
+    fn test_power_sequencing_empty_payload_skipped() {
+        let mut caps = DisplayCapabilities::default();
+        decode_power_sequencing_block(&[], &mut caps);
+        assert_eq!(caps.power_sequencing, None);
     }
 }

@@ -27,7 +27,7 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 | `0x0A`        | Product Serial Number Block                                                | ✓ implemented |
 | `0x0B`        | General Purpose ASCII String Block                                         | ✓ implemented |
 | `0x0C`        | Display Device Data Block                                                  | ✓ implemented |
-| `0x0D`        | Interface Power Sequencing Block                                           | — deferred    |
+| `0x0D`        | Interface Power Sequencing Block                                           | ✓ implemented |
 | `0x0E`        | Transfer Characteristics Block                                             | — deferred    |
 | `0x0F`        | Display Interface Block                                                    | — deferred    |
 | `0x10`        | Stereo Display Interface Block                                             | — deferred    |
@@ -369,6 +369,34 @@ Per payload:
 All payload fields are decoded into `DisplayCapabilities`. Zero values for native pixels,
 pixel pitch, and response time are treated as "not defined" and not stored. Only available
 from the dynamic pipeline.
+
+### Interface Power Sequencing Block (`0x0D`)
+
+Specifies the minimum timing delays required when powering the panel interface on and off.
+Follows the standard T1–T6 power sequencing model used by LVDS and eDP panels.
+
+```
+Byte  0:     Block tag (0x0D)
+Byte  1:     Revision (0x00)
+Byte  2:     Payload length (8 bytes)
+
+Per payload:
+  Byte 0:  T1 minimum — power supply enable → interface signal valid (2 ms per count)
+  Byte 1:  T2 minimum — interface signal enable → backlight enable (2 ms per count)
+  Byte 2:  T3 minimum — backlight disable → interface signal disable (2 ms per count)
+  Byte 3:  T4 minimum — interface signal disable → power supply disable (2 ms per count)
+  Byte 4:  T5 minimum — power supply off time before re-applying (2 ms per count)
+  Byte 5:  T6 minimum — backlight off time (2 ms per count)
+  Bytes 6–7: Reserved (ignored)
+```
+
+Power-on sequence: [VCC on] →T1→ [Signal on] →T2→ [Backlight on]
+Power-off sequence: [Backlight off] →T3→ [Signal off] →T4→ [VCC off]
+Minimum off times: T5 (VCC), T6 (backlight)
+
+Decoded into `caps.power_sequencing` as a `PowerSequencing` struct. Raw counts are stored
+as-is; multiply by 2 to obtain milliseconds. Payloads shorter than 6 bytes are silently
+skipped. Only available from the dynamic pipeline.
 
 ### Type V Short Timings Block (`0x11`)
 
