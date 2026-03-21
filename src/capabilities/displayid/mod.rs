@@ -118,6 +118,9 @@ const TAG_TYPE_VI_TIMING: u8 = 0x13;
 ///
 /// Stops at the end-of-section sentinel (tag `0x00`, length `0`) or when a block's
 /// declared length would extend past the available payload.
+///
+/// Note: `TAG_PRODUCT_ID` (`0x00`) shares the sentinel's tag byte, but a valid Product
+/// Identification Block always has a non-zero length, so the two are unambiguous.
 fn for_each_data_block(payload: &[u8], mut f: impl FnMut(u8, u8, &[u8])) {
     let mut offset = 0;
     while offset + 3 <= payload.len() {
@@ -125,7 +128,8 @@ fn for_each_data_block(payload: &[u8], mut f: impl FnMut(u8, u8, &[u8])) {
         let revision = payload[offset + 1];
         let length = payload[offset + 2] as usize;
 
-        // End-of-section sentinel: tag 0x00 with length 0.
+        // End-of-section sentinel: tag 0x00 with length 0. Unambiguous because a valid
+        // Product Identification Block (also tag 0x00) always has a non-zero length.
         if tag == 0x00 && length == 0 {
             break;
         }
