@@ -51,16 +51,45 @@ Important expectations:
 - invalid input results in controlled errors or warnings,
 - unknown structures do not break parsing invariants.
 
-The fuzz target is in `fuzz/fuzz_targets/parse_edid.rs` and exercises the full pipeline: raw bytes → `parse_edid` → `capabilities_from_edid`. It is set up using `cargo-fuzz` with libFuzzer.
+Two fuzz targets live in `fuzz/fuzz_targets/`:
 
-`cargo-fuzz` requires nightly. The library itself stays on stable; nightly is only needed to build and run the fuzz targets.
+- `parse_edid` — exercises the full dynamic pipeline: raw bytes → `parse_edid` → `capabilities_from_edid`.
+- `capabilities_static` — exercises the static (no-alloc) pipeline: raw bytes → `parse_edid` → `capabilities_from_edid_static`.
+
+Both are set up using `cargo-fuzz` with libFuzzer. `cargo-fuzz` requires nightly; the library itself stays on stable.
+
+#### Quick smoke run
+
+Runs until Ctrl+C. Useful for interactive testing:
 
 ```
-cargo +nightly fuzz build parse_edid
 cargo +nightly fuzz run parse_edid
+cargo +nightly fuzz run capabilities_static
 ```
 
-The fuzzer runs indefinitely. Stop it with Ctrl+C. Any crashes are written to `fuzz/artifacts/parse_edid/`.
+Any crashes are written to `fuzz/artifacts/<target>/`.
+
+#### Long campaign
+
+Run for a fixed duration (e.g. one hour), then minimise and commit the resulting corpus:
+
+```
+cargo +nightly fuzz run parse_edid -- -max_total_time=3600
+cargo +nightly fuzz run capabilities_static -- -max_total_time=3600
+```
+
+After the run completes, deduplicate the corpus down to a minimal covering set:
+
+```
+cargo +nightly fuzz cmin parse_edid
+cargo +nightly fuzz cmin capabilities_static
+```
+
+The minimised corpus lives in `fuzz/corpus/<target>/` and should be committed so that subsequent runs — locally and in CI — start from a richer base.
+
+#### CI
+
+The fuzz workflow (`.github/workflows/fuzz.yml`) runs a 60-second smoke test on every push and pull request, and a 1-hour deep run on a weekly schedule. The corpus is cached between runs using GitHub Actions cache. Crash artifacts are uploaded automatically on failure.
 
 ## Test philosophy
 
