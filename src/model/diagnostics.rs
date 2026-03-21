@@ -102,6 +102,16 @@ pub enum EdidWarning {
     /// continues with whatever data is present in the fragment.
     #[error("DisplayID section checksum is invalid")]
     DisplayIdChecksumMismatch,
+    /// The `section_byte_count` field in the DisplayID section header is too large to fit
+    /// within the 128-byte extension block.
+    ///
+    /// A valid DisplayID section holds at most 122 data bytes (bytes 4–125), with the
+    /// checksum at byte 126. A larger `section_byte_count` places the checksum outside
+    /// the block. The section is still parsed using the clamped available bytes.
+    #[error(
+        "DisplayID section_byte_count {0} places checksum outside the extension block (max 122)"
+    )]
+    DisplayIdSectionBytesOutOfRange(u8),
     /// The byte slice length does not match the size implied by the extension count.
     ///
     /// The EDID header declares `extension_count` extension blocks, so the expected

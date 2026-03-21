@@ -170,25 +170,32 @@ fn fragment_payload(block: &[u8; 128]) -> &[u8] {
     if end > 4 { &block[4..end] } else { &[] }
 }
 
-/// Returns `true` if the DisplayID section checksum for `block` is valid.
+/// Validates the DisplayID section checksum for `block`.
 ///
-/// The checksum byte sits at `block[4 + section_byte_count]` — immediately after the
-/// data blocks, within bytes 1–126 of the 128-byte extension block.  The sum of
-/// `block[1..=4 + section_byte_count]` must equal 0 mod 256.
+/// Returns `None` when the checksum is valid (no warning to emit).
+/// Returns `Some(EdidWarning::DisplayIdSectionBytesOutOfRange)` when `section_byte_count`
+/// is so large that the checksum position falls outside bytes 1–126 of the block.
+/// Returns `Some(EdidWarning::DisplayIdChecksumMismatch)` when the checksum byte does not
+/// bring the sum of `block[1..=checksum_pos]` to zero mod 256.
 ///
-/// Returns `true` without checking when `section_byte_count` is so large that the
-/// checksum position would fall outside bytes 1–126 (malformed block — the EDID parser
-/// would normally have already rejected it).
-fn displayid_section_checksum_valid(block: &[u8; 128]) -> bool {
+/// The checksum byte sits at `block[4 + section_byte_count]`, immediately after the data
+/// blocks. A valid section holds at most 122 data bytes, placing the checksum no later
+/// than byte 126.
+fn check_displayid_section(block: &[u8; 128]) -> Option<EdidWarning> {
     let n = block[2] as usize;
     let checksum_pos = 4 + n;
     if checksum_pos > 126 {
-        return true; // out-of-range: don't double-report a structural error
+        return Some(EdidWarning::DisplayIdSectionBytesOutOfRange(block[2]));
     }
-    block[1..=checksum_pos]
+    let ok = block[1..=checksum_pos]
         .iter()
         .fold(0u8, |acc, &x| acc.wrapping_add(x))
-        == 0
+        == 0;
+    if ok {
+        None
+    } else {
+        Some(EdidWarning::DisplayIdChecksumMismatch)
+    }
 }
 
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -233,8 +240,8 @@ impl ExtensionHandler for DisplayIdHandler {
 
         // Process data blocks from all fragments.
         for block in blocks {
-            if !displayid_section_checksum_valid(block) {
-                warnings.push(Arc::new(EdidWarning::DisplayIdChecksumMismatch));
+            if let Some(w) = check_displayid_section(block) {
+                warnings.push(Arc::new(w));
             }
             let payload = fragment_payload(block);
             process_data_blocks(payload, caps);
@@ -277,8 +284,8 @@ impl StaticExtensionHandler for DisplayIdHandler {
 
         // Process data blocks from all fragments.
         for block in blocks {
-            if !displayid_section_checksum_valid(block) {
-                ctx.push_warning(EdidWarning::DisplayIdChecksumMismatch);
+            if let Some(w) = check_displayid_section(block) {
+                ctx.push_warning(w);
             }
             process_data_blocks(fragment_payload(block), ctx);
         }
