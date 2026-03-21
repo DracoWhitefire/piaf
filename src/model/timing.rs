@@ -2,6 +2,7 @@
 ///
 /// Indicates which timing generation formula (if any) the display supports beyond the
 /// explicitly listed modes.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TimingFormula {
@@ -113,6 +114,7 @@ bitflags::bitflags! {
 }
 
 /// Preferred aspect ratio for CVT-generated timings, decoded from byte 15 bits 7–5.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CvtAspectRatio {

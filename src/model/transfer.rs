@@ -6,6 +6,7 @@ use crate::model::prelude::Vec;
 ///
 /// The same three encodings are used by the CEA-861 VESA Display Transfer
 /// Characteristic Data Block (standard tag `0x05`).
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransferPointEncoding {
@@ -22,6 +23,7 @@ pub enum TransferPointEncoding {
 ///
 /// Sample values are normalized to `[0.0, 1.0]` and represent evenly-spaced input
 /// levels from black (`0`) to white (`1`).
+#[non_exhaustive]
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
@@ -44,6 +46,7 @@ pub enum TransferCurve {
 /// Encodes the display's native luminance transfer function as a sequence of sample
 /// points at evenly-spaced input levels from 0 (black) to 1 (white). Stored in
 /// [`DisplayCapabilities::transfer_characteristic`][crate::DisplayCapabilities::transfer_characteristic].
+#[non_exhaustive]
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)]

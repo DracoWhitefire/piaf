@@ -47,5 +47,8 @@ jobs:
       - name: Test (std + serde)
         run: cargo test --features serde
 
+      - name: Build (alloc only)
+        run: cargo build --no-default-features --features alloc
+
       - name: Build (no_std)
         run: cargo build --no-default-features

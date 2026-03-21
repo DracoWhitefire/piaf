@@ -25,6 +25,7 @@ pub type ParseWarning = crate::model::prelude::Arc<dyn core::error::Error + Send
 /// and into [`DisplayCapabilities::warnings`][crate::DisplayCapabilities] (from handlers).
 /// In `alloc`/`std` builds each entry is a [`ParseWarning`]; use `downcast_ref` to recover the
 /// concrete type. In bare `no_std` builds this enum is used directly.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum EdidWarning {
@@ -127,6 +128,7 @@ pub enum EdidWarning {
 }
 
 /// A fatal error that prevents useful parsing of an EDID byte stream.
+#[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum EdidError {
     /// The byte slice is shorter than a complete EDID block (128 bytes per block).

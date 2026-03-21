@@ -10,19 +10,34 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  publish:
-    name: Publish to crates.io
+  check-branch:
+    name: Check tag is on main
     runs-on: ubuntu-latest
+    outputs:
+      on_main: ${{ steps.check.outputs.on_main }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Verify tag is on main
+      - name: Check tag is on main
+        id: check
         run: |
           git fetch origin main
-          git merge-base --is-ancestor ${{ github.sha }} origin/main \
-            || { echo "Tag is not on main branch"; exit 1; }
+          if git merge-base --is-ancestor ${{ github.sha }} origin/main; then
+            echo "on_main=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag is not on main — skipping publish."
+            echo "on_main=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    name: Publish to crates.io
+    needs: check-branch
+    if: needs.check-branch.outputs.on_main == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -53,6 +68,9 @@ jobs:
 
       - name: Test (std + serde)
         run: cargo test --features serde
+
+      - name: Build (alloc only)
+        run: cargo build --no-default-features --features alloc
 
       - name: Build (no_std)
         run: cargo build --no-default-features

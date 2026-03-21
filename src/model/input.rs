@@ -27,6 +27,7 @@ bitflags::bitflags! {
 /// byte `0x14` bits 6–5.
 ///
 /// Specifies the signal voltage levels used for video white and sync, relative to blank.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnalogSyncLevel {
@@ -56,6 +57,7 @@ impl AnalogSyncLevel {
 ///
 /// Only valid for digital input displays. `None` is used for the undefined (0x0)
 /// and reserved (0x6–0xF) values.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoInterface {
