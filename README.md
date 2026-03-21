@@ -276,6 +276,37 @@ Data blocks decoded by `Cea861Handler`:
 | `0x07` ext `0x79` | HDMI Forum Sink Capability Data Block | FRL rate, SCDC, Deep Color 4:2:0, ALLM, VRR range, DSC capabilities |
 | `0x07` ext `0x20` | InfoFrame Data Block | Short InfoFrame Descriptors with OUI for VSI |
 
+## DisplayID 1.x coverage
+
+Data blocks decoded by `DisplayIdHandler` (extension tag `0x70`):
+
+| Tag | Block | Output |
+|-----|-------|--------|
+| `0x00` | Product Identification | `manufacturer`, `product_code`, `display_name`, `serial_number_string`, `manufacture_date` on `DisplayCapabilities` |
+| `0x01` | Display Parameters | `preferred_image_size_mm`, `native_pixels` on `DisplayIdCapabilities` |
+| `0x02` | Color Characteristics | `chromaticity` on `DisplayCapabilities` |
+| `0x03` | Type I Detailed Timings | `supported_modes` (20-byte descriptors) |
+| `0x04` | Type II Detailed Timings | `supported_modes` (10-byte descriptors) |
+| `0x05` | Type III Short Timings | `supported_modes` (3-byte short descriptors) |
+| `0x06` | Type IV DMT/VIC Codes | `supported_modes` via DMT ID and VIC code lookup |
+| `0x07` | VESA Video Timing Bitmap | `supported_modes` via DMT ID presence bitmap (IDs 0x01–0x50) |
+| `0x08` | CTA-861 Video Timing Bitmap | `supported_modes` via VIC presence bitmap (VICs 1–64) |
+| `0x09` | Video Timing Range Limits | `min_v_rate`, `max_v_rate`, `min_h_rate_khz`, `max_h_rate_khz`, `max_pixel_clock_mhz` |
+| `0x0A` | Product Serial Number | `serial_number_string` on `DisplayCapabilities` |
+| `0x0B` | General Purpose ASCII String | collected as additional `unspecified_text` entries |
+| `0x0C` | Display Device Data | `display_technology`, `operating_mode`, `backlight_type`, `native_pixels`, `physical_orientation`, `rotation_capability`, `zero_pixel_location`, `scan_direction`, `subpixel_layout`, `pixel_pitch_hundredths_mm`, `pixel_response_time_ms`, `data_enable_used`, `panel_aspect_ratio_100` |
+| `0x0D` | Interface Power Sequencing | `power_sequencing` (T1–T6 delays in 2 ms units) |
+| `0x0E` | Transfer Characteristics | `transfer_characteristic` (8/10/12-bit luminance curve, single or per-channel) |
+| `0x0F` | Display Interface Data | `display_id_interface` (type, lanes, pixel clock range, content protection) |
+| `0x10` | Stereo Display Interface | `stereo_interface` (viewing mode, sync polarity, sync channel) |
+| `0x11` | Type V Short Timings | `supported_modes` (7-byte short descriptors) |
+| `0x12` | Tiled Display Topology | `tiled_topology` (grid dimensions, tile location, optional bezel sizes) |
+| `0x13` | Type VI Detailed Timings | `supported_modes` (14-byte descriptors) |
+
+All fields populated from DisplayID blocks land on `DisplayCapabilities` directly where they
+overlap with EDID base block fields, or in the `DisplayIdCapabilities` struct retrievable via
+`caps.get_extension_data::<DisplayIdCapabilities>(0x70)`.
+
 ## Documentation
 
 Design and architecture notes live under [`doc/`](doc/):
