@@ -102,29 +102,57 @@ pub(super) fn scan_product_id_block(payload: &[u8], caps: &mut DisplayCapabiliti
 
 /// Decodes a Display Parameters Block payload into `caps`.
 ///
-/// Payload layout (DisplayID 1.x §4.3):
-/// - Bytes 0–1: Horizontal image size in mm (little-endian uint16; `0` = not defined)
-/// - Bytes 2–3: Vertical image size in mm (little-endian uint16; `0` = not defined)
-/// - Byte  4:   Display technology (bits 7:4) and feature support flags (bits 3:0)
-/// - Byte  5:   Color bit depth — bits 4:0 use the same `001=6bpc … 110=16bpc` encoding
-///   as EDID base block byte `0x14` bits 6:4
+/// Payload layout (DisplayID 1.x §4.3, fixed 12 bytes):
+/// - Bytes  0–1: Horizontal image size in tenths of mm (little-endian uint16; `0` = not defined)
+/// - Bytes  2–3: Vertical image size in tenths of mm (little-endian uint16; `0` = not defined)
+/// - Bytes  4–5: Horizontal native pixel count (little-endian uint16; `0` = not defined)
+/// - Bytes  6–7: Vertical native pixel count (little-endian uint16; `0` = not defined)
+/// - Byte   8:   Feature support flags (deinterlacing, audio, etc.; not decoded)
+/// - Byte   9:   Gamma EOTF, stored as `(γ − 1) × 100`; `0xFF` = unspecified (not decoded)
+/// - Byte  10:   Aspect ratio, stored as `(AR − 1) × 100` (same encoding as Display Device Data)
+/// - Byte  11:   Color bit depth — low nibble = native bpc − 1, high nibble = overall bpc − 1
 ///
-/// When both image size fields are non-zero they are written to `preferred_image_size_mm`.
-/// Color bit depth is written to `color_bit_depth` when the field decodes to a known value.
+/// Image size and native pixel count are written only when both axes are non-zero.
+/// Aspect ratio and color bit depth are written when the payload is long enough.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn decode_display_params_block(payload: &[u8], caps: &mut DisplayCapabilities) {
-    // Physical image size (bytes 0–3).
+    // Image size in tenths of mm (bytes 0–3).
     if payload.len() >= 4 {
-        let h_mm = u16::from_le_bytes([payload[0], payload[1]]);
-        let v_mm = u16::from_le_bytes([payload[2], payload[3]]);
-        if h_mm != 0 && v_mm != 0 {
-            caps.preferred_image_size_mm = Some((h_mm, v_mm));
+        let h = u16::from_le_bytes([payload[0], payload[1]]);
+        let v = u16::from_le_bytes([payload[2], payload[3]]);
+        if h != 0 && v != 0 {
+            caps.preferred_image_size_mm = Some((h, v));
         }
     }
 
-    // Color bit depth (byte 5, bits 4:0).
-    if payload.len() >= 6 {
-        caps.color_bit_depth = ColorBitDepth::from_edid_bits(payload[5] & 0x1F);
+    // Native pixel format (bytes 4–7).
+    if payload.len() >= 8 {
+        let h_px = u16::from_le_bytes([payload[4], payload[5]]);
+        let v_px = u16::from_le_bytes([payload[6], payload[7]]);
+        if h_px != 0 && v_px != 0 {
+            caps.native_pixels = Some((h_px, v_px));
+        }
+    }
+
+    // Aspect ratio (byte 10): stored as (AR − 1) × 100.
+    if payload.len() >= 11 {
+        caps.panel_aspect_ratio_100 = Some(payload[10]);
+    }
+
+    // Color bit depth (byte 11): low nibble = native bpc − 1.
+    // Convert to EDID-style bits: bpc 6→1, 8→2, 10→3, 12→4, 14→5, 16→6.
+    if payload.len() >= 12 {
+        let bpc = (payload[11] & 0x0F) + 1;
+        let edid_bits: u8 = match bpc {
+            6 => 1,
+            8 => 2,
+            10 => 3,
+            12 => 4,
+            14 => 5,
+            16 => 6,
+            _ => 0,
+        };
+        caps.color_bit_depth = ColorBitDepth::from_edid_bits(edid_bits);
     }
 }
 
@@ -783,17 +811,23 @@ mod tests {
     }
 
     fn make_display_params_payload(
-        h_mm: u16,
-        v_mm: u16,
-        tech_flags: u8,
-        bit_depth_byte: u8,
-    ) -> Vec<u8> {
-        let mut v = Vec::new();
-        v.extend_from_slice(&h_mm.to_le_bytes());
-        v.extend_from_slice(&v_mm.to_le_bytes());
-        v.push(tech_flags);
-        v.push(bit_depth_byte);
-        v
+        h_tenths_mm: u16,
+        v_tenths_mm: u16,
+        h_native_px: u16,
+        v_native_px: u16,
+        aspect_byte: u8, // (AR − 1) × 100
+        depth_byte: u8,  // low nibble = native bpc − 1
+    ) -> [u8; 12] {
+        let mut p = [0u8; 12];
+        p[0..2].copy_from_slice(&h_tenths_mm.to_le_bytes());
+        p[2..4].copy_from_slice(&v_tenths_mm.to_le_bytes());
+        p[4..6].copy_from_slice(&h_native_px.to_le_bytes());
+        p[6..8].copy_from_slice(&v_native_px.to_le_bytes());
+        // p[8]: feature flags (zeroed)
+        // p[9]: gamma (zeroed)
+        p[10] = aspect_byte;
+        p[11] = depth_byte;
+        p
     }
 
     fn make_color_characteristics_payload(
@@ -895,8 +929,9 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn test_display_params_image_size_mm() {
-        let payload = make_display_params_payload(597, 336, 0x10, 0x00);
+    fn test_display_params_image_size() {
+        // 597 and 336 are stored in tenths of mm (59.7 mm × 33.6 mm).
+        let payload = make_display_params_payload(597, 336, 0, 0, 0, 0x00);
         let mut caps = DisplayCapabilities::default();
         decode_display_params_block(&payload, &mut caps);
         assert_eq!(caps.preferred_image_size_mm, Some((597, 336)));
@@ -904,7 +939,7 @@ mod tests {
 
     #[test]
     fn test_display_params_zero_size_not_stored() {
-        let payload = make_display_params_payload(0, 0, 0x10, 0x00);
+        let payload = make_display_params_payload(0, 0, 0, 0, 0, 0x00);
         let mut caps = DisplayCapabilities::default();
         decode_display_params_block(&payload, &mut caps);
         assert_eq!(caps.preferred_image_size_mm, None);
@@ -912,16 +947,41 @@ mod tests {
 
     #[test]
     fn test_display_params_partial_zero_size_not_stored() {
-        let payload = make_display_params_payload(597, 0, 0x10, 0x00);
+        let payload = make_display_params_payload(597, 0, 0, 0, 0, 0x00);
         let mut caps = DisplayCapabilities::default();
         decode_display_params_block(&payload, &mut caps);
         assert_eq!(caps.preferred_image_size_mm, None);
     }
 
     #[test]
+    fn test_display_params_native_pixels() {
+        let payload = make_display_params_payload(597, 336, 1920, 1080, 0, 0x00);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_params_block(&payload, &mut caps);
+        assert_eq!(caps.native_pixels, Some((1920, 1080)));
+    }
+
+    #[test]
+    fn test_display_params_zero_native_pixels_not_stored() {
+        let payload = make_display_params_payload(597, 336, 0, 0, 0, 0x00);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_params_block(&payload, &mut caps);
+        assert_eq!(caps.native_pixels, None);
+    }
+
+    #[test]
+    fn test_display_params_aspect_ratio() {
+        // 16:9 → (16/9 − 1) × 100 ≈ 78
+        let payload = make_display_params_payload(597, 336, 0, 0, 78, 0x00);
+        let mut caps = DisplayCapabilities::default();
+        decode_display_params_block(&payload, &mut caps);
+        assert_eq!(caps.panel_aspect_ratio_100, Some(78));
+    }
+
+    #[test]
     fn test_display_params_color_bit_depth_8bpc() {
-        // Bits 4:0 = 0b00010 = 8 bpc
-        let payload = make_display_params_payload(597, 336, 0x10, 0b0000_0010);
+        // Low nibble = bpc − 1: 8bpc → 7 → byte = 0x07
+        let payload = make_display_params_payload(597, 336, 0, 0, 0, 0x07);
         let mut caps = DisplayCapabilities::default();
         decode_display_params_block(&payload, &mut caps);
         assert_eq!(caps.color_bit_depth, Some(ColorBitDepth::Depth8));
@@ -929,8 +989,8 @@ mod tests {
 
     #[test]
     fn test_display_params_color_bit_depth_10bpc() {
-        // Bits 4:0 = 0b00011 = 10 bpc
-        let payload = make_display_params_payload(597, 336, 0x10, 0b0000_0011);
+        // 10bpc → 9 → byte = 0x09
+        let payload = make_display_params_payload(597, 336, 0, 0, 0, 0x09);
         let mut caps = DisplayCapabilities::default();
         decode_display_params_block(&payload, &mut caps);
         assert_eq!(caps.color_bit_depth, Some(ColorBitDepth::Depth10));
@@ -938,8 +998,8 @@ mod tests {
 
     #[test]
     fn test_display_params_undefined_bit_depth_not_stored() {
-        // Bits 4:0 = 0b00000 = undefined
-        let payload = make_display_params_payload(597, 336, 0x10, 0b0000_0000);
+        // Low nibble = 0 → bpc = 1 → not a valid even bit depth → None
+        let payload = make_display_params_payload(597, 336, 0, 0, 0, 0x00);
         let mut caps = DisplayCapabilities::default();
         decode_display_params_block(&payload, &mut caps);
         assert_eq!(caps.color_bit_depth, None);
@@ -1396,8 +1456,6 @@ mod tests {
     // Interface Power Sequencing Block (tag 0x0D)
     // -----------------------------------------------------------------------
 
-    use crate::model::panel::PowerSequencing;
-
     fn make_power_sequencing_payload(t1: u8, t2: u8, t3: u8, t4: u8, t5: u8, t6: u8) -> [u8; 8] {
         [t1, t2, t3, t4, t5, t6, 0x00, 0x00]
     }
@@ -1470,10 +1528,6 @@ mod tests {
     // -----------------------------------------------------------------------
     // Transfer Characteristics Block (tag 0x0E)
     // -----------------------------------------------------------------------
-
-    use crate::model::transfer::{
-        DisplayIdTransferCharacteristic, TransferCurve, TransferPointEncoding,
-    };
 
     #[test]
     fn test_transfer_characteristics_8bit_luminance() {
@@ -1590,10 +1644,6 @@ mod tests {
     // Display Interface Data Block (tag 0x0F)
     // -----------------------------------------------------------------------
 
-    use crate::model::panel::{
-        DisplayIdInterface, DisplayInterfaceType, InterfaceContentProtection,
-    };
-
     fn make_display_interface_payload(
         interface_type: u8, // bits 3:0
         spread_spectrum: bool,
@@ -1690,8 +1740,6 @@ mod tests {
     // Stereo Display Interface Data Block (tag 0x10)
     // -----------------------------------------------------------------------
 
-    use crate::model::panel::{DisplayIdStereoInterface, StereoSyncInterface, StereoViewingMode};
-
     fn make_stereo_payload(
         viewing_mode: u8,    // bits 3:0
         sync_positive: bool, // bit 4
@@ -1783,8 +1831,6 @@ mod tests {
     // -----------------------------------------------------------------------
     // Tiled Display Topology Data Block (tag 0x12)
     // -----------------------------------------------------------------------
-
-    use crate::model::panel::{DisplayIdTiledTopology, TileBezelInfo, TileTopologyBehavior};
 
     fn make_tiled_topology_payload(
         single_enclosure: bool,
@@ -1939,8 +1985,8 @@ mod tests {
 
     #[test]
     fn test_scan_display_params_first_wins() {
-        let first = make_block(0x01, &make_display_params_payload(600, 400, 0, 0));
-        let second = make_block(0x01, &make_display_params_payload(300, 200, 0, 0));
+        let first = make_block(0x01, &make_display_params_payload(600, 400, 0, 0, 0, 0));
+        let second = make_block(0x01, &make_display_params_payload(300, 200, 0, 0, 0, 0));
         let payload = [first, second].concat();
         let mut caps = DisplayCapabilities::default();
         scan_display_params_block(&payload, &mut caps);
