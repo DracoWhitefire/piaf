@@ -85,6 +85,7 @@ bitflags::bitflags! {
 ///
 /// Advertises HDMI-specific audio capabilities, including Multi-Stream Audio (MSA)
 /// support and a set of Short Audio Descriptors for the HDMI audio path.
+#[non_exhaustive]
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,6 +100,7 @@ pub struct HdmiAudioBlock {
 ///
 /// Stored in [`DisplayCapabilities::extension_data`] under tag `0x02` by [`Cea861Handler`].
 /// Retrieve it with `caps.get_extension_data::<Cea861Capabilities>(0x02)`.
+#[non_exhaustive]
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)] // no Eq: HdrStaticMetadata contains f32

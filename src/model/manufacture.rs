@@ -7,6 +7,7 @@
 /// | `0xFF`  | Byte 17 is a model year, not a manufacture year.    |
 ///
 /// Year is encoded as `byte_17 + 1990`.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ManufactureDate {

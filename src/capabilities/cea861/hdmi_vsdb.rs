@@ -40,6 +40,7 @@ bitflags::bitflags! {
 /// - `source_physical_address` is always present (minimum valid VSDB is 5 bytes after OUI).
 /// - `flags` and `max_tmds_clock_mhz` require at least 2 and 3 payload bytes respectively.
 /// - Latency fields require the corresponding presence bits in the misc byte.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HdmiVsdb {

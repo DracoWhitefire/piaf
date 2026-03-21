@@ -21,6 +21,7 @@ use timing::process_data_blocks;
 ///
 /// Stored in [`DisplayCapabilities`] via `set_extension_data(0x70, ...)` by the dynamic
 /// pipeline; retrieve with `caps.get_extension_data::<DisplayIdCapabilities>(0x70)`.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg(any(feature = "alloc", feature = "std"))]
 #[derive(Debug, Clone, PartialEq)]

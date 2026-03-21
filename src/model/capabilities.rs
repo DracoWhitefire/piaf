@@ -28,6 +28,7 @@ impl<T: Any + core::fmt::Debug + Send + Sync> ExtensionData for T {
 }
 
 /// Stereo viewing support decoded from DTD byte 17 bits 6, 5, and 0.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StereoMode {
@@ -49,6 +50,7 @@ pub enum StereoMode {
 }
 
 /// Sync signal definition decoded from DTD byte 17 bits 4–1.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SyncDefinition {
@@ -83,6 +85,7 @@ pub enum SyncDefinition {
 }
 
 /// A display video mode expressed as resolution, refresh rate, and scan type.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct VideoMode {
@@ -177,6 +180,7 @@ impl ModeSink for StaticContext<'_> {
 /// not imply the field is unimportant. The library never invents or defaults data.
 ///
 /// Produced by [`capabilities_from_edid`][crate::capabilities_from_edid].
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Default)]
 pub struct DisplayCapabilities {
@@ -444,6 +448,7 @@ impl DisplayCapabilities {
 /// At `MAX_MODES = 64` this struct is approximately 3 KB. On targets with very limited stack
 /// space, consider placing the value in a `static mut` or a statically-allocated buffer
 /// rather than on the stack.
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct StaticDisplayCapabilities<const MAX_MODES: usize> {
     /// Three-character PNP manufacturer ID (e.g. `GSM` for LG, `SAM` for Samsung).

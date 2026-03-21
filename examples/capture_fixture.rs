@@ -104,7 +104,7 @@ fn gen_identification(mod_name: &str, bin_path: &str, caps: &piaf::DisplayCapabi
                 "    assert_eq!(caps.manufacture_date, Some(ManufactureDate::ModelYear({y})));"
             );
         }
-        None => {}
+        Some(_) | None => {}
     }
     if let Some(v) = caps.edid_version {
         println!(
@@ -122,6 +122,7 @@ fn gen_identification(mod_name: &str, bin_path: &str, caps: &piaf::DisplayCapabi
             ColorBitDepth::Depth12 => "Depth12",
             ColorBitDepth::Depth14 => "Depth14",
             ColorBitDepth::Depth16 => "Depth16",
+            _ => "unknown",
         };
         println!("    assert_eq!(caps.color_bit_depth, Some(ColorBitDepth::{variant}));");
     }
@@ -132,6 +133,7 @@ fn gen_identification(mod_name: &str, bin_path: &str, caps: &piaf::DisplayCapabi
             VideoInterface::HdmiB => "HdmiB",
             VideoInterface::Mddi => "Mddi",
             VideoInterface::DisplayPort => "DisplayPort",
+            _ => "unknown",
         };
         println!("    assert_eq!(caps.video_interface, Some(VideoInterface::{variant}));");
     }

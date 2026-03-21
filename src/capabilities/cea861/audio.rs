@@ -25,6 +25,7 @@ bitflags::bitflags! {
 }
 
 /// Audio format code from bits 6–3 of the first SAD byte.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AudioFormat {
@@ -63,6 +64,7 @@ pub enum AudioFormat {
 }
 
 /// Format-specific information from byte 3 of a Short Audio Descriptor.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AudioFormatInfo {
@@ -82,6 +84,7 @@ pub enum AudioFormatInfo {
 }
 
 /// A decoded Short Audio Descriptor (3 bytes) from a CEA Audio Data Block (tag `0x01`).
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShortAudioDescriptor {

@@ -1,6 +1,7 @@
 /// Display technology type, decoded from Display Device Data Block (0x0C) byte 0 bits 7:4.
 ///
 /// Identifies the physical display technology used by an embedded panel.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DisplayTechnology {
@@ -48,6 +49,7 @@ impl DisplayTechnology {
 }
 
 /// Panel operating mode, decoded from Display Device Data Block (0x0C) byte 1 bits 3:0.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperatingMode {
@@ -71,6 +73,7 @@ impl OperatingMode {
 }
 
 /// Backlight type, decoded from Display Device Data Block (0x0C) byte 1 bits 5:4.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BacklightType {
@@ -98,6 +101,7 @@ impl BacklightType {
 
 /// Physical mounting orientation of the panel, decoded from Display Device Data Block (0x0C)
 /// byte 7 bits 1:0.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PhysicalOrientation {
@@ -124,6 +128,7 @@ impl PhysicalOrientation {
 }
 
 /// Rotation capability, decoded from Display Device Data Block (0x0C) byte 7 bits 3:2.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RotationCapability {
@@ -151,6 +156,7 @@ impl RotationCapability {
 
 /// Location of the zero pixel (the upper-left pixel in the framebuffer), decoded from
 /// Display Device Data Block (0x0C) byte 7 bits 5:4.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ZeroPixelLocation {
@@ -178,6 +184,7 @@ impl ZeroPixelLocation {
 
 /// Scan direction of the fast (horizontal) scan relative to H-sync, decoded from
 /// Display Device Data Block (0x0C) byte 7 bits 7:6.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScanDirection {
@@ -204,6 +211,7 @@ impl ScanDirection {
 }
 
 /// Sub-pixel layout, decoded from Display Device Data Block (0x0C) byte 8.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubpixelLayout {
@@ -249,6 +257,7 @@ impl SubpixelLayout {
 
 /// Physical interface standard type, decoded from Display Interface Data Block (0x0F)
 /// byte 0 bits 3:0.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DisplayInterfaceType {
@@ -294,6 +303,7 @@ impl DisplayInterfaceType {
 
 /// Content protection mechanism supported on the display interface, decoded from Display
 /// Interface Data Block (0x0F) byte 6 bits 1:0.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InterfaceContentProtection {
@@ -326,6 +336,7 @@ impl InterfaceContentProtection {
 /// and supported content protection mechanism.
 ///
 /// Stored in [`DisplayCapabilities::display_id_interface`][crate::DisplayCapabilities::display_id_interface].
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DisplayIdInterface {
@@ -345,6 +356,7 @@ pub struct DisplayIdInterface {
 
 /// Behavior when one or more tiles are missing from a tiled display, decoded from Tiled
 /// Display Topology Data Block (0x12) byte 0 bits 5:4.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TileTopologyBehavior {
@@ -374,6 +386,7 @@ impl TileTopologyBehavior {
 /// Display Topology Data Block (0x12) when the `has_bezel_info` flag is set.
 ///
 /// Each field is the bezel width or height in pixels at the tile's native resolution.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TileBezelInfo {
@@ -395,6 +408,7 @@ pub struct TileBezelInfo {
 /// assembles the full image across all tiles.
 ///
 /// Stored in [`DisplayCapabilities::tiled_topology`][crate::DisplayCapabilities::tiled_topology].
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DisplayIdTiledTopology {
@@ -422,6 +436,7 @@ pub struct DisplayIdTiledTopology {
 /// bits 3:0.
 ///
 /// Describes how left-eye and right-eye images are encoded in the video signal.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StereoViewingMode {
@@ -462,6 +477,7 @@ impl StereoViewingMode {
 
 /// Physical interface used to deliver stereo synchronization to the glasses, decoded from
 /// Stereo Display Interface Data Block (0x10) byte 1.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StereoSyncInterface {
@@ -497,6 +513,7 @@ impl StereoSyncInterface {
 /// to active-shutter glasses.
 ///
 /// Stored in [`DisplayCapabilities::stereo_interface`][crate::DisplayCapabilities::stereo_interface].
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DisplayIdStereoInterface {
@@ -525,6 +542,7 @@ pub struct DisplayIdStereoInterface {
 /// Power-off:  [Backlight off] →T3→ [Signal off] →T4→ [VCC off]
 /// Minimum off time: T5 (VCC), T6 (Backlight)
 /// ```
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct PowerSequencing {

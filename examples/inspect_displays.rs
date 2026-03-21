@@ -131,7 +131,7 @@ fn main() {
                                 Some(piaf::ManufactureDate::ModelYear(year)) => {
                                     println!("  Model year:   {}", year)
                                 }
-                                None => {}
+                                Some(_) | None => {}
                             }
                             println!(
                                 "  Display Name: {:?}",
@@ -158,7 +158,7 @@ fn main() {
                                     "  Aspect ratio: 1:{:.2} (portrait)",
                                     (v as f32 + 99.0) / 100.0
                                 ),
-                                None => {}
+                                Some(_) | None => {}
                             }
                             if let Some((w_mm, h_mm)) = caps.preferred_image_size_mm {
                                 println!("  Image size:   {}x{} mm", w_mm, h_mm);
@@ -250,6 +250,7 @@ fn main() {
                                             AudioFormat::WmaPro => "WMA-Pro",
                                             AudioFormat::Extended(_) => "Extended",
                                             AudioFormat::Reserved(_) => "Reserved",
+                                            _ => "Unknown",
                                         };
                                         let info = match sad.format_info {
                                             AudioFormatInfo::Lpcm {
@@ -273,6 +274,7 @@ fn main() {
                                                 format!("max {}kbps", kbps)
                                             }
                                             AudioFormatInfo::Raw(b) => format!("byte3=0x{:02X}", b),
+                                            _ => String::from("unknown"),
                                         };
                                         println!("    {} {}ch  {}", fmt, sad.max_channels, info);
                                     }
@@ -448,6 +450,7 @@ fn main() {
                                         DtcPointEncoding::Bits8 => "8-bit",
                                         DtcPointEncoding::Bits10 => "10-bit",
                                         DtcPointEncoding::Bits12 => "12-bit",
+                                        _ => "unknown",
                                     };
                                     println!(
                                         "  VESA DTC:     {} encoding, {} points",
