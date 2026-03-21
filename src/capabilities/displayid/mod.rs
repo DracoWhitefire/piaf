@@ -283,7 +283,8 @@ impl StaticExtensionHandler for DisplayIdHandler {
 
 /// Data block tags decoded by this handler.
 ///
-/// Must be kept in sync with the `if tag ==` dispatch in `timing::process_data_blocks`.
+/// Must be kept in sync with the tag dispatches in `timing::process_data_blocks`
+/// (timing blocks) and `metadata::scan_all_metadata_blocks` (metadata blocks).
 /// `test_all_block_tags_accounted_for` verifies that the union of implemented,
 /// deferred, and reserved ranges covers every value 0x00–0xFF.
 #[cfg(test)]
