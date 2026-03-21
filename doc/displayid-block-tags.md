@@ -6,6 +6,11 @@ Block tags are 8-bit values in the first byte of each data block header within a
 section. The section payload starts at byte 4 of the 128-byte EDID extension block; each
 data block has a 3-byte header (tag, revision, payload length) followed by its payload.
 
+The handler validates the DisplayID section checksum for each fragment. The checksum byte
+sits at `block[4 + N]` (where `N = block[2]`, the section byte count) and must make
+`block[1..=4+N]` sum to zero mod 256. An invalid checksum emits `EdidWarning::DisplayIdChecksumMismatch`
+but processing continues with whatever data is present.
+
 > **Note:** Tag assignments below are sourced from the DisplayID 1.3 specification structure.
 > They have not been confirmed against a spec PDF. Verify against the VESA document before
 > implementing additional block types, and validate with a real DisplayID fixture.

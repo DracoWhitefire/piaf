@@ -171,6 +171,27 @@ fn fragment_payload(block: &[u8; 128]) -> &[u8] {
     if end > 4 { &block[4..end] } else { &[] }
 }
 
+/// Returns `true` if the DisplayID section checksum for `block` is valid.
+///
+/// The checksum byte sits at `block[4 + section_byte_count]` — immediately after the
+/// data blocks, within bytes 1–126 of the 128-byte extension block.  The sum of
+/// `block[1..=4 + section_byte_count]` must equal 0 mod 256.
+///
+/// Returns `true` without checking when `section_byte_count` is so large that the
+/// checksum position would fall outside bytes 1–126 (malformed block — the EDID parser
+/// would normally have already rejected it).
+fn displayid_section_checksum_valid(block: &[u8; 128]) -> bool {
+    let n = block[2] as usize;
+    let checksum_pos = 4 + n;
+    if checksum_pos > 126 {
+        return true; // out-of-range: don't double-report a structural error
+    }
+    block[1..=checksum_pos]
+        .iter()
+        .fold(0u8, |acc, &x| acc.wrapping_add(x))
+        == 0
+}
+
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl ExtensionHandler for DisplayIdHandler {
     fn process(
@@ -213,6 +234,9 @@ impl ExtensionHandler for DisplayIdHandler {
 
         // Process data blocks from all fragments.
         for block in blocks {
+            if !displayid_section_checksum_valid(block) {
+                warnings.push(Arc::new(EdidWarning::DisplayIdChecksumMismatch));
+            }
             let payload = fragment_payload(block);
             process_data_blocks(payload, caps);
             scan_product_id_block(payload, caps);
@@ -265,6 +289,9 @@ impl StaticExtensionHandler for DisplayIdHandler {
 
         // Process data blocks from all fragments.
         for block in blocks {
+            if !displayid_section_checksum_valid(block) {
+                ctx.push_warning(EdidWarning::DisplayIdChecksumMismatch);
+            }
             process_data_blocks(fragment_payload(block), ctx);
         }
     }
@@ -332,11 +359,35 @@ mod tests {
         let mut block = [0u8; 128];
         block[0] = 0x70; // extension tag
         block[1] = version;
-        block[2] = data_blocks.len().min(122) as u8; // section_byte_count
+        let section_byte_count = data_blocks.len().min(122);
+        block[2] = section_byte_count as u8;
         block[3] = 0x00; // product_type=0, extension_count=0
-        let end = (4 + data_blocks.len()).min(127);
-        block[4..end].copy_from_slice(&data_blocks[..end - 4]);
+        let end = 4 + section_byte_count;
+        block[4..end].copy_from_slice(&data_blocks[..section_byte_count]);
+        // Set DisplayID section checksum at block[4 + section_byte_count].
+        let sum: u8 = block[1..end]
+            .iter()
+            .fold(0u8, |acc, &x| acc.wrapping_add(x));
+        block[end] = 0u8.wrapping_sub(sum);
+        // EDID extension block checksum at block[127] (covers all 128 bytes).
+        let edid_sum: u8 = block[..127].iter().fold(0u8, |acc, &x| acc.wrapping_add(x));
+        block[127] = 0u8.wrapping_sub(edid_sum);
         block
+    }
+
+    /// Recomputes the DisplayID section checksum and the EDID extension block checksum
+    /// after any modification to the block's header or data bytes.
+    fn fix_checksums(block: &mut [u8; 128]) {
+        let n = block[2] as usize;
+        let checksum_pos = 4 + n;
+        if checksum_pos <= 126 {
+            let sum: u8 = block[1..checksum_pos]
+                .iter()
+                .fold(0u8, |acc, &x| acc.wrapping_add(x));
+            block[checksum_pos] = 0u8.wrapping_sub(sum);
+        }
+        let edid_sum: u8 = block[..127].iter().fold(0u8, |acc, &x| acc.wrapping_add(x));
+        block[127] = 0u8.wrapping_sub(edid_sum);
     }
 
     fn make_type_i_descriptor(
@@ -395,6 +446,7 @@ mod tests {
         // Declare 1 continuation block but provide none.
         let mut block = make_displayid_block(0x10, &[]);
         block[3] = 0x08; // extension_count = 1, product_type = 0
+        fix_checksums(&mut block);
         let mut caps = DisplayCapabilities::default();
         let mut warnings: Vec<ParseWarning> = Vec::new();
         ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
@@ -423,6 +475,7 @@ mod tests {
         // version 0x13 (DisplayID 1.3), product_type = 2 (packed in byte 3 as 0x02)
         let mut block = make_displayid_block(0x13, &[]);
         block[3] = 0x02; // extension_count=0, product_type=2
+        fix_checksums(&mut block);
         let mut caps = DisplayCapabilities::default();
         let mut warnings: Vec<ParseWarning> = Vec::new();
         ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
@@ -441,6 +494,7 @@ mod tests {
         let db1 = make_type_i_data_block(&desc1);
         let mut block1 = make_displayid_block(0x10, &db1);
         block1[3] = 0x08; // extension_count=1 (bits 7:3), product_type=0
+        fix_checksums(&mut block1);
 
         // Second fragment (continuation): 2560×1440@60.
         let desc2 = make_type_i_descriptor(22118, 2560, 440, 80, 32, 1440, 41, 4, 5, 0x00);
@@ -467,6 +521,52 @@ mod tests {
             caps.supported_modes
                 .iter()
                 .any(|m| m.width == 2560 && m.height == 1440)
+        );
+    }
+
+    #[test]
+    fn test_valid_checksum_no_warning() {
+        // make_displayid_block already sets a valid checksum; no warning expected.
+        let block = make_displayid_block(0x10, &[]);
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+        assert!(warnings.is_empty(), "unexpected warnings: {:?}", warnings);
+    }
+
+    #[test]
+    fn test_invalid_checksum_emits_warning() {
+        let mut block = make_displayid_block(0x10, &[]);
+        // Corrupt the DisplayID section checksum (at block[4 + section_byte_count]).
+        let n = block[2] as usize;
+        block[4 + n] ^= 0xFF;
+        // Also fix the EDID extension block checksum so parsing reaches our code.
+        let edid_sum: u8 = block[..127].iter().fold(0u8, |acc, &x| acc.wrapping_add(x));
+        block[127] = 0u8.wrapping_sub(edid_sum);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        ExtensionHandler::process(&DisplayIdHandler, &[&block], &mut caps, &mut warnings);
+        assert_eq!(warnings.len(), 1, "expected exactly one warning");
+        let w = (*warnings[0]).downcast_ref::<EdidWarning>().unwrap();
+        assert_eq!(*w, EdidWarning::DisplayIdChecksumMismatch);
+    }
+
+    #[test]
+    fn test_invalid_checksum_static_pipeline_emits_warning() {
+        let mut block = make_displayid_block(0x10, &[]);
+        let n = block[2] as usize;
+        block[4 + n] ^= 0xFF;
+        let edid_sum: u8 = block[..127].iter().fold(0u8, |acc, &x| acc.wrapping_add(x));
+        block[127] = 0u8.wrapping_sub(edid_sum);
+
+        let mut caps = crate::model::StaticDisplayCapabilities::<4>::default();
+        let mut ctx = crate::model::StaticContext::new(&mut caps);
+        StaticExtensionHandler::process(&DisplayIdHandler, &[&block], &mut ctx);
+        assert_eq!(caps.num_warnings, 1, "expected exactly one warning");
+        assert_eq!(
+            caps.warnings[0],
+            Some(EdidWarning::DisplayIdChecksumMismatch)
         );
     }
 

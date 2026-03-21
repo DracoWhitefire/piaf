@@ -286,19 +286,22 @@ resolved via the CTA-861 VIC table with full timing detail; payload bytes beyond
 |---|---|
 | `DisplayIdVersionUnknown(u8)` | Version byte is outside the known ranges (0x10–0x1F, 0x20). The block is skipped. |
 | `DisplayIdExtensionCountMismatch { declared, found }` | The extension count in the first fragment's header does not match the number of continuation blocks actually present. Processing continues with whatever fragments are available. |
+| `DisplayIdChecksumMismatch` | The DisplayID section checksum byte does not make `block[1..=4+N]` sum to zero mod 256. Processing continues with whatever data is present in the fragment. |
 
 ## Fragment layout reference
 
 Each 128-byte EDID extension block carrying DisplayID has the following structure:
 
 ```
-Byte 0:      0x70 (EDID extension tag)
-Byte 1:      DisplayID version/revision
-Byte 2:      Section byte count (data block payload bytes in this fragment)
-Byte 3:      Bits [7:3] = continuation block count
-             Bits [2:0] = display product primary use case
-Bytes 4–126: DisplayID data blocks
-Byte 127:    Checksum
+Byte 0:         0x70 (EDID extension tag)
+Byte 1:         DisplayID version/revision
+Byte 2:         Section byte count N (data block payload bytes in this fragment; max 122)
+Byte 3:         Bits [7:3] = continuation block count
+                Bits [2:0] = display product primary use case
+Bytes 4..4+N-1: DisplayID data blocks
+Byte 4+N:       DisplayID section checksum (sum of bytes 1..=4+N must be 0 mod 256)
+Bytes 4+N+1..126: Padding zeros
+Byte 127:       EDID extension block checksum (sum of all 128 bytes must be 0 mod 256)
 ```
 
 Data blocks within the payload each begin with a 3-byte header:

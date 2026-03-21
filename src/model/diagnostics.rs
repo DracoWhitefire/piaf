@@ -95,6 +95,13 @@ pub enum EdidWarning {
         /// Actual number of continuation blocks found (i.e. `total 0x70 blocks − 1`).
         found: u8,
     },
+    /// The DisplayID section checksum byte does not make the section sum to zero.
+    ///
+    /// The checksum covers the three-byte section header plus all data block bytes; the byte
+    /// immediately following them must bring the running total to zero mod 256. Parsing
+    /// continues with whatever data is present in the fragment.
+    #[error("DisplayID section checksum is invalid")]
+    DisplayIdChecksumMismatch,
     /// The byte slice length does not match the size implied by the extension count.
     ///
     /// The EDID header declares `extension_count` extension blocks, so the expected
