@@ -40,8 +40,8 @@ alongside modes from the base block and CEA-861.
 
 ## Static pipeline
 
-`DisplayIdHandler` is included in `STANDARD_HANDLERS`. It decodes video modes from Type I
-timing blocks and pushes them into the static output:
+`DisplayIdHandler` is included in `STANDARD_HANDLERS`. It decodes video modes from all
+timing blocks (Types I–VI, VESA bitmap, CTA bitmap) and pushes them into the static output:
 
 ```rust
 use piaf::{STANDARD_HANDLERS, StaticDisplayCapabilities, capabilities_from_edid_static, parse_edid};
