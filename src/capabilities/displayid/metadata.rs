@@ -91,8 +91,10 @@ pub(super) fn decode_product_id_block(payload: &[u8], caps: &mut DisplayCapabili
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn scan_product_id_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
-        if tag == TAG_PRODUCT_ID {
+        if tag == TAG_PRODUCT_ID && !found {
+            found = true;
             decode_product_id_block(block_payload, caps);
         }
     });
@@ -130,8 +132,10 @@ pub(super) fn decode_display_params_block(payload: &[u8], caps: &mut DisplayCapa
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn scan_display_params_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
-        if tag == TAG_DISPLAY_PARAMS {
+        if tag == TAG_DISPLAY_PARAMS && !found {
+            found = true;
             decode_display_params_block(block_payload, caps);
         }
     });
@@ -175,8 +179,10 @@ pub(super) fn decode_color_characteristics_block(payload: &[u8], caps: &mut Disp
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn scan_color_characteristics_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
-        if tag == TAG_COLOR_CHARACTERISTICS {
+        if tag == TAG_COLOR_CHARACTERISTICS && !found {
+            found = true;
             decode_color_characteristics_block(block_payload, caps);
         }
     });
@@ -221,8 +227,10 @@ pub(super) fn decode_video_timing_range_block(payload: &[u8], caps: &mut Display
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn scan_video_timing_range_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
-        if tag == TAG_VIDEO_TIMING_RANGE {
+        if tag == TAG_VIDEO_TIMING_RANGE && !found {
+            found = true;
             decode_video_timing_range_block(block_payload, caps);
         }
     });
@@ -254,8 +262,10 @@ pub(super) fn decode_serial_number_block(payload: &[u8], caps: &mut DisplayCapab
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn scan_serial_number_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
-        if tag == TAG_SERIAL_NUMBER {
+        if tag == TAG_SERIAL_NUMBER && !found {
+            found = true;
             decode_serial_number_block(block_payload, caps);
         }
     });
@@ -396,8 +406,10 @@ pub(super) fn decode_display_device_data_block(payload: &[u8], caps: &mut Displa
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn scan_display_device_data_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
-        if tag == TAG_DISPLAY_DEVICE_DATA {
+        if tag == TAG_DISPLAY_DEVICE_DATA && !found {
+            found = true;
             decode_display_device_data_block(block_payload, caps);
         }
     });
@@ -433,8 +445,10 @@ pub(super) fn decode_power_sequencing_block(payload: &[u8], caps: &mut DisplayCa
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn scan_power_sequencing_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
-        if tag == TAG_POWER_SEQUENCING {
+        if tag == TAG_POWER_SEQUENCING && !found {
+            found = true;
             decode_power_sequencing_block(block_payload, caps);
         }
     });
@@ -557,8 +571,10 @@ pub(super) fn decode_transfer_characteristics_block(
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn scan_transfer_characteristics_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
-        if tag == TAG_TRANSFER_CHARACTERISTICS {
+        if tag == TAG_TRANSFER_CHARACTERISTICS && !found {
+            found = true;
             decode_transfer_characteristics_block(block_payload, caps);
         }
     });
@@ -605,8 +621,10 @@ pub(super) fn decode_display_interface_block(payload: &[u8], caps: &mut DisplayC
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn scan_display_interface_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
-        if tag == TAG_DISPLAY_INTERFACE {
+        if tag == TAG_DISPLAY_INTERFACE && !found {
+            found = true;
             decode_display_interface_block(block_payload, caps);
         }
     });
@@ -648,8 +666,10 @@ pub(super) fn decode_stereo_display_interface_block(
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn scan_stereo_display_interface_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
-        if tag == TAG_STEREO_DISPLAY_INTERFACE {
+        if tag == TAG_STEREO_DISPLAY_INTERFACE && !found {
+            found = true;
             decode_stereo_display_interface_block(block_payload, caps);
         }
     });
@@ -722,8 +742,10 @@ pub(super) fn decode_tiled_topology_block(payload: &[u8], caps: &mut DisplayCapa
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn scan_tiled_topology_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
-        if tag == TAG_TILED_TOPOLOGY {
+        if tag == TAG_TILED_TOPOLOGY && !found {
+            found = true;
             decode_tiled_topology_block(block_payload, caps);
         }
     });
@@ -734,7 +756,7 @@ pub(super) fn scan_tiled_topology_block(payload: &[u8], caps: &mut DisplayCapabi
 mod tests {
     use super::*;
     use crate::model::color::{Chromaticity, ColorBitDepth};
-    use crate::model::manufacture::{ManufactureDate, ManufacturerId};
+    use crate::model::manufacture::{ManufactureDate, ManufacturerId, MonitorString};
 
     // -----------------------------------------------------------------------
     // Shared test helpers
@@ -1871,5 +1893,187 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         decode_tiled_topology_block(&[], &mut caps);
         assert_eq!(caps.tiled_topology, None);
+    }
+
+    // -----------------------------------------------------------------------
+    // First-wins: each single-instance scan function ignores duplicate blocks
+    // -----------------------------------------------------------------------
+
+    /// Wraps `payload` in a 3-byte data block header for `tag`.
+    fn make_block(tag: u8, payload: &[u8]) -> Vec<u8> {
+        let mut v = vec![tag, 0x00, payload.len() as u8];
+        v.extend_from_slice(payload);
+        v
+    }
+
+    #[test]
+    fn test_scan_product_id_first_wins() {
+        let first = make_block(
+            0x00,
+            &make_product_id_payload(
+                pack_manufacturer_id(b'S', b'A', b'M'),
+                0x1111,
+                0,
+                0,
+                0,
+                None,
+            ),
+        );
+        let second = make_block(
+            0x00,
+            &make_product_id_payload(
+                pack_manufacturer_id(b'D', b'E', b'L'),
+                0x2222,
+                0,
+                0,
+                0,
+                None,
+            ),
+        );
+        let payload = [first, second].concat();
+        let mut caps = DisplayCapabilities::default();
+        scan_product_id_block(&payload, &mut caps);
+        assert_eq!(caps.manufacturer, Some(ManufacturerId(*b"SAM")));
+        assert_eq!(caps.product_code, Some(0x1111));
+    }
+
+    #[test]
+    fn test_scan_display_params_first_wins() {
+        let first = make_block(0x01, &make_display_params_payload(600, 400, 0, 0));
+        let second = make_block(0x01, &make_display_params_payload(300, 200, 0, 0));
+        let payload = [first, second].concat();
+        let mut caps = DisplayCapabilities::default();
+        scan_display_params_block(&payload, &mut caps);
+        assert_eq!(caps.preferred_image_size_mm, Some((600, 400)));
+    }
+
+    #[test]
+    fn test_scan_color_characteristics_first_wins() {
+        let first = make_block(
+            0x02,
+            &make_color_characteristics_payload((100, 50), (200, 150), (50, 25), (300, 300)),
+        );
+        let second = make_block(
+            0x02,
+            &make_color_characteristics_payload((900, 800), (700, 600), (500, 400), (512, 512)),
+        );
+        let payload = [first, second].concat();
+        let mut caps = DisplayCapabilities::default();
+        scan_color_characteristics_block(&payload, &mut caps);
+        assert_eq!(caps.chromaticity.red.x_raw, 100);
+        assert_eq!(caps.chromaticity.red.y_raw, 50);
+    }
+
+    #[test]
+    fn test_scan_video_timing_range_first_wins() {
+        // max_pixel_clock: first = 14850×10kHz → 148 MHz, second = 30000×10kHz → 300 MHz
+        let first = make_block(
+            0x09,
+            &make_video_timing_range_payload(0, 14850, 30, 83, 0, 48, 75, 0, 0),
+        );
+        let second = make_block(
+            0x09,
+            &make_video_timing_range_payload(0, 30000, 10, 200, 0, 24, 240, 0, 0),
+        );
+        let payload = [first, second].concat();
+        let mut caps = DisplayCapabilities::default();
+        scan_video_timing_range_block(&payload, &mut caps);
+        assert_eq!(caps.max_pixel_clock_mhz, Some(148));
+        assert_eq!(caps.max_h_rate_khz, Some(83));
+    }
+
+    #[test]
+    fn test_scan_serial_number_first_wins() {
+        let first = make_block(0x0A, b"FIRST\x0a       ");
+        let second = make_block(0x0A, b"SECOND\x0a      ");
+        let payload = [first, second].concat();
+        let mut caps = DisplayCapabilities::default();
+        scan_serial_number_block(&payload, &mut caps);
+        assert_eq!(
+            caps.serial_number_string,
+            Some(MonitorString(*b"FIRST\x0a       "))
+        );
+    }
+
+    #[test]
+    fn test_scan_display_device_data_first_wins() {
+        // byte 0: technology nibble 0x0 = Tft; 0x6 = Oled. Pad to 1 byte payload.
+        let first = make_block(0x0C, &[0x00]); // Tft
+        let second = make_block(0x0C, &[0x60]); // Oled
+        let payload = [first, second].concat();
+        let mut caps = DisplayCapabilities::default();
+        scan_display_device_data_block(&payload, &mut caps);
+        assert_eq!(caps.display_technology, Some(DisplayTechnology::Tft));
+    }
+
+    #[test]
+    fn test_scan_power_sequencing_first_wins() {
+        let first = make_block(0x0D, &[10, 20, 30, 40, 50, 60]);
+        let second = make_block(0x0D, &[99, 99, 99, 99, 99, 99]);
+        let payload = [first, second].concat();
+        let mut caps = DisplayCapabilities::default();
+        scan_power_sequencing_block(&payload, &mut caps);
+        let ps = caps.power_sequencing.unwrap();
+        assert_eq!(ps.t1_power_to_signal, 10);
+        assert_eq!(ps.t2_signal_to_backlight, 20);
+    }
+
+    #[test]
+    fn test_scan_transfer_characteristics_first_wins() {
+        // byte 0 = 0x00: 8-bit encoding, single channel. byte 1 = sample value.
+        let first = make_block(0x0E, &[0x00, 0xFF]); // one point at 1.0
+        let second = make_block(0x0E, &[0x00, 0x00]); // one point at 0.0
+        let payload = [first, second].concat();
+        let mut caps = DisplayCapabilities::default();
+        scan_transfer_characteristics_block(&payload, &mut caps);
+        let tc = caps.transfer_characteristic.unwrap();
+        if let TransferCurve::Luminance(pts) = tc.curve {
+            assert_eq!(pts.len(), 1);
+            assert_eq!(pts[0], 1.0_f32);
+        } else {
+            panic!("expected Luminance curve");
+        }
+    }
+
+    #[test]
+    fn test_scan_display_interface_first_wins() {
+        // byte 0 bits 3:0: 0x7 = DisplayPort, 0x2 = LvdsSingle. Payload must be >= 7 bytes.
+        let first = make_block(0x0F, &[0x07, 0, 0, 0, 0, 0, 0]);
+        let second = make_block(0x0F, &[0x02, 0, 0, 0, 0, 0, 0]);
+        let payload = [first, second].concat();
+        let mut caps = DisplayCapabilities::default();
+        scan_display_interface_block(&payload, &mut caps);
+        assert_eq!(
+            caps.display_id_interface.unwrap().interface_type,
+            DisplayInterfaceType::DisplayPort,
+        );
+    }
+
+    #[test]
+    fn test_scan_stereo_display_interface_first_wins() {
+        // byte 0 bits 3:0: 0x0 = FieldSequential, 0x1 = SideBySide. Payload must be >= 2 bytes.
+        let first = make_block(0x10, &[0x00, 0x00]); // FieldSequential
+        let second = make_block(0x10, &[0x01, 0x00]); // SideBySide
+        let payload = [first, second].concat();
+        let mut caps = DisplayCapabilities::default();
+        scan_stereo_display_interface_block(&payload, &mut caps);
+        assert_eq!(
+            caps.stereo_interface.unwrap().viewing_mode,
+            StereoViewingMode::FieldSequential,
+        );
+    }
+
+    #[test]
+    fn test_scan_tiled_topology_first_wins() {
+        // byte 1 bits 7:4 = h_tile_count-1, bits 3:0 = v_tile_count-1.
+        // Payload must be >= 7 bytes; bytes 3-6 are tile dimensions (can be zero).
+        let first = make_block(0x12, &[0x00, 0x11, 0x00, 0, 0, 0, 0]); // 2×2 grid
+        let second = make_block(0x12, &[0x00, 0x22, 0x00, 0, 0, 0, 0]); // 3×3 grid
+        let payload = [first, second].concat();
+        let mut caps = DisplayCapabilities::default();
+        scan_tiled_topology_block(&payload, &mut caps);
+        let topo = caps.tiled_topology.unwrap();
+        assert_eq!(topo.h_tile_count, 2);
+        assert_eq!(topo.v_tile_count, 2);
     }
 }
