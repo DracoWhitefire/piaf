@@ -5,6 +5,91 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-03-21
+
+### Breaking changes
+
+**Handler trait signatures**
+- `ExtensionHandler::process` now receives `blocks: &[&[u8; 128]]` (all blocks matching the
+  handler's registered tag, in stream order) instead of a single `block: &[u8; 128]`. Update
+  implementations to iterate or index into the slice; single-block handlers can use `blocks[0]`.
+- `StaticExtensionHandler::process` now receives `blocks: &[&[u8; 128]]` and
+  `ctx: &mut StaticContext<'_>` instead of `block: &[u8; 128]` and `sink: &mut dyn ModeSink`.
+  Replace `sink` with `ctx` at call sites; `StaticContext` implements `ModeSink` and exposes the
+  same `push_mode` / `push_warning` methods.
+
+**`EdidWarning` new variants**
+- Four new variants were added: `DisplayIdVersionUnknown`, `DisplayIdExtensionCountMismatch`,
+  `DisplayIdChecksumMismatch`, `DisplayIdSectionBytesOutOfRange`. Exhaustive `match` arms on
+  `EdidWarning` must be updated.
+
+**`DisplayCapabilities` and `StaticDisplayCapabilities` new fields**
+- Both structs gained many new `Option` fields for DisplayID data. Code that constructs these
+  structs with a struct literal (rather than through the library) must add the new fields or
+  use `..Default::default()`.
+
+### Added
+
+**DisplayID 1.x extension**
+- `DisplayIdHandler` and `DISPLAYID_HANDLER` — built-in handler for EDID extension tag `0x70`
+- `STANDARD_HANDLERS` now includes `DisplayIdHandler` alongside `Cea861Handler`
+- `DisplayIdCapabilities` — decoded view of a full DisplayID section (alloc / std only)
+- Fragment reassembly: consecutive `0x70` extension blocks are collected and processed as a
+  single unit; the `section_byte_count` continuation mechanism is fully implemented
+- Checksum verification per section with `DisplayIdChecksumMismatch` warning on failure
+- Full coverage of DisplayID 1.x data blocks:
+  - **0x01** Display Parameters Block — native resolution, range limits, aspect ratio, audio,
+    interlacing, deinterlacing, contiguous frequency flag
+  - **0x02** Color Characteristics Block — primary / white point CIE xy coordinates and bit depth
+  - **0x03** Product Identification Block — manufacturer ID, product code, serial number, name
+  - **0x04** Type I Short Descriptor Video Timings
+  - **0x05** CTA Video Timing Block — VIC-keyed timings with native / preferred flags
+  - **0x06** VESA Video Timing Block — DMT-ID keyed timings
+  - **0x07** Type II Detailed Video Timing
+  - **0x08** Type III Short Video Timing
+  - **0x09** Type IV Short Video Timing
+  - **0x0A** ASCII String Block
+  - **0x0B** Product Serial Number Block
+  - **0x0C** Display Device Data Block — technology, operating mode, backlight, native pixels,
+    aspect ratio, orientation, rotation, scan direction, sub-pixel layout, pixel pitch,
+    pixel response time, DE signal polarity
+  - **0x0D** Interface Power Sequencing Block — T1–T5 timing parameters
+  - **0x0E** Transfer Characteristics Block — luminance curve as an ordered list of encoded
+    points (`DisplayIdTransferCharacteristic`, alloc / std only)
+  - **0x0F** Display Interface Data Block — interface type, number of lanes/links, content
+    protection, color depth per channel, spread-spectrum support
+  - **0x10** Stereo Display Interface Data Block — viewing mode, sync interface, frame rate,
+    polarity, pattern, eye-separation
+  - **0x11** Video Timing Range Descriptor Block — minimum and maximum H/V rates, pixel clock range
+  - **0x12** Tiled Display Topology Data Block — tile position/size, total tiled display size,
+    pixel overlap, bezel width, topology ID, single-enclosure flag
+
+**New public types (all in `piaf::` unless noted)**
+- Panel types: `BacklightType`, `DisplayIdInterface`, `DisplayIdStereoInterface`,
+  `DisplayIdTiledTopology`, `DisplayInterfaceType`, `DisplayTechnology`,
+  `InterfaceContentProtection`, `OperatingMode`, `PhysicalOrientation`, `PowerSequencing`,
+  `RotationCapability`, `ScanDirection`, `StereoSyncInterface`, `StereoViewingMode`,
+  `SubpixelLayout`, `TileBezelInfo`, `TileTopologyBehavior`, `ZeroPixelLocation`
+- Transfer types: `TransferPointEncoding`; `DisplayIdTransferCharacteristic`, `TransferCurve`
+  (alloc / std only)
+- `StaticContext` — output context passed to `StaticExtensionHandler::process`; wraps a
+  `ModeSink` and is extensible without changing the trait signature
+
+**New `DisplayCapabilities` fields** (all `Option`, default `None`)
+- `display_technology`, `display_subtype`, `operating_mode`, `backlight_type`,
+  `data_enable_used`, `data_enable_positive`, `native_pixels`, `panel_aspect_ratio_100`,
+  `physical_orientation`, `rotation_capability`, `zero_pixel_location`, `scan_direction`,
+  `subpixel_layout`, `pixel_pitch_hundredths_mm`, `pixel_response_time_ms`,
+  `power_sequencing`, `transfer_characteristic` (alloc / std only),
+  `display_id_interface`, `stereo_interface`, `tiled_topology`
+
+**Test fixtures and developer experience**
+- `capture_fixture` example — captures EDID binaries from connected displays
+- Two new real-world test fixtures: `philips_ftv_phl.bin`, `phl_275e1_phl.bin`
+- CI now publishes to crates.io on tag push
+
+---
+
 ## [0.1.0] - 2026-03-21
 
 ### Added
