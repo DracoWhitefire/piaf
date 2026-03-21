@@ -13,6 +13,7 @@ use crate::model::extension::StaticExtensionHandler;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{Arc, Vec};
 
+#[cfg(any(feature = "alloc", feature = "std"))]
 use metadata::scan_all_metadata_blocks;
 use timing::process_data_blocks;
 
