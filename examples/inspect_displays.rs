@@ -2,8 +2,8 @@ use piaf::{
     AudioFormat, AudioFormatInfo, Cea861Capabilities, Cea861Flags, Cea861Handler, ColorimetryFlags,
     DisplayCapabilities, DisplayIdCapabilities, DtcPointEncoding, ExtensionHandler,
     ExtensionLibrary, HdmiVsdbFlags, HdrEotf, ParseWarning, SpeakerAllocationFlags,
-    SpeakerAllocationFlags2, SpeakerAllocationFlags3, capabilities_from_edid, infoframe_type,
-    parse_edid,
+    SpeakerAllocationFlags2, SpeakerAllocationFlags3, TransferCurve, TransferPointEncoding,
+    capabilities_from_edid, infoframe_type, parse_edid,
 };
 use std::fs;
 use std::path::Path;
@@ -131,7 +131,7 @@ fn main() {
                                 Some(piaf::ManufactureDate::ModelYear(year)) => {
                                     println!("  Model year:   {}", year)
                                 }
-                                None => {}
+                                Some(_) | None => {}
                             }
                             println!(
                                 "  Display Name: {:?}",
@@ -158,7 +158,7 @@ fn main() {
                                     "  Aspect ratio: 1:{:.2} (portrait)",
                                     (v as f32 + 99.0) / 100.0
                                 ),
-                                None => {}
+                                Some(_) | None => {}
                             }
                             if let Some((w_mm, h_mm)) = caps.preferred_image_size_mm {
                                 println!("  Image size:   {}x{} mm", w_mm, h_mm);
@@ -199,6 +199,144 @@ fn main() {
                             }
                             if let Some(ct) = caps.analog_color_type {
                                 println!("  Color type:   {:?}", ct);
+                            }
+                            if let Some(tech) = caps.display_technology {
+                                print!("  Technology:   {:?}", tech);
+                                if let Some(sub) = caps.display_subtype {
+                                    print!(" (subtype {})", sub);
+                                }
+                                println!();
+                            }
+                            if let Some(mode) = caps.operating_mode {
+                                println!("  Op. mode:     {:?}", mode);
+                            }
+                            if let Some(bl) = caps.backlight_type {
+                                println!("  Backlight:    {:?}", bl);
+                            }
+                            if let Some(px) = caps.native_pixels {
+                                println!("  Native res:   {}x{} px", px.0, px.1);
+                            }
+                            if let Some(ar) = caps.panel_aspect_ratio_100 {
+                                println!("  Panel AR:     {:.2}:1", (ar as f32 + 100.0) / 100.0);
+                            }
+                            if let Some(orient) = caps.physical_orientation {
+                                println!("  Orientation:  {:?}", orient);
+                            }
+                            if let Some(rot) = caps.rotation_capability {
+                                println!("  Rotation:     {:?}", rot);
+                            }
+                            if let Some(zp) = caps.zero_pixel_location {
+                                println!("  Zero pixel:   {:?}", zp);
+                            }
+                            if let Some(sd) = caps.scan_direction {
+                                println!("  Scan dir:     {:?}", sd);
+                            }
+                            if let Some(sp) = caps.subpixel_layout {
+                                println!("  Subpixel:     {:?}", sp);
+                            }
+                            if let Some((hpitch, vpitch)) = caps.pixel_pitch_hundredths_mm {
+                                println!(
+                                    "  Pixel pitch:  {:.2} x {:.2} mm",
+                                    hpitch as f32 / 100.0,
+                                    vpitch as f32 / 100.0
+                                );
+                            }
+                            if let Some(rt) = caps.pixel_response_time_ms {
+                                println!("  Response:     {} ms", rt);
+                            }
+                            if let Some(true) = caps.data_enable_used {
+                                println!(
+                                    "  DE signal:    used, polarity={}",
+                                    if caps.data_enable_positive.unwrap_or(false) {
+                                        "positive"
+                                    } else {
+                                        "negative"
+                                    }
+                                );
+                            }
+                            if let Some(ps) = caps.power_sequencing {
+                                println!(
+                                    "  Power seq:    T1={}ms T2={}ms T3={}ms T4={}ms T5={}ms T6={}ms",
+                                    ps.t1_power_to_signal as u16 * 2,
+                                    ps.t2_signal_to_backlight as u16 * 2,
+                                    ps.t3_backlight_to_signal_off as u16 * 2,
+                                    ps.t4_signal_to_power_off as u16 * 2,
+                                    ps.t5_power_off_min as u16 * 2,
+                                    ps.t6_backlight_off_min as u16 * 2,
+                                );
+                            }
+                            if let Some(tc) = &caps.transfer_characteristic {
+                                let enc_str = match tc.encoding {
+                                    TransferPointEncoding::Bits8 => "8-bit",
+                                    TransferPointEncoding::Bits10 => "10-bit",
+                                    TransferPointEncoding::Bits12 => "12-bit",
+                                    _ => "unknown",
+                                };
+                                let point_info = match &tc.curve {
+                                    TransferCurve::Luminance(v) => {
+                                        format!("{} luminance points", v.len())
+                                    }
+                                    TransferCurve::Rgb { red, .. } => {
+                                        format!("{} points/channel (RGB)", red.len())
+                                    }
+                                    _ => String::from("unknown"),
+                                };
+                                println!("  DisplayID TC: {} encoding, {}", enc_str, point_info);
+                            }
+                            if let Some(iface) = &caps.display_id_interface {
+                                println!(
+                                    "  DisplayID IF: {:?} lanes={} SS={} clk={}-{} kHz prot={:?}",
+                                    iface.interface_type,
+                                    iface.num_lanes,
+                                    iface.spread_spectrum,
+                                    iface.min_pixel_clock_10khz * 10,
+                                    iface.max_pixel_clock_10khz * 10,
+                                    iface.content_protection,
+                                );
+                            }
+                            if let Some(stereo) = &caps.stereo_interface {
+                                let polarity = if matches!(
+                                    stereo.viewing_mode,
+                                    piaf::StereoViewingMode::FieldSequential
+                                ) {
+                                    format!(
+                                        " polarity={}",
+                                        if stereo.sync_polarity_positive {
+                                            "+"
+                                        } else {
+                                            "-"
+                                        }
+                                    )
+                                } else {
+                                    String::new()
+                                };
+                                println!(
+                                    "  Stereo:       {:?} sync={:?}{}",
+                                    stereo.viewing_mode, stereo.sync_interface, polarity
+                                );
+                            }
+                            if let Some(topo) = &caps.tiled_topology {
+                                let bezel_str = topo.bezel.map(|b| {
+                                    format!(
+                                        ", bezel T{}B{}L{}R{}px",
+                                        b.top_px, b.bottom_px, b.left_px, b.right_px
+                                    )
+                                });
+                                println!(
+                                    "  Tiled:        {}x{} grid, tile [{},{}], {}x{}px{}{}",
+                                    topo.h_tile_count,
+                                    topo.v_tile_count,
+                                    topo.h_tile_location,
+                                    topo.v_tile_location,
+                                    topo.tile_width_px,
+                                    topo.tile_height_px,
+                                    if topo.single_enclosure {
+                                        ", single-enclosure"
+                                    } else {
+                                        ""
+                                    },
+                                    bezel_str.as_deref().unwrap_or(""),
+                                );
                             }
                             if let Some(cea) = caps.get_extension_data::<Cea861Capabilities>(0x02) {
                                 println!(
@@ -250,6 +388,7 @@ fn main() {
                                             AudioFormat::WmaPro => "WMA-Pro",
                                             AudioFormat::Extended(_) => "Extended",
                                             AudioFormat::Reserved(_) => "Reserved",
+                                            _ => "Unknown",
                                         };
                                         let info = match sad.format_info {
                                             AudioFormatInfo::Lpcm {
@@ -273,6 +412,7 @@ fn main() {
                                                 format!("max {}kbps", kbps)
                                             }
                                             AudioFormatInfo::Raw(b) => format!("byte3=0x{:02X}", b),
+                                            _ => String::from("unknown"),
                                         };
                                         println!("    {} {}ch  {}", fmt, sad.max_channels, info);
                                     }
@@ -448,6 +588,7 @@ fn main() {
                                         DtcPointEncoding::Bits8 => "8-bit",
                                         DtcPointEncoding::Bits10 => "10-bit",
                                         DtcPointEncoding::Bits12 => "12-bit",
+                                        _ => "unknown",
                                     };
                                     println!(
                                         "  VESA DTC:     {} encoding, {} points",

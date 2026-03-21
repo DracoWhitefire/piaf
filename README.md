@@ -149,11 +149,11 @@ require the dynamic pipeline.
 
 ## Features
 
-| Feature | Default | Description |
-|---------|---------|-------------|
+| Feature | Default | Description                                              |
+|---------|---------|----------------------------------------------------------|
 | `std`   | yes     | Enables `std`-backed types and the full extension system |
-| `alloc` | no      | Enables dynamic allocation without `std` |
-| `serde` | no      | Derives `Serialize`/`Deserialize` on public types |
+| `alloc` | no      | Enables dynamic allocation without `std`                 |
+| `serde` | no      | Derives `Serialize`/`Deserialize` on public types        |
 
 ## `no_std` builds
 
@@ -171,41 +171,41 @@ modes are available through `capabilities_from_edid_static` at all build tiers.
 
 ### Fields in `DisplayCapabilities` available in all build configurations
 
-| Field | Type |
-|-------|------|
-| `manufacturer` | `Option<ManufacturerId>` |
-| `manufacture_date` | `Option<ManufactureDate>` |
-| `edid_version` | `Option<EdidVersion>` |
-| `product_code` | `Option<u16>` |
-| `serial_number` | `Option<u32>` |
-| `serial_number_string` | `Option<MonitorString>` |
-| `display_name` | `Option<MonitorString>` |
-| `unspecified_text` | `[Option<MonitorString>; 4]` |
-| `white_points` | `[Option<WhitePoint>; 2]` |
-| `digital` | `bool` |
-| `color_bit_depth` | `Option<ColorBitDepth>` |
-| `video_interface` | `Option<VideoInterface>` |
-| `analog_sync_level` | `Option<AnalogSyncLevel>` |
-| `chromaticity` | `Chromaticity` |
-| `gamma` | `Option<DisplayGamma>` |
-| `display_features` | `Option<DisplayFeatureFlags>` |
-| `digital_color_encoding` | `Option<DigitalColorEncoding>` |
-| `analog_color_type` | `Option<AnalogColorType>` |
-| `screen_size` | `Option<ScreenSize>` |
-| `preferred_image_size_mm` | `Option<(u16, u16)>` |
-| `min_v_rate` / `max_v_rate` | `Option<u16>` |
-| `min_h_rate_khz` / `max_h_rate_khz` | `Option<u16>` |
-| `max_pixel_clock_mhz` | `Option<u16>` |
-| `timing_formula` | `Option<TimingFormula>` |
-| `color_management` | `Option<ColorManagementData>` |
-| `warnings` | `[Option<EdidWarning>; 8]` (first 8; use `iter_warnings()`) |
+| Field                               | Type                                                        |
+|-------------------------------------|-------------------------------------------------------------|
+| `manufacturer`                      | `Option<ManufacturerId>`                                    |
+| `manufacture_date`                  | `Option<ManufactureDate>`                                   |
+| `edid_version`                      | `Option<EdidVersion>`                                       |
+| `product_code`                      | `Option<u16>`                                               |
+| `serial_number`                     | `Option<u32>`                                               |
+| `serial_number_string`              | `Option<MonitorString>`                                     |
+| `display_name`                      | `Option<MonitorString>`                                     |
+| `unspecified_text`                  | `[Option<MonitorString>; 4]`                                |
+| `white_points`                      | `[Option<WhitePoint>; 2]`                                   |
+| `digital`                           | `bool`                                                      |
+| `color_bit_depth`                   | `Option<ColorBitDepth>`                                     |
+| `video_interface`                   | `Option<VideoInterface>`                                    |
+| `analog_sync_level`                 | `Option<AnalogSyncLevel>`                                   |
+| `chromaticity`                      | `Chromaticity`                                              |
+| `gamma`                             | `Option<DisplayGamma>`                                      |
+| `display_features`                  | `Option<DisplayFeatureFlags>`                               |
+| `digital_color_encoding`            | `Option<DigitalColorEncoding>`                              |
+| `analog_color_type`                 | `Option<AnalogColorType>`                                   |
+| `screen_size`                       | `Option<ScreenSize>`                                        |
+| `preferred_image_size_mm`           | `Option<(u16, u16)>`                                        |
+| `min_v_rate` / `max_v_rate`         | `Option<u16>`                                               |
+| `min_h_rate_khz` / `max_h_rate_khz` | `Option<u16>`                                               |
+| `max_pixel_clock_mhz`               | `Option<u16>`                                               |
+| `timing_formula`                    | `Option<TimingFormula>`                                     |
+| `color_management`                  | `Option<ColorManagementData>`                               |
+| `warnings`                          | `[Option<EdidWarning>; 8]` (first 8; use `iter_warnings()`) |
 
 These fields are absent from `DisplayCapabilities` without `alloc` or `std`:
 
-| Field | Reason |
-|-------|--------|
-| `supported_modes` | Variable-length list of video modes |
-| `extension_data` | Type-erased handler data via `Arc<dyn ExtensionData>` |
+| Field             | Reason                                                                         |
+|-------------------|--------------------------------------------------------------------------------|
+| `supported_modes` | Variable-length list of video modes                                            |
+| `extension_data`  | Type-erased handler data via `Arc<dyn ExtensionData>`                          |
 | `warnings` (full) | `Vec<ParseWarning>` in alloc builds; use `iter_warnings()` for portable access |
 
 **For supported modes without heap allocation**, use `capabilities_from_edid_static` instead.
@@ -220,61 +220,92 @@ strings in all build configurations without requiring heap allocation.
 
 Fields decoded by `BaseBlockHandler`:
 
-| Field | Source | Notes |
-|-------|--------|-------|
-| Manufacturer ID | bytes `0x08`–`0x09` | Three-character PNP code; `InvalidManufacturerId` warning if out of range |
-| Product code | bytes `0x0A`–`0x0B` | 16-bit little-endian |
-| Serial number | bytes `0x0C`–`0x0F` | 32-bit little-endian |
-| Manufacture date | bytes `0x10`–`0x11` | Week + year, model year, or unspecified |
-| EDID version | bytes `0x12`–`0x13` | Version and revision |
-| Input type | byte `0x14` | Digital/analog flag; interface type, color bit depth (digital); sync level (analog) |
-| Screen size | bytes `0x15`–`0x16` | Physical dimensions in cm, or landscape/portrait aspect ratio |
-| Chromaticity | bytes `0x19`–`0x22` | 10-bit CIE xy coordinates for R, G, B, and white point |
-| Display gamma | byte `0x17` | Encoded as `(value + 100) / 100`; absent if byte is `0xFF` |
-| Display features | byte `0x18` | DPMS states, preferred timing mode, sRGB default, continuous timings |
-| Color encoding | byte `0x18` bits 4–3 | RGB/YCbCr variants for EDID 1.4+ digital; analog color type otherwise |
-| Established timings I/II | bytes `0x23`–`0x25` | Bitmap of 17 legacy modes decoded as `VideoMode` entries |
-| Established timings III | descriptor `0xF7` | Extended bitmap of 44 additional VESA modes |
-| Standard timings | bytes `0x26`–`0x35` | Up to 8 resolution + refresh rate pairs decoded as `VideoMode` entries |
+| Field                       | Source                               | Notes                                                                                                |
+|-----------------------------|--------------------------------------|------------------------------------------------------------------------------------------------------|
+| Manufacturer ID             | bytes `0x08`–`0x09`                  | Three-character PNP code; `InvalidManufacturerId` warning if out of range                            |
+| Product code                | bytes `0x0A`–`0x0B`                  | 16-bit little-endian                                                                                 |
+| Serial number               | bytes `0x0C`–`0x0F`                  | 32-bit little-endian                                                                                 |
+| Manufacture date            | bytes `0x10`–`0x11`                  | Week + year, model year, or unspecified                                                              |
+| EDID version                | bytes `0x12`–`0x13`                  | Version and revision                                                                                 |
+| Input type                  | byte `0x14`                          | Digital/analog flag; interface type, color bit depth (digital); sync level (analog)                  |
+| Screen size                 | bytes `0x15`–`0x16`                  | Physical dimensions in cm, or landscape/portrait aspect ratio                                        |
+| Chromaticity                | bytes `0x19`–`0x22`                  | 10-bit CIE xy coordinates for R, G, B, and white point                                               |
+| Display gamma               | byte `0x17`                          | Encoded as `(value + 100) / 100`; absent if byte is `0xFF`                                           |
+| Display features            | byte `0x18`                          | DPMS states, preferred timing mode, sRGB default, continuous timings                                 |
+| Color encoding              | byte `0x18` bits 4–3                 | RGB/YCbCr variants for EDID 1.4+ digital; analog color type otherwise                                |
+| Established timings I/II    | bytes `0x23`–`0x25`                  | Bitmap of 17 legacy modes decoded as `VideoMode` entries                                             |
+| Established timings III     | descriptor `0xF7`                    | Extended bitmap of 44 additional VESA modes                                                          |
+| Standard timings            | bytes `0x26`–`0x35`                  | Up to 8 resolution + refresh rate pairs decoded as `VideoMode` entries                               |
 | Detailed timing descriptors | slots `0x36`, `0x48`, `0x5A`, `0x6C` | Full DTD parameters decoded as `VideoMode`; first non-zero image size sets `preferred_image_size_mm` |
-| Monitor name | descriptor `0xFC` | Display name string |
-| Serial number string | descriptor `0xFF` | Serial number as text |
-| Unspecified text | descriptor `0xFE` | Manufacturer-defined ASCII string |
-| Display range limits | descriptor `0xFD` | Min/max H and V rates, max pixel clock, GTF/CVT timing formula |
-| Additional white points | descriptor `0xFB` | Up to two additional white point entries with optional gamma |
-| Color management data | descriptor `0xF9` | DCM polynomial coefficients for R, G, and B channels |
+| Monitor name                | descriptor `0xFC`                    | Display name string                                                                                  |
+| Serial number string        | descriptor `0xFF`                    | Serial number as text                                                                                |
+| Unspecified text            | descriptor `0xFE`                    | Manufacturer-defined ASCII string                                                                    |
+| Display range limits        | descriptor `0xFD`                    | Min/max H and V rates, max pixel clock, GTF/CVT timing formula                                       |
+| Additional white points     | descriptor `0xFB`                    | Up to two additional white point entries with optional gamma                                         |
+| Color management data       | descriptor `0xF9`                    | DCM polynomial coefficients for R, G, and B channels                                                 |
 
 ## CEA-861 coverage
 
 Data blocks decoded by `Cea861Handler`:
 
-| Tag | Block | Notes |
-|-----|-------|-------|
-| `0x01` | Audio Data Block | Short Audio Descriptors (SADs) |
-| `0x02` | Video Data Block | VICs 1–127 (standard SVDs) and 128–255 (extended SVDs) |
-| `0x03` | Vendor-Specific Data Block | HDMI 1.x VSDB (OUI `0x000C03`); HDMI Forum VSDB (OUI `0xC45DD8`) |
-| `0x04` | Speaker Allocation Data Block | Three-byte channel presence bitmask |
-| `0x05` | VESA Display Transfer Characteristic | 8/10/12-bit packed luminance points |
-| `0x07` ext `0x00` | Video Capability Data Block | Quantization range and overscan flags |
-| `0x07` ext `0x01` | Vendor-Specific Video Data Block | IEEE OUI + opaque vendor payload (e.g. Dolby Vision) |
-| `0x07` ext `0x02` | VESA Display Device Data Block | Interface type, clock range, native resolution, audio, color depth |
-| `0x07` ext `0x03` | VESA Video Timing Block Extension | DTBs, CVT, and Standard Timing entries as `VideoMode` |
-| `0x07` ext `0x05` | Colorimetry Data Block | xvYCC, sYCC, opRGB, BT.2020 variants |
-| `0x07` ext `0x06` | HDR Static Metadata Data Block | EOTFs and luminance levels |
-| `0x07` ext `0x07` | HDR Dynamic Metadata Data Block | HDR10+, Dolby Vision application types |
-| `0x07` ext `0x0D` | Video Format Preference Data Block | Short Video References (SVRs) |
-| `0x07` ext `0x0E` | YCbCr 4:2:0 Video Data Block | 4:2:0-only VICs |
-| `0x07` ext `0x0F` | YCbCr 4:2:0 Capability Map | Per-VIC 4:2:0 capability bitmap |
-| `0x07` ext `0x12` | HDMI Audio Data Block | Multi-stream audio flag and embedded SADs |
-| `0x07` ext `0x13` | Room Configuration Data Block | Speaker count and location availability |
-| `0x07` ext `0x14` | Speaker Location Data Block | Per-channel assignment and distance |
-| `0x07` ext `0x11` | Vendor-Specific Audio Data Block | IEEE OUI + opaque vendor payload |
-| `0x07` ext `0x22` | DisplayID Type VII Video Timing Data Block | Single 20-byte DisplayID timing descriptor decoded to `VideoMode` |
-| `0x07` ext `0x23` | DisplayID Type VIII Video Timing Data Block | VESA DMT ID codes decoded via built-in 0x01–0x58 lookup table |
-| `0x07` ext `0x2A` | DisplayID Type X Video Timing Data Block | CVT formula-based timings; 6/7/8-byte descriptors; refresh up to 1024 Hz |
-| `0x07` ext `0x78` | HDMI Forum EDID Extension Override Data Block | 1-byte extension count override for HDMI 2.1 sinks |
-| `0x07` ext `0x79` | HDMI Forum Sink Capability Data Block | FRL rate, SCDC, Deep Color 4:2:0, ALLM, VRR range, DSC capabilities |
-| `0x07` ext `0x20` | InfoFrame Data Block | Short InfoFrame Descriptors with OUI for VSI |
+| Tag               | Block                                         | Notes                                                                    |
+|-------------------|-----------------------------------------------|--------------------------------------------------------------------------|
+| `0x01`            | Audio Data Block                              | Short Audio Descriptors (SADs)                                           |
+| `0x02`            | Video Data Block                              | VICs 1–127 (standard SVDs) and 128–255 (extended SVDs)                   |
+| `0x03`            | Vendor-Specific Data Block                    | HDMI 1.x VSDB (OUI `0x000C03`); HDMI Forum VSDB (OUI `0xC45DD8`)         |
+| `0x04`            | Speaker Allocation Data Block                 | Three-byte channel presence bitmask                                      |
+| `0x05`            | VESA Display Transfer Characteristic          | 8/10/12-bit packed luminance points                                      |
+| `0x07` ext `0x00` | Video Capability Data Block                   | Quantization range and overscan flags                                    |
+| `0x07` ext `0x01` | Vendor-Specific Video Data Block              | IEEE OUI + opaque vendor payload (e.g. Dolby Vision)                     |
+| `0x07` ext `0x02` | VESA Display Device Data Block                | Interface type, clock range, native resolution, audio, color depth       |
+| `0x07` ext `0x03` | VESA Video Timing Block Extension             | DTBs, CVT, and Standard Timing entries as `VideoMode`                    |
+| `0x07` ext `0x05` | Colorimetry Data Block                        | xvYCC, sYCC, opRGB, BT.2020 variants                                     |
+| `0x07` ext `0x06` | HDR Static Metadata Data Block                | EOTFs and luminance levels                                               |
+| `0x07` ext `0x07` | HDR Dynamic Metadata Data Block               | HDR10+, Dolby Vision application types                                   |
+| `0x07` ext `0x0D` | Video Format Preference Data Block            | Short Video References (SVRs)                                            |
+| `0x07` ext `0x0E` | YCbCr 4:2:0 Video Data Block                  | 4:2:0-only VICs                                                          |
+| `0x07` ext `0x0F` | YCbCr 4:2:0 Capability Map                    | Per-VIC 4:2:0 capability bitmap                                          |
+| `0x07` ext `0x12` | HDMI Audio Data Block                         | Multi-stream audio flag and embedded SADs                                |
+| `0x07` ext `0x13` | Room Configuration Data Block                 | Speaker count and location availability                                  |
+| `0x07` ext `0x14` | Speaker Location Data Block                   | Per-channel assignment and distance                                      |
+| `0x07` ext `0x11` | Vendor-Specific Audio Data Block              | IEEE OUI + opaque vendor payload                                         |
+| `0x07` ext `0x22` | DisplayID Type VII Video Timing Data Block    | Single 20-byte DisplayID timing descriptor decoded to `VideoMode`        |
+| `0x07` ext `0x23` | DisplayID Type VIII Video Timing Data Block   | VESA DMT ID codes decoded via built-in 0x01–0x58 lookup table            |
+| `0x07` ext `0x2A` | DisplayID Type X Video Timing Data Block      | CVT formula-based timings; 6/7/8-byte descriptors; refresh up to 1024 Hz |
+| `0x07` ext `0x78` | HDMI Forum EDID Extension Override Data Block | 1-byte extension count override for HDMI 2.1 sinks                       |
+| `0x07` ext `0x79` | HDMI Forum Sink Capability Data Block         | FRL rate, SCDC, Deep Color 4:2:0, ALLM, VRR range, DSC capabilities      |
+| `0x07` ext `0x20` | InfoFrame Data Block                          | Short InfoFrame Descriptors with OUI for VSI                             |
+
+## DisplayID 1.x coverage
+
+Data blocks decoded by `DisplayIdHandler` (extension tag `0x70`):
+
+| Tag    | Block                        | Output                                                                                                                                                                                                                                                                                    |
+|--------|------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `0x00` | Product Identification       | `manufacturer`, `product_code`, `display_name`, `serial_number_string`, `manufacture_date` on `DisplayCapabilities`                                                                                                                                                                       |
+| `0x01` | Display Parameters           | `preferred_image_size_mm`, `native_pixels` on `DisplayIdCapabilities`                                                                                                                                                                                                                     |
+| `0x02` | Color Characteristics        | `chromaticity` on `DisplayCapabilities`                                                                                                                                                                                                                                                   |
+| `0x03` | Type I Detailed Timings      | `supported_modes` (20-byte descriptors)                                                                                                                                                                                                                                                   |
+| `0x04` | Type II Detailed Timings     | `supported_modes` (10-byte descriptors)                                                                                                                                                                                                                                                   |
+| `0x05` | Type III Short Timings       | `supported_modes` (3-byte short descriptors)                                                                                                                                                                                                                                              |
+| `0x06` | Type IV DMT/VIC Codes        | `supported_modes` via DMT ID and VIC code lookup                                                                                                                                                                                                                                          |
+| `0x07` | VESA Video Timing Bitmap     | `supported_modes` via DMT ID presence bitmap (IDs 0x01–0x50)                                                                                                                                                                                                                              |
+| `0x08` | CTA-861 Video Timing Bitmap  | `supported_modes` via VIC presence bitmap (VICs 1–64)                                                                                                                                                                                                                                     |
+| `0x09` | Video Timing Range Limits    | `min_v_rate`, `max_v_rate`, `min_h_rate_khz`, `max_h_rate_khz`, `max_pixel_clock_mhz`                                                                                                                                                                                                     |
+| `0x0A` | Product Serial Number        | `serial_number_string` on `DisplayCapabilities`                                                                                                                                                                                                                                           |
+| `0x0B` | General Purpose ASCII String | collected as additional `unspecified_text` entries                                                                                                                                                                                                                                        |
+| `0x0C` | Display Device Data          | `display_technology`, `operating_mode`, `backlight_type`, `native_pixels`, `physical_orientation`, `rotation_capability`, `zero_pixel_location`, `scan_direction`, `subpixel_layout`, `pixel_pitch_hundredths_mm`, `pixel_response_time_ms`, `data_enable_used`, `panel_aspect_ratio_100` |
+| `0x0D` | Interface Power Sequencing   | `power_sequencing` (T1–T6 delays in 2 ms units)                                                                                                                                                                                                                                           |
+| `0x0E` | Transfer Characteristics     | `transfer_characteristic` (8/10/12-bit luminance curve, single or per-channel)                                                                                                                                                                                                            |
+| `0x0F` | Display Interface Data       | `display_id_interface` (type, lanes, pixel clock range, content protection)                                                                                                                                                                                                               |
+| `0x10` | Stereo Display Interface     | `stereo_interface` (viewing mode, sync polarity, sync channel)                                                                                                                                                                                                                            |
+| `0x11` | Type V Short Timings         | `supported_modes` (7-byte short descriptors)                                                                                                                                                                                                                                              |
+| `0x12` | Tiled Display Topology       | `tiled_topology` (grid dimensions, tile location, optional bezel sizes)                                                                                                                                                                                                                   |
+| `0x13` | Type VI Detailed Timings     | `supported_modes` (14-byte descriptors)                                                                                                                                                                                                                                                   |
+
+All fields populated from DisplayID blocks land on `DisplayCapabilities` directly where they
+overlap with EDID base block fields, or in the `DisplayIdCapabilities` struct retrievable via
+`caps.get_extension_data::<DisplayIdCapabilities>(0x70)`.
 
 ## Documentation
 

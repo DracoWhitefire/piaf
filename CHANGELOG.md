@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-03-21
+
+### Fixed
+
+- **alloc-only build** (`--no-default-features --features alloc`): `Vec` was not in scope inside
+  the nested `unpack8`/`unpack10`/`unpack12` helpers in the DisplayID transfer characteristics
+  decoder. The alloc build silently failed to compile; now covered by CI.
+
+### Added
+
+- **Serde round-trip tests** (`tests/serde.rs`, requires `--features serde`): 31 tests covering
+  all public types that derive `Serialize`/`Deserialize`, including panel enums, panel structs
+  (constructed via `serde_json::from_str` to work around `#[non_exhaustive]`), transfer types,
+  and a fixture-based smoke test of `DisplayCapabilities`.
+- **Fuzz targets**: a second target `capabilities_static` exercises the no-alloc pipeline
+  (`capabilities_from_edid_static<64>`). The `parse_edid` target is updated to use
+  `ExtensionLibrary::with_standard_handlers()` consistently for both parse and capabilities calls.
+  The empty `fuzz_target_1` placeholder is removed.
+- **Fuzz corpus**: real EDID fixture files seeded into both `fuzz/corpus/parse_edid/` and
+  `fuzz/corpus/capabilities_static/`, providing 256-byte inputs with CEA-861 extension blocks
+  previously absent from the all-128-byte generated corpus.
+- **Fuzz CI workflow** (`.github/workflows/fuzz.yml`): 60-second smoke run on every push and pull
+  request; 1-hour deep run on a weekly schedule (Saturdays 02:00 UTC) and on manual dispatch.
+  Corpus is cached between runs; crash artifacts are uploaded automatically on failure.
+
+### Documentation
+
+- README: added **DisplayID 1.x coverage** table listing all 20 decoded block types (tags
+  `0x00`–`0x13`) with their output fields.
+- `doc/testing.md`: updated fuzzing section to cover both targets, the long-campaign workflow
+  (`-max_total_time=3600` followed by `fuzz cmin`), and the CI setup.
+
+### Internal
+
+- `#[non_exhaustive]` added to all public enums and output structs. Exhaustive matches in
+  `examples/capture_fixture.rs` and `examples/inspect_displays.rs` updated accordingly.
+- `examples/inspect_displays.rs` updated to print all new DisplayID panel fields.
+- alloc-only build step added to CI (`cargo build --no-default-features --features alloc`).
+
 ## [0.2.0] - 2026-03-21
 
 ### Breaking changes

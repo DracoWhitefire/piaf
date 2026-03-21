@@ -113,6 +113,7 @@ impl DisplayGamma {
 ///
 /// Defined for EDID 1.4+ digital inputs. On EDID 1.3 displays this field has a different
 /// meaning and is not decoded here.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DigitalColorEncoding {
@@ -139,6 +140,7 @@ impl DigitalColorEncoding {
 }
 
 /// Display color type for an analog display, decoded from EDID base block byte `0x18` bits 4–3.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnalogColorType {
@@ -168,6 +170,7 @@ impl AnalogColorType {
 ///
 /// Only valid for digital input displays. `None` is used for the undefined (0b000) and
 /// reserved (0b111) values.
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorBitDepth {

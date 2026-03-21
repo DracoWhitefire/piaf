@@ -8,6 +8,7 @@
 /// | non-0  | 0      | Landscape aspect ratio            |
 /// | 0      | non-0  | Portrait aspect ratio             |
 /// | 0      | 0      | Undefined — `None` on the field   |
+#[non_exhaustive]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScreenSize {

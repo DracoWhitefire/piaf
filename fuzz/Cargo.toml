@@ -12,17 +12,18 @@ libfuzzer-sys = "0.4"
 
 [dependencies.piaf]
 path = ".."
+features = ["std"]
 
 [[bin]]
-name = "fuzz_target_1"
-path = "fuzz_targets/fuzz_target_1.rs"
+name = "parse_edid"
+path = "fuzz_targets/parse_edid.rs"
 test = false
 doc = false
 bench = false
 
 [[bin]]
-name = "parse_edid"
-path = "fuzz_targets/parse_edid.rs"
+name = "capabilities_static"
+path = "fuzz_targets/capabilities_static.rs"
 test = false
 doc = false
 bench = false
