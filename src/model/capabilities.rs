@@ -269,6 +269,9 @@ pub struct DisplayCapabilities {
     /// Stereo display interface parameters from DisplayID 0x10.
     /// `None` when the Stereo Display Interface Data Block is absent.
     pub stereo_interface: Option<crate::model::panel::DisplayIdStereoInterface>,
+    /// Tiled display topology from DisplayID 0x12.
+    /// `None` when the Tiled Display Topology Data Block is absent.
+    pub tiled_topology: Option<crate::model::panel::DisplayIdTiledTopology>,
     /// CIE xy chromaticity coordinates for the color primaries and white point,
     /// decoded from bytes `0x19`–`0x22`.
     pub chromaticity: crate::model::color::Chromaticity,
@@ -528,6 +531,9 @@ pub struct StaticDisplayCapabilities<const MAX_MODES: usize> {
     /// Stereo display interface parameters from DisplayID 0x10.
     /// `None` when the Stereo Display Interface Data Block is absent.
     pub stereo_interface: Option<crate::model::panel::DisplayIdStereoInterface>,
+    /// Tiled display topology from DisplayID 0x12.
+    /// `None` when the Tiled Display Topology Data Block is absent.
+    pub tiled_topology: Option<crate::model::panel::DisplayIdTiledTopology>,
     /// CIE xy chromaticity coordinates for the color primaries and white point,
     /// decoded from bytes `0x19`–`0x22`.
     pub chromaticity: crate::model::color::Chromaticity,
@@ -618,6 +624,7 @@ impl<const MAX_MODES: usize> Default for StaticDisplayCapabilities<MAX_MODES> {
             power_sequencing: None,
             display_id_interface: None,
             stereo_interface: None,
+            tiled_topology: None,
             chromaticity: Default::default(),
             gamma: None,
             display_features: None,

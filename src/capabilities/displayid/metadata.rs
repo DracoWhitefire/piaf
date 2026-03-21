@@ -1,8 +1,8 @@
 use super::{
     TAG_ASCII_STRING, TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_DEVICE_DATA, TAG_DISPLAY_INTERFACE,
     TAG_DISPLAY_PARAMS, TAG_POWER_SEQUENCING, TAG_PRODUCT_ID, TAG_SERIAL_NUMBER,
-    TAG_STEREO_DISPLAY_INTERFACE, TAG_TRANSFER_CHARACTERISTICS, TAG_VIDEO_TIMING_RANGE,
-    for_each_data_block,
+    TAG_STEREO_DISPLAY_INTERFACE, TAG_TILED_TOPOLOGY, TAG_TRANSFER_CHARACTERISTICS,
+    TAG_VIDEO_TIMING_RANGE, for_each_data_block,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
@@ -14,10 +14,10 @@ use crate::model::color::{Chromaticity, ChromaticityPoint};
 use crate::model::manufacture::{ManufactureDate, ManufacturerId, MonitorString};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::panel::{
-    BacklightType, DisplayIdInterface, DisplayIdStereoInterface, DisplayInterfaceType,
-    DisplayTechnology, InterfaceContentProtection, OperatingMode, PhysicalOrientation,
-    PowerSequencing, RotationCapability, ScanDirection, StereoSyncInterface, StereoViewingMode,
-    SubpixelLayout, ZeroPixelLocation,
+    BacklightType, DisplayIdInterface, DisplayIdStereoInterface, DisplayIdTiledTopology,
+    DisplayInterfaceType, DisplayTechnology, InterfaceContentProtection, OperatingMode,
+    PhysicalOrientation, PowerSequencing, RotationCapability, ScanDirection, StereoSyncInterface,
+    StereoViewingMode, SubpixelLayout, TileBezelInfo, TileTopologyBehavior, ZeroPixelLocation,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::transfer::{
@@ -651,6 +651,80 @@ pub(super) fn scan_stereo_display_interface_block(payload: &[u8], caps: &mut Dis
     for_each_data_block(payload, |tag, _revision, block_payload| {
         if tag == TAG_STEREO_DISPLAY_INTERFACE {
             decode_stereo_display_interface_block(block_payload, caps);
+        }
+    });
+}
+
+/// Decodes a Tiled Display Topology Data Block payload into `caps`.
+///
+/// Payload layout (DisplayID 1.x §4.15, minimum 7 bytes):
+/// - Byte 0 bit 7:   Single enclosure (1 = all tiles in the same physical case)
+/// - Byte 0 bit 6:   Has bezel information (if 1, bytes 7–10 contain bezel sizes)
+/// - Byte 0 bits 5:4: Topology behavior when tiles are missing
+///   0=undefined, 1=no image until all present, 2=scale when missing, 3=reserved
+/// - Byte 0 bits 3:0: Reserved
+/// - Byte 1 bits 7:4: Number of horizontal tiles minus 1 (0 → 1 tile … 15 → 16 tiles)
+/// - Byte 1 bits 3:0: Number of vertical tiles minus 1
+/// - Byte 2 bits 7:4: Zero-based column index of this tile
+/// - Byte 2 bits 3:0: Zero-based row index of this tile
+/// - Bytes 3–4:       Tile pixel width (LE uint16)
+/// - Bytes 5–6:       Tile pixel height (LE uint16)
+/// - Bytes 7–10 (optional, when bit 6 of byte 0 is set):
+///   Byte 7: Top bezel in pixels
+///   Byte 8: Bottom bezel in pixels
+///   Byte 9: Right bezel in pixels
+///   Byte 10: Left bezel in pixels
+///
+/// Payloads shorter than 7 bytes are silently skipped.
+/// Bezel info is decoded only when the flag is set and at least 11 bytes are present.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_tiled_topology_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    if payload.len() < 7 {
+        return;
+    }
+    let single_enclosure = (payload[0] & 0x80) != 0;
+    let has_bezel_info = (payload[0] & 0x40) != 0;
+    let topology_behavior = TileTopologyBehavior::from_bits((payload[0] >> 4) & 0x03);
+
+    let h_tile_count = (payload[1] >> 4) + 1;
+    let v_tile_count = (payload[1] & 0x0F) + 1;
+    let h_tile_location = payload[2] >> 4;
+    let v_tile_location = payload[2] & 0x0F;
+
+    let tile_width_px = u16::from_le_bytes([payload[3], payload[4]]);
+    let tile_height_px = u16::from_le_bytes([payload[5], payload[6]]);
+
+    let bezel = if has_bezel_info && payload.len() >= 11 {
+        Some(TileBezelInfo {
+            top_px: payload[7],
+            bottom_px: payload[8],
+            right_px: payload[9],
+            left_px: payload[10],
+        })
+    } else {
+        None
+    };
+
+    caps.tiled_topology = Some(DisplayIdTiledTopology {
+        single_enclosure,
+        topology_behavior,
+        h_tile_count,
+        v_tile_count,
+        h_tile_location,
+        v_tile_location,
+        tile_width_px,
+        tile_height_px,
+        bezel,
+    });
+}
+
+/// Scans all data blocks in `payload` for a Tiled Display Topology Data Block (tag `0x12`)
+/// and decodes the first one found into `caps`.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn scan_tiled_topology_block(payload: &[u8], caps: &mut DisplayCapabilities) {
+    for_each_data_block(payload, |tag, _revision, block_payload| {
+        if tag == TAG_TILED_TOPOLOGY {
+            decode_tiled_topology_block(block_payload, caps);
         }
     });
 }
@@ -1682,5 +1756,120 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         decode_stereo_display_interface_block(&[], &mut caps);
         assert_eq!(caps.stereo_interface, None);
+    }
+
+    // -----------------------------------------------------------------------
+    // Tiled Display Topology Data Block (tag 0x12)
+    // -----------------------------------------------------------------------
+
+    use crate::model::panel::{DisplayIdTiledTopology, TileBezelInfo, TileTopologyBehavior};
+
+    fn make_tiled_topology_payload(
+        single_enclosure: bool,
+        has_bezel: bool,
+        behavior: u8,       // bits 5:4 of byte 0
+        h_tiles_minus1: u8, // 0–15
+        v_tiles_minus1: u8, // 0–15
+        h_location: u8,
+        v_location: u8,
+        tile_w: u16,
+        tile_h: u16,
+        bezel: Option<(u8, u8, u8, u8)>, // top, bottom, right, left
+    ) -> Vec<u8> {
+        let mut v = Vec::new();
+        let b0 = if single_enclosure { 0x80 } else { 0 }
+            | if has_bezel { 0x40 } else { 0 }
+            | ((behavior & 0x03) << 4);
+        v.push(b0);
+        v.push((h_tiles_minus1 << 4) | (v_tiles_minus1 & 0x0F));
+        v.push((h_location << 4) | (v_location & 0x0F));
+        v.extend_from_slice(&tile_w.to_le_bytes());
+        v.extend_from_slice(&tile_h.to_le_bytes());
+        if let Some((top, bot, right, left)) = bezel {
+            v.extend_from_slice(&[top, bot, right, left]);
+        }
+        v
+    }
+
+    #[test]
+    fn test_tiled_topology_2x2_grid_top_left_tile() {
+        // 2×2 grid, this tile is at position (0,0) = top-left, 1920×1080
+        let payload = make_tiled_topology_payload(true, false, 1, 1, 1, 0, 0, 1920, 1080, None);
+        let mut caps = DisplayCapabilities::default();
+        decode_tiled_topology_block(&payload, &mut caps);
+        let t = caps.tiled_topology.expect("should be Some");
+        assert!(t.single_enclosure);
+        assert_eq!(t.topology_behavior, TileTopologyBehavior::RequireAllTiles);
+        assert_eq!(t.h_tile_count, 2);
+        assert_eq!(t.v_tile_count, 2);
+        assert_eq!(t.h_tile_location, 0);
+        assert_eq!(t.v_tile_location, 0);
+        assert_eq!(t.tile_width_px, 1920);
+        assert_eq!(t.tile_height_px, 1080);
+        assert_eq!(t.bezel, None);
+    }
+
+    #[test]
+    fn test_tiled_topology_with_bezel_info() {
+        // 3×1 grid, this tile is at (1,0), 2560×1440, bezel top=8 bot=8 right=4 left=4
+        let payload =
+            make_tiled_topology_payload(false, true, 2, 2, 0, 1, 0, 2560, 1440, Some((8, 8, 4, 4)));
+        let mut caps = DisplayCapabilities::default();
+        decode_tiled_topology_block(&payload, &mut caps);
+        let t = caps.tiled_topology.expect("should be Some");
+        assert!(!t.single_enclosure);
+        assert_eq!(t.topology_behavior, TileTopologyBehavior::ScaleWhenMissing);
+        assert_eq!(t.h_tile_count, 3);
+        assert_eq!(t.v_tile_count, 1);
+        assert_eq!(t.h_tile_location, 1);
+        assert_eq!(t.v_tile_location, 0);
+        assert_eq!(t.tile_width_px, 2560);
+        let bezel = t.bezel.expect("bezel should be Some");
+        assert_eq!(bezel.top_px, 8);
+        assert_eq!(bezel.bottom_px, 8);
+        assert_eq!(bezel.right_px, 4);
+        assert_eq!(bezel.left_px, 4);
+    }
+
+    #[test]
+    fn test_tiled_topology_bezel_flag_set_but_payload_too_short_gives_none() {
+        // has_bezel flag set, but only 7 bytes (not the 11 needed for bezel)
+        let payload = make_tiled_topology_payload(
+            true, true, 0, 1, 1, 0, 0, 1920, 1080, None, // bezel=None → 7 bytes
+        );
+        assert_eq!(payload.len(), 7);
+        let mut caps = DisplayCapabilities::default();
+        decode_tiled_topology_block(&payload, &mut caps);
+        let t = caps.tiled_topology.expect("should be Some");
+        assert_eq!(t.bezel, None); // flag was set but bytes aren't there
+    }
+
+    #[test]
+    fn test_tiled_topology_max_grid_16x16() {
+        // 16×16 grid (h_tiles_minus1=15, v_tiles_minus1=15), tile at (15,15)
+        let payload = make_tiled_topology_payload(false, false, 0, 15, 15, 15, 15, 800, 600, None);
+        let mut caps = DisplayCapabilities::default();
+        decode_tiled_topology_block(&payload, &mut caps);
+        let t = caps.tiled_topology.expect("should be Some");
+        assert_eq!(t.h_tile_count, 16);
+        assert_eq!(t.v_tile_count, 16);
+        assert_eq!(t.h_tile_location, 15);
+        assert_eq!(t.v_tile_location, 15);
+    }
+
+    #[test]
+    fn test_tiled_topology_short_payload_skipped() {
+        // Only 6 bytes — one short of the minimum 7.
+        let payload = vec![0x80u8, 0x11, 0x00, 0x80, 0x07, 0x38];
+        let mut caps = DisplayCapabilities::default();
+        decode_tiled_topology_block(&payload, &mut caps);
+        assert_eq!(caps.tiled_topology, None);
+    }
+
+    #[test]
+    fn test_tiled_topology_empty_payload_skipped() {
+        let mut caps = DisplayCapabilities::default();
+        decode_tiled_topology_block(&[], &mut caps);
+        assert_eq!(caps.tiled_topology, None);
     }
 }

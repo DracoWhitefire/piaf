@@ -343,6 +343,81 @@ pub struct DisplayIdInterface {
     pub content_protection: InterfaceContentProtection,
 }
 
+/// Behavior when one or more tiles are missing from a tiled display, decoded from Tiled
+/// Display Topology Data Block (0x12) byte 0 bits 5:4.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TileTopologyBehavior {
+    /// Behavior is undefined (`0`).
+    Undefined,
+    /// No image is shown until all tiles are present and operational (`1`).
+    RequireAllTiles,
+    /// The image is scaled to fit whatever tiles are currently present (`2`).
+    ScaleWhenMissing,
+    /// Reserved or unrecognized value (`3`).
+    Reserved(u8),
+}
+
+impl TileTopologyBehavior {
+    /// Decodes the topology behavior from a 2-bit value (bits 5:4 of byte 0).
+    pub fn from_bits(bits: u8) -> Self {
+        match bits & 0x03 {
+            0 => Self::Undefined,
+            1 => Self::RequireAllTiles,
+            2 => Self::ScaleWhenMissing,
+            v => Self::Reserved(v),
+        }
+    }
+}
+
+/// Bezel sizes around a single tile, decoded from the optional bezel bytes of the Tiled
+/// Display Topology Data Block (0x12) when the `has_bezel_info` flag is set.
+///
+/// Each field is the bezel width or height in pixels at the tile's native resolution.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TileBezelInfo {
+    /// Top bezel height in pixels.
+    pub top_px: u8,
+    /// Bottom bezel height in pixels.
+    pub bottom_px: u8,
+    /// Right bezel width in pixels.
+    pub right_px: u8,
+    /// Left bezel width in pixels.
+    pub left_px: u8,
+}
+
+/// Tiled display topology, decoded from the Tiled Display Topology Data Block
+/// (DisplayID 1.x `0x12`).
+///
+/// A tiled display is composed of multiple physical panels (tiles) arranged in a
+/// rectangular grid. Each tile reports its own position and dimensions; the host
+/// assembles the full image across all tiles.
+///
+/// Stored in [`DisplayCapabilities::tiled_topology`][crate::DisplayCapabilities::tiled_topology].
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DisplayIdTiledTopology {
+    /// All tiles are housed in a single physical enclosure.
+    pub single_enclosure: bool,
+    /// How the display behaves when one or more tiles are missing.
+    pub topology_behavior: TileTopologyBehavior,
+    /// Total number of horizontal tiles in the grid (1–16).
+    pub h_tile_count: u8,
+    /// Total number of vertical tiles in the grid (1–16).
+    pub v_tile_count: u8,
+    /// Zero-based column index of this tile within the grid.
+    pub h_tile_location: u8,
+    /// Zero-based row index of this tile within the grid.
+    pub v_tile_location: u8,
+    /// Native pixel width of this tile.
+    pub tile_width_px: u16,
+    /// Native pixel height of this tile.
+    pub tile_height_px: u16,
+    /// Per-edge bezel sizes, present when the block's `has_bezel_info` flag is set.
+    pub bezel: Option<TileBezelInfo>,
+}
+
 /// Stereo content format, decoded from Stereo Display Interface Data Block (0x10) byte 0
 /// bits 3:0.
 ///

@@ -179,6 +179,17 @@ be split evenly are silently skipped.
 |---|---|
 | `stereo_interface` | Stereo viewing mode, 3D sync signal polarity, and glasses sync interface decoded into a `DisplayIdStereoInterface` struct; `None` if payload < 2 bytes |
 
+**Tiled Display Topology Data Block** (tag `0x12`) is decoded into the following
+`DisplayCapabilities` field:
+
+| `DisplayCapabilities` field | Source |
+|---|---|
+| `tiled_topology` | Grid dimensions, tile position, tile pixel size, single-enclosure flag, missing-tile behavior, and optional per-edge bezel sizes decoded into a `DisplayIdTiledTopology` struct; `None` if payload < 7 bytes |
+
+The `h_tile_count` and `v_tile_count` fields store actual counts (raw value + 1). The
+`bezel` field is `None` when the `has_bezel_info` flag is clear or the payload has fewer
+than 11 bytes.
+
 If the DisplayID block appears alongside an EDID base block, DisplayID values overwrite
 any base-block values for the same fields.
 

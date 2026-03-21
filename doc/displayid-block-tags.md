@@ -32,7 +32,7 @@ data block has a 3-byte header (tag, revision, payload length) followed by its p
 | `0x0F`        | Display Interface Data Block                                               | ✓ implemented |
 | `0x10`        | Stereo Display Interface Data Block                                        | ✓ implemented |
 | `0x11`        | Type V Short Timings Block                                                 | ✓ implemented |
-| `0x12`        | Tiled Display Topology Block                                               | — deferred    |
+| `0x12`        | Tiled Display Topology Data Block                                          | ✓ implemented |
 | `0x13`        | Type VI Detailed Timings Block                                             | ✓ implemented |
 | `0x14`–`0x7E` | Reserved                                                                   | — reserved    |
 | `0x7F`        | Vendor-Specific                                                            | — reserved    |
@@ -536,6 +536,43 @@ Per descriptor:
 ```
 
 Descriptors with zero width or height are silently skipped.
+
+### Tiled Display Topology Data Block (`0x12`)
+
+Describes how a display is composed of multiple physical tiles arranged in a rectangular
+grid. Each tile advertises its own position, size, and bezel dimensions; the host
+compositor assembles the full image across all tiles.
+
+```
+Byte  0:     Block tag (0x12)
+Byte  1:     Revision (0x00)
+Byte  2:     Payload length (minimum 7 bytes; 11 with bezel info)
+
+Per payload:
+  Byte 0 bit 7:   Single enclosure (1 = all tiles in same physical case)
+  Byte 0 bit 6:   Has bezel information (1 = bytes 7–10 carry per-edge bezel sizes)
+  Byte 0 bits 5:4: Topology behavior when tiles are missing
+                   0 = undefined
+                   1 = no image until all tiles present
+                   2 = scale image to fit available tiles
+                   3 = reserved
+  Byte 0 bits 3:0: Reserved
+  Byte 1 bits 7:4: Horizontal tile count minus 1 (0 → 1 tile … 15 → 16 tiles)
+  Byte 1 bits 3:0: Vertical tile count minus 1
+  Byte 2 bits 7:4: Zero-based column index of this tile
+  Byte 2 bits 3:0: Zero-based row index of this tile
+  Bytes 3–4:       Tile pixel width (LE uint16)
+  Bytes 5–6:       Tile pixel height (LE uint16)
+  Byte 7:          Top bezel height in pixels    (only when bit 6 of byte 0 is set)
+  Byte 8:          Bottom bezel height in pixels
+  Byte 9:          Right bezel width in pixels
+  Byte 10:         Left bezel width in pixels
+```
+
+Decoded into `caps.tiled_topology` as a `DisplayIdTiledTopology` struct. `h_tile_count`
+and `v_tile_count` are the actual counts (stored value + 1). The `bezel` field is `None`
+if the `has_bezel_info` flag is clear or if fewer than 11 payload bytes are present.
+Payloads shorter than 7 bytes are silently skipped.
 
 ### Type VI Detailed Timings Block (`0x13`)
 
