@@ -301,7 +301,11 @@ fn main() {
                                 ) {
                                     format!(
                                         " polarity={}",
-                                        if stereo.sync_polarity_positive { "+" } else { "-" }
+                                        if stereo.sync_polarity_positive {
+                                            "+"
+                                        } else {
+                                            "-"
+                                        }
                                     )
                                 } else {
                                     String::new()
@@ -326,7 +330,11 @@ fn main() {
                                     topo.v_tile_location,
                                     topo.tile_width_px,
                                     topo.tile_height_px,
-                                    if topo.single_enclosure { ", single-enclosure" } else { "" },
+                                    if topo.single_enclosure {
+                                        ", single-enclosure"
+                                    } else {
+                                        ""
+                                    },
                                     bezel_str.as_deref().unwrap_or(""),
                                 );
                             }
