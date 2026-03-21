@@ -32,14 +32,15 @@ pub(super) fn decode_type_i_descriptor(d: &[u8; 20], sink: &mut dyn ModeSink) {
     let v_sync_width = u16::from_le_bytes([d[17], d[18]]);
     let flags = d[19];
 
-    let h_total = h_active as u32 + h_blank as u32;
-    let v_total = v_active as u32 + v_blank as u32;
-    if h_total == 0 || v_total == 0 {
+    let h_total = h_active as u64 + h_blank as u64;
+    let v_total = v_active as u64 + v_blank as u64;
+    let total_pixels = h_total * v_total;
+    if total_pixels == 0 {
         return; // degenerate descriptor
     }
 
-    let pixel_clock_hz = pixel_clock_10khz as u32 * 10_000;
-    let refresh_rate = (pixel_clock_hz / (h_total * v_total)).min(255) as u8;
+    let pixel_clock_hz = pixel_clock_10khz as u64 * 10_000;
+    let refresh_rate = (pixel_clock_hz / total_pixels).min(255) as u8;
 
     let interlaced = (flags & 0x01) != 0;
     let h_sync_positive = (flags & 0x08) != 0;
