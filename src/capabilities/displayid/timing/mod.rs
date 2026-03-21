@@ -22,21 +22,21 @@ pub(super) fn process_data_blocks(payload: &[u8], sink: &mut dyn ModeSink) {
         if tag == TAG_TYPE_I_TIMING {
             let mut i = 0;
             while i + 20 <= block_payload.len() {
-                let descriptor: &[u8; 20] = block_payload[i..i + 20].try_into().unwrap();
+                let descriptor: &[u8; 20] = block_payload[i..i + 20].try_into().expect("slice length guaranteed by loop condition");
                 decode_type_i_descriptor(descriptor, sink);
                 i += 20;
             }
         } else if tag == TAG_TYPE_II_TIMING {
             let mut i = 0;
             while i + 11 <= block_payload.len() {
-                let descriptor: &[u8; 11] = block_payload[i..i + 11].try_into().unwrap();
+                let descriptor: &[u8; 11] = block_payload[i..i + 11].try_into().expect("slice length guaranteed by loop condition");
                 decode_type_ii_descriptor(descriptor, sink);
                 i += 11;
             }
         } else if tag == TAG_TYPE_III_TIMING {
             let mut i = 0;
             while i + 3 <= block_payload.len() {
-                let descriptor: &[u8; 3] = block_payload[i..i + 3].try_into().unwrap();
+                let descriptor: &[u8; 3] = block_payload[i..i + 3].try_into().expect("slice length guaranteed by loop condition");
                 decode_type_iii_descriptor(descriptor, sink);
                 i += 3;
             }
@@ -51,7 +51,7 @@ pub(super) fn process_data_blocks(payload: &[u8], sink: &mut dyn ModeSink) {
         } else if tag == TAG_TYPE_V_TIMING {
             let mut i = 0;
             while i + 7 <= block_payload.len() {
-                let descriptor: &[u8; 7] = block_payload[i..i + 7].try_into().unwrap();
+                let descriptor: &[u8; 7] = block_payload[i..i + 7].try_into().expect("slice length guaranteed by loop condition");
                 decode_type_v_descriptor(descriptor, sink);
                 i += 7;
             }
