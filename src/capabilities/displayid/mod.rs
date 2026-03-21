@@ -13,12 +13,7 @@ use crate::model::extension::StaticExtensionHandler;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{Arc, Vec};
 
-use metadata::{
-    scan_ascii_string_blocks, scan_color_characteristics_block, scan_display_device_data_block,
-    scan_display_interface_block, scan_display_params_block, scan_power_sequencing_block,
-    scan_product_id_block, scan_serial_number_block, scan_stereo_display_interface_block,
-    scan_tiled_topology_block, scan_transfer_characteristics_block, scan_video_timing_range_block,
-};
+use metadata::scan_all_metadata_blocks;
 use timing::process_data_blocks;
 
 /// Rich capabilities extracted from a DisplayID extension section.
@@ -239,18 +234,7 @@ impl ExtensionHandler for DisplayIdHandler {
             }
             let payload = fragment_payload(block);
             process_data_blocks(payload, caps);
-            scan_product_id_block(payload, caps);
-            scan_display_params_block(payload, caps);
-            scan_color_characteristics_block(payload, caps);
-            scan_video_timing_range_block(payload, caps);
-            scan_serial_number_block(payload, caps);
-            scan_ascii_string_blocks(payload, caps);
-            scan_display_device_data_block(payload, caps);
-            scan_power_sequencing_block(payload, caps);
-            scan_transfer_characteristics_block(payload, caps);
-            scan_display_interface_block(payload, caps);
-            scan_stereo_display_interface_block(payload, caps);
-            scan_tiled_topology_block(payload, caps);
+            scan_all_metadata_blocks(payload, caps);
         }
     }
 }

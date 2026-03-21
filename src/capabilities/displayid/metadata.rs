@@ -90,6 +90,7 @@ pub(super) fn decode_product_id_block(payload: &[u8], caps: &mut DisplayCapabili
 /// Scans all data blocks in `payload` for a Product Identification Block (tag `0x00`)
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(test)]
 pub(super) fn scan_product_id_block(payload: &[u8], caps: &mut DisplayCapabilities) {
     let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
@@ -159,6 +160,7 @@ pub(super) fn decode_display_params_block(payload: &[u8], caps: &mut DisplayCapa
 /// Scans all data blocks in `payload` for a Display Parameters Block (tag `0x01`)
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(test)]
 pub(super) fn scan_display_params_block(payload: &[u8], caps: &mut DisplayCapabilities) {
     let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
@@ -206,6 +208,7 @@ pub(super) fn decode_color_characteristics_block(payload: &[u8], caps: &mut Disp
 /// Scans all data blocks in `payload` for a Color Characteristics Block (tag `0x02`)
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(test)]
 pub(super) fn scan_color_characteristics_block(payload: &[u8], caps: &mut DisplayCapabilities) {
     let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
@@ -254,6 +257,7 @@ pub(super) fn decode_video_timing_range_block(payload: &[u8], caps: &mut Display
 /// Scans all data blocks in `payload` for a Video Timing Range Limits Block (tag `0x09`)
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(test)]
 pub(super) fn scan_video_timing_range_block(payload: &[u8], caps: &mut DisplayCapabilities) {
     let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
@@ -289,6 +293,7 @@ pub(super) fn decode_serial_number_block(payload: &[u8], caps: &mut DisplayCapab
 /// Scans all data blocks in `payload` for a Product Serial Number Block (tag `0x0A`)
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(test)]
 pub(super) fn scan_serial_number_block(payload: &[u8], caps: &mut DisplayCapabilities) {
     let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
@@ -324,17 +329,6 @@ pub(super) fn decode_ascii_string_block(payload: &[u8], caps: &mut DisplayCapabi
         buf[copy_len.min(12)] = 0x0A;
     }
     *slot = Some(MonitorString(buf));
-}
-
-/// Scans all data blocks in `payload` for General Purpose ASCII String Blocks (tag `0x0B`)
-/// and decodes each one found into successive `caps.unspecified_text` slots.
-#[cfg(any(feature = "alloc", feature = "std"))]
-pub(super) fn scan_ascii_string_blocks(payload: &[u8], caps: &mut DisplayCapabilities) {
-    for_each_data_block(payload, |tag, _revision, block_payload| {
-        if tag == TAG_ASCII_STRING {
-            decode_ascii_string_block(block_payload, caps);
-        }
-    });
 }
 
 /// Decodes a Display Device Data Block payload into `caps`.
@@ -433,6 +427,7 @@ pub(super) fn decode_display_device_data_block(payload: &[u8], caps: &mut Displa
 /// Scans all data blocks in `payload` for a Display Device Data Block (tag `0x0C`)
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(test)]
 pub(super) fn scan_display_device_data_block(payload: &[u8], caps: &mut DisplayCapabilities) {
     let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
@@ -472,6 +467,7 @@ pub(super) fn decode_power_sequencing_block(payload: &[u8], caps: &mut DisplayCa
 /// Scans all data blocks in `payload` for an Interface Power Sequencing Block (tag `0x0D`)
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(test)]
 pub(super) fn scan_power_sequencing_block(payload: &[u8], caps: &mut DisplayCapabilities) {
     let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
@@ -598,6 +594,7 @@ pub(super) fn decode_transfer_characteristics_block(
 /// Scans all data blocks in `payload` for a Transfer Characteristics Block (tag `0x0E`)
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(test)]
 pub(super) fn scan_transfer_characteristics_block(payload: &[u8], caps: &mut DisplayCapabilities) {
     let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
@@ -648,6 +645,7 @@ pub(super) fn decode_display_interface_block(payload: &[u8], caps: &mut DisplayC
 /// Scans all data blocks in `payload` for a Display Interface Data Block (tag `0x0F`)
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(test)]
 pub(super) fn scan_display_interface_block(payload: &[u8], caps: &mut DisplayCapabilities) {
     let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
@@ -693,6 +691,7 @@ pub(super) fn decode_stereo_display_interface_block(
 /// Scans all data blocks in `payload` for a Stereo Display Interface Data Block (tag `0x10`)
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(test)]
 pub(super) fn scan_stereo_display_interface_block(payload: &[u8], caps: &mut DisplayCapabilities) {
     let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
@@ -769,6 +768,7 @@ pub(super) fn decode_tiled_topology_block(payload: &[u8], caps: &mut DisplayCapa
 /// Scans all data blocks in `payload` for a Tiled Display Topology Data Block (tag `0x12`)
 /// and decodes the first one found into `caps`.
 #[cfg(any(feature = "alloc", feature = "std"))]
+#[cfg(test)]
 pub(super) fn scan_tiled_topology_block(payload: &[u8], caps: &mut DisplayCapabilities) {
     let mut found = false;
     for_each_data_block(payload, |tag, _revision, block_payload| {
@@ -776,6 +776,81 @@ pub(super) fn scan_tiled_topology_block(payload: &[u8], caps: &mut DisplayCapabi
             found = true;
             decode_tiled_topology_block(block_payload, caps);
         }
+    });
+}
+
+/// Scans all DisplayID 1.x metadata blocks in a single pass.
+///
+/// Calls [`for_each_data_block`] once over `payload` and dispatches every
+/// recognised metadata tag to the appropriate `decode_*` function. Single-
+/// instance tags (every tag except [`TAG_ASCII_STRING`]) are guarded by a
+/// bool so that only the first occurrence takes effect.
+///
+/// This replaces the individual `scan_*` calls in the alloc pipeline and
+/// reduces the number of passes over the payload from one-per-tag to one.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn scan_all_metadata_blocks(payload: &[u8], caps: &mut DisplayCapabilities) {
+    let mut found_product_id = false;
+    let mut found_display_params = false;
+    let mut found_color_characteristics = false;
+    let mut found_video_timing_range = false;
+    let mut found_serial_number = false;
+    let mut found_display_device_data = false;
+    let mut found_power_sequencing = false;
+    let mut found_transfer_characteristics = false;
+    let mut found_display_interface = false;
+    let mut found_stereo_display_interface = false;
+    let mut found_tiled_topology = false;
+
+    for_each_data_block(payload, |tag, _revision, block_payload| match tag {
+        TAG_PRODUCT_ID if !found_product_id => {
+            found_product_id = true;
+            decode_product_id_block(block_payload, caps);
+        }
+        TAG_DISPLAY_PARAMS if !found_display_params => {
+            found_display_params = true;
+            decode_display_params_block(block_payload, caps);
+        }
+        TAG_COLOR_CHARACTERISTICS if !found_color_characteristics => {
+            found_color_characteristics = true;
+            decode_color_characteristics_block(block_payload, caps);
+        }
+        TAG_VIDEO_TIMING_RANGE if !found_video_timing_range => {
+            found_video_timing_range = true;
+            decode_video_timing_range_block(block_payload, caps);
+        }
+        TAG_SERIAL_NUMBER if !found_serial_number => {
+            found_serial_number = true;
+            decode_serial_number_block(block_payload, caps);
+        }
+        TAG_ASCII_STRING => {
+            decode_ascii_string_block(block_payload, caps);
+        }
+        TAG_DISPLAY_DEVICE_DATA if !found_display_device_data => {
+            found_display_device_data = true;
+            decode_display_device_data_block(block_payload, caps);
+        }
+        TAG_POWER_SEQUENCING if !found_power_sequencing => {
+            found_power_sequencing = true;
+            decode_power_sequencing_block(block_payload, caps);
+        }
+        TAG_TRANSFER_CHARACTERISTICS if !found_transfer_characteristics => {
+            found_transfer_characteristics = true;
+            decode_transfer_characteristics_block(block_payload, caps);
+        }
+        TAG_DISPLAY_INTERFACE if !found_display_interface => {
+            found_display_interface = true;
+            decode_display_interface_block(block_payload, caps);
+        }
+        TAG_STEREO_DISPLAY_INTERFACE if !found_stereo_display_interface => {
+            found_stereo_display_interface = true;
+            decode_stereo_display_interface_block(block_payload, caps);
+        }
+        TAG_TILED_TOPOLOGY if !found_tiled_topology => {
+            found_tiled_topology = true;
+            decode_tiled_topology_block(block_payload, caps);
+        }
+        _ => {}
     });
 }
 
