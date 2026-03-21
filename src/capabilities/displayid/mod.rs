@@ -218,7 +218,7 @@ impl ExtensionHandler for DisplayIdHandler {
         if extension_count as usize != actual_continuation {
             warnings.push(Arc::new(EdidWarning::DisplayIdExtensionCountMismatch {
                 declared: extension_count,
-                found: actual_continuation as u8,
+                found: actual_continuation.min(u8::MAX as usize) as u8,
             }));
         }
 
@@ -271,7 +271,7 @@ impl StaticExtensionHandler for DisplayIdHandler {
         if extension_count as usize != actual_continuation {
             ctx.push_warning(EdidWarning::DisplayIdExtensionCountMismatch {
                 declared: extension_count,
-                found: actual_continuation as u8,
+                found: actual_continuation.min(u8::MAX as usize) as u8,
             });
         }
 
