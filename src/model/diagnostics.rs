@@ -75,6 +75,43 @@ pub enum EdidWarning {
         /// The maximum number of extension blocks the parser will process.
         limit: usize,
     },
+    /// A DisplayID extension block carries an unrecognised version byte.
+    ///
+    /// The inner value is the version byte found at offset 1 of the extension block.
+    /// The block is skipped; other extension blocks are processed normally.
+    #[error("unrecognised DisplayID version: {0:#04x}")]
+    DisplayIdVersionUnknown(u8),
+    /// The extension count declared in a DisplayID section header does not match the
+    /// number of `0x70`-tagged blocks actually present in the EDID stream.
+    ///
+    /// The DisplayID section is processed with whichever fragments are available.
+    #[error(
+        "DisplayID extension count mismatch: header declares {declared} continuation block(s), \
+         found {found}"
+    )]
+    DisplayIdExtensionCountMismatch {
+        /// Extension count as declared in the DisplayID section header.
+        declared: u8,
+        /// Actual number of continuation blocks found (i.e. `total 0x70 blocks − 1`).
+        found: u8,
+    },
+    /// The DisplayID section checksum byte does not make the section sum to zero.
+    ///
+    /// The checksum covers the three-byte section header plus all data block bytes; the byte
+    /// immediately following them must bring the running total to zero mod 256. Parsing
+    /// continues with whatever data is present in the fragment.
+    #[error("DisplayID section checksum is invalid")]
+    DisplayIdChecksumMismatch,
+    /// The `section_byte_count` field in the DisplayID section header is too large to fit
+    /// within the 128-byte extension block.
+    ///
+    /// A valid DisplayID section holds at most 122 data bytes (bytes 4–125), with the
+    /// checksum at byte 126. A larger `section_byte_count` places the checksum outside
+    /// the block. The section is still parsed using the clamped available bytes.
+    #[error(
+        "DisplayID section_byte_count {0} places checksum outside the extension block (max 122)"
+    )]
+    DisplayIdSectionBytesOutOfRange(u8),
     /// The byte slice length does not match the size implied by the extension count.
     ///
     /// The EDID header declares `extension_count` extension blocks, so the expected

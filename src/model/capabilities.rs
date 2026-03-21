@@ -126,11 +126,55 @@ pub trait ModeSink {
     fn push_warning(&mut self, w: EdidWarning);
 }
 
+/// Output context passed to [`StaticExtensionHandler::process`][crate::StaticExtensionHandler].
+///
+/// Handlers write decoded data through this type rather than directly to a sink trait object.
+/// This allows the context to grow over time — additional sink types can be added as
+/// `Option` fields without changing the handler trait signature.
+///
+/// Currently wraps a [`ModeSink`] for video mode and warning output. Future fields will
+/// provide access to identity, colorimetry, and other sink types as the static pipeline
+/// is extended.
+pub struct StaticContext<'a> {
+    modes: &'a mut dyn ModeSink,
+}
+
+impl<'a> StaticContext<'a> {
+    /// Creates a new context backed by `modes`.
+    pub fn new(modes: &'a mut dyn ModeSink) -> Self {
+        Self { modes }
+    }
+
+    /// Pushes a decoded video mode. Duplicate modes are silently ignored.
+    pub fn push_mode(&mut self, mode: VideoMode) {
+        self.modes.push_mode(mode);
+    }
+
+    /// Pushes a non-fatal warning encountered while processing a block.
+    pub fn push_warning(&mut self, w: EdidWarning) {
+        self.modes.push_warning(w);
+    }
+}
+
+impl ModeSink for StaticContext<'_> {
+    fn push_mode(&mut self, mode: VideoMode) {
+        self.modes.push_mode(mode);
+    }
+
+    fn push_warning(&mut self, w: EdidWarning) {
+        self.modes.push_warning(w);
+    }
+}
+
 /// Consumer-facing display capability model derived from a parsed EDID.
 ///
+/// All fields defined by the relevant specification are decoded and exposed here.
+/// No field is omitted because it appears obscure or unlikely to be needed — that
+/// judgement belongs to the consumer, not the library.
+///
 /// Fields are `Option` where the underlying EDID data may be absent or undecodable.
-/// `None` means the information was not present or could not be reliably determined —
-/// the library never invents data.
+/// `None` means the value was not present or could not be reliably determined; it does
+/// not imply the field is unimportant. The library never invents or defaults data.
 ///
 /// Produced by [`capabilities_from_edid`][crate::capabilities_from_edid].
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -165,6 +209,69 @@ pub struct DisplayCapabilities {
     /// Color bit depth per primary channel, decoded from byte `0x14` bits 6–4.
     /// `None` for analog displays or when the field is undefined or reserved.
     pub color_bit_depth: Option<crate::model::color::ColorBitDepth>,
+    /// Physical display technology (e.g. TFT, OLED, PDP), from DisplayID 0x0C byte 0 bits 7:4.
+    /// `None` when the Display Device Data Block is absent.
+    pub display_technology: Option<crate::model::panel::DisplayTechnology>,
+    /// Technology-specific sub-type code, from DisplayID 0x0C byte 0 bits 3:0 (raw, 0–15).
+    /// `None` when the Display Device Data Block is absent.
+    pub display_subtype: Option<u8>,
+    /// Panel operating mode (continuous or non-continuous refresh), from DisplayID 0x0C byte 1 bits 3:0.
+    /// `None` when the Display Device Data Block is absent.
+    pub operating_mode: Option<crate::model::panel::OperatingMode>,
+    /// Backlight type, from DisplayID 0x0C byte 1 bits 5:4.
+    /// `None` when the Display Device Data Block is absent.
+    pub backlight_type: Option<crate::model::panel::BacklightType>,
+    /// Whether the panel uses a Data Enable (DE) signal, from DisplayID 0x0C byte 1 bit 6.
+    /// `None` when the Display Device Data Block is absent.
+    pub data_enable_used: Option<bool>,
+    /// Data Enable signal polarity: `true` = positive, `false` = negative.
+    /// From DisplayID 0x0C byte 1 bit 7. Valid only when `data_enable_used` is `Some(true)`.
+    /// `None` when the Display Device Data Block is absent.
+    pub data_enable_positive: Option<bool>,
+    /// Native pixel format `(width_px, height_px)` from DisplayID 0x0C bytes 2–5.
+    /// `None` when the Display Device Data Block is absent or either dimension is zero.
+    pub native_pixels: Option<(u16, u16)>,
+    /// Panel aspect ratio encoded as `(AR − 1) × 100` (raw byte), from DisplayID 0x0C byte 6.
+    /// For example `77` represents approximately 16:9 (AR ≈ 1.77). `None` when the block is absent.
+    pub panel_aspect_ratio_100: Option<u8>,
+    /// Physical mounting orientation of the panel, from DisplayID 0x0C byte 7 bits 1:0.
+    /// `None` when the Display Device Data Block is absent.
+    pub physical_orientation: Option<crate::model::panel::PhysicalOrientation>,
+    /// Panel rotation capability, from DisplayID 0x0C byte 7 bits 3:2.
+    /// `None` when the Display Device Data Block is absent.
+    pub rotation_capability: Option<crate::model::panel::RotationCapability>,
+    /// Location of the zero (origin) pixel in the framebuffer, from DisplayID 0x0C byte 7 bits 5:4.
+    /// `None` when the Display Device Data Block is absent.
+    pub zero_pixel_location: Option<crate::model::panel::ZeroPixelLocation>,
+    /// Fast-scan direction relative to H-sync, from DisplayID 0x0C byte 7 bits 7:6.
+    /// `None` when the Display Device Data Block is absent.
+    pub scan_direction: Option<crate::model::panel::ScanDirection>,
+    /// Sub-pixel color filter arrangement, from DisplayID 0x0C byte 8.
+    /// `None` when the Display Device Data Block is absent.
+    pub subpixel_layout: Option<crate::model::panel::SubpixelLayout>,
+    /// Pixel pitch `(horizontal_hundredths_mm, vertical_hundredths_mm)` in 0.01 mm units,
+    /// from DisplayID 0x0C bytes 9–10. `None` when the Display Device Data Block is absent or
+    /// either pitch is zero.
+    pub pixel_pitch_hundredths_mm: Option<(u8, u8)>,
+    /// Pixel response time in milliseconds, from DisplayID 0x0C byte 12.
+    /// `None` when the Display Device Data Block is absent or the value is zero.
+    pub pixel_response_time_ms: Option<u8>,
+    /// Interface power sequencing timing parameters from DisplayID 0x0D.
+    /// `None` when the Interface Power Sequencing Block is absent.
+    pub power_sequencing: Option<crate::model::panel::PowerSequencing>,
+    /// Display luminance transfer function from DisplayID 0x0E.
+    /// `None` when the Transfer Characteristics Block is absent.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    pub transfer_characteristic: Option<crate::model::transfer::DisplayIdTransferCharacteristic>,
+    /// Physical display interface capabilities from DisplayID 0x0F.
+    /// `None` when the Display Interface Data Block is absent.
+    pub display_id_interface: Option<crate::model::panel::DisplayIdInterface>,
+    /// Stereo display interface parameters from DisplayID 0x10.
+    /// `None` when the Stereo Display Interface Data Block is absent.
+    pub stereo_interface: Option<crate::model::panel::DisplayIdStereoInterface>,
+    /// Tiled display topology from DisplayID 0x12.
+    /// `None` when the Tiled Display Topology Data Block is absent.
+    pub tiled_topology: Option<crate::model::panel::DisplayIdTiledTopology>,
     /// CIE xy chromaticity coordinates for the color primaries and white point,
     /// decoded from bytes `0x19`–`0x22`.
     pub chromaticity: crate::model::color::Chromaticity,
@@ -368,6 +475,65 @@ pub struct StaticDisplayCapabilities<const MAX_MODES: usize> {
     /// Color bit depth per primary channel, decoded from byte `0x14` bits 6–4.
     /// `None` for analog displays or when the field is undefined or reserved.
     pub color_bit_depth: Option<crate::model::color::ColorBitDepth>,
+    /// Physical display technology (e.g. TFT, OLED, PDP), from DisplayID 0x0C byte 0 bits 7:4.
+    /// `None` when the Display Device Data Block is absent.
+    pub display_technology: Option<crate::model::panel::DisplayTechnology>,
+    /// Technology-specific sub-type code, from DisplayID 0x0C byte 0 bits 3:0 (raw, 0–15).
+    /// `None` when the Display Device Data Block is absent.
+    pub display_subtype: Option<u8>,
+    /// Panel operating mode (continuous or non-continuous refresh), from DisplayID 0x0C byte 1 bits 3:0.
+    /// `None` when the Display Device Data Block is absent.
+    pub operating_mode: Option<crate::model::panel::OperatingMode>,
+    /// Backlight type, from DisplayID 0x0C byte 1 bits 5:4.
+    /// `None` when the Display Device Data Block is absent.
+    pub backlight_type: Option<crate::model::panel::BacklightType>,
+    /// Whether the panel uses a Data Enable (DE) signal, from DisplayID 0x0C byte 1 bit 6.
+    /// `None` when the Display Device Data Block is absent.
+    pub data_enable_used: Option<bool>,
+    /// Data Enable signal polarity: `true` = positive, `false` = negative.
+    /// From DisplayID 0x0C byte 1 bit 7. Valid only when `data_enable_used` is `Some(true)`.
+    /// `None` when the Display Device Data Block is absent.
+    pub data_enable_positive: Option<bool>,
+    /// Native pixel format `(width_px, height_px)` from DisplayID 0x0C bytes 2–5.
+    /// `None` when the Display Device Data Block is absent or either dimension is zero.
+    pub native_pixels: Option<(u16, u16)>,
+    /// Panel aspect ratio encoded as `(AR − 1) × 100` (raw byte), from DisplayID 0x0C byte 6.
+    /// For example `77` represents approximately 16:9 (AR ≈ 1.77). `None` when the block is absent.
+    pub panel_aspect_ratio_100: Option<u8>,
+    /// Physical mounting orientation of the panel, from DisplayID 0x0C byte 7 bits 1:0.
+    /// `None` when the Display Device Data Block is absent.
+    pub physical_orientation: Option<crate::model::panel::PhysicalOrientation>,
+    /// Panel rotation capability, from DisplayID 0x0C byte 7 bits 3:2.
+    /// `None` when the Display Device Data Block is absent.
+    pub rotation_capability: Option<crate::model::panel::RotationCapability>,
+    /// Location of the zero (origin) pixel in the framebuffer, from DisplayID 0x0C byte 7 bits 5:4.
+    /// `None` when the Display Device Data Block is absent.
+    pub zero_pixel_location: Option<crate::model::panel::ZeroPixelLocation>,
+    /// Fast-scan direction relative to H-sync, from DisplayID 0x0C byte 7 bits 7:6.
+    /// `None` when the Display Device Data Block is absent.
+    pub scan_direction: Option<crate::model::panel::ScanDirection>,
+    /// Sub-pixel color filter arrangement, from DisplayID 0x0C byte 8.
+    /// `None` when the Display Device Data Block is absent.
+    pub subpixel_layout: Option<crate::model::panel::SubpixelLayout>,
+    /// Pixel pitch `(horizontal_hundredths_mm, vertical_hundredths_mm)` in 0.01 mm units,
+    /// from DisplayID 0x0C bytes 9–10. `None` when the Display Device Data Block is absent or
+    /// either pitch is zero.
+    pub pixel_pitch_hundredths_mm: Option<(u8, u8)>,
+    /// Pixel response time in milliseconds, from DisplayID 0x0C byte 12.
+    /// `None` when the Display Device Data Block is absent or the value is zero.
+    pub pixel_response_time_ms: Option<u8>,
+    /// Interface power sequencing timing parameters from DisplayID 0x0D.
+    /// `None` when the Interface Power Sequencing Block is absent.
+    pub power_sequencing: Option<crate::model::panel::PowerSequencing>,
+    /// Physical display interface capabilities from DisplayID 0x0F.
+    /// `None` when the Display Interface Data Block is absent.
+    pub display_id_interface: Option<crate::model::panel::DisplayIdInterface>,
+    /// Stereo display interface parameters from DisplayID 0x10.
+    /// `None` when the Stereo Display Interface Data Block is absent.
+    pub stereo_interface: Option<crate::model::panel::DisplayIdStereoInterface>,
+    /// Tiled display topology from DisplayID 0x12.
+    /// `None` when the Tiled Display Topology Data Block is absent.
+    pub tiled_topology: Option<crate::model::panel::DisplayIdTiledTopology>,
     /// CIE xy chromaticity coordinates for the color primaries and white point,
     /// decoded from bytes `0x19`–`0x22`.
     pub chromaticity: crate::model::color::Chromaticity,
@@ -440,6 +606,25 @@ impl<const MAX_MODES: usize> Default for StaticDisplayCapabilities<MAX_MODES> {
             white_points: Default::default(),
             digital: false,
             color_bit_depth: None,
+            display_technology: None,
+            display_subtype: None,
+            operating_mode: None,
+            backlight_type: None,
+            data_enable_used: None,
+            data_enable_positive: None,
+            native_pixels: None,
+            panel_aspect_ratio_100: None,
+            physical_orientation: None,
+            rotation_capability: None,
+            zero_pixel_location: None,
+            scan_direction: None,
+            subpixel_layout: None,
+            pixel_pitch_hundredths_mm: None,
+            pixel_response_time_ms: None,
+            power_sequencing: None,
+            display_id_interface: None,
+            stereo_interface: None,
+            tiled_topology: None,
             chromaticity: Default::default(),
             gamma: None,
             display_features: None,

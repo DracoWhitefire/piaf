@@ -1,8 +1,9 @@
 use piaf::{
     AudioFormat, AudioFormatInfo, Cea861Capabilities, Cea861Flags, Cea861Handler, ColorimetryFlags,
-    DisplayCapabilities, DtcPointEncoding, ExtensionHandler, ExtensionLibrary, HdmiVsdbFlags,
-    HdrEotf, ParseWarning, SpeakerAllocationFlags, SpeakerAllocationFlags2,
-    SpeakerAllocationFlags3, capabilities_from_edid, infoframe_type, parse_edid,
+    DisplayCapabilities, DisplayIdCapabilities, DtcPointEncoding, ExtensionHandler,
+    ExtensionLibrary, HdmiVsdbFlags, HdrEotf, ParseWarning, SpeakerAllocationFlags,
+    SpeakerAllocationFlags2, SpeakerAllocationFlags3, capabilities_from_edid, infoframe_type,
+    parse_edid,
 };
 use std::fs;
 use std::path::Path;
@@ -29,21 +30,24 @@ struct CeaDetailsHandler;
 impl ExtensionHandler for CeaDetailsHandler {
     fn process(
         &self,
-        ext: &[u8; 128],
+        blocks: &[&[u8; 128]],
         caps: &mut DisplayCapabilities,
         warnings: &mut Vec<ParseWarning>,
     ) {
         // Run the built-in handler first so VICs and modes are populated normally.
-        Cea861Handler.process(ext, caps, warnings);
+        Cea861Handler.process(blocks, caps, warnings);
 
-        // Then overlay additional typed data under a custom key.
-        caps.set_extension_data(
-            0xF2,
-            CeaDetails {
-                version: ext[1],
-                dtd_offset: ext[2],
-            },
-        );
+        // Then overlay additional typed data under a custom key, sourced from the
+        // first block (CEA-861 extension blocks are independent; extras are rare).
+        if let Some(ext) = blocks.first() {
+            caps.set_extension_data(
+                0xF2,
+                CeaDetails {
+                    version: ext[1],
+                    dtd_offset: ext[2],
+                },
+            );
+        }
     }
 }
 
@@ -88,6 +92,23 @@ fn main() {
                     match parse_edid(&bytes, &library) {
                         Ok(parsed) => {
                             let caps = capabilities_from_edid(&parsed, &library);
+
+                            if parsed.num_extensions > 0 {
+                                let ext_list: Vec<String> = (0..parsed.num_extensions)
+                                    .filter_map(|i| parsed.extension_block(i))
+                                    .map(|b| {
+                                        let tag = b[0];
+                                        let name = library
+                                            .extensions
+                                            .iter()
+                                            .find(|e| e.tag == tag)
+                                            .map(|e| e.display_name.as_str())
+                                            .unwrap_or("Unknown");
+                                        format!("{} (0x{:02X})", name, tag)
+                                    })
+                                    .collect();
+                                println!("  Extensions:   {}", ext_list.join(", "));
+                            }
 
                             if let Some(v) = caps.edid_version {
                                 println!("  EDID version: {}", v);
@@ -138,6 +159,9 @@ fn main() {
                                     (v as f32 + 99.0) / 100.0
                                 ),
                                 None => {}
+                            }
+                            if let Some((w_mm, h_mm)) = caps.preferred_image_size_mm {
+                                println!("  Image size:   {}x{} mm", w_mm, h_mm);
                             }
                             println!(
                                 "  Input type:   {}",
@@ -685,6 +709,24 @@ fn main() {
                                 }
                             }
 
+                            if let Some(did) =
+                                caps.get_extension_data::<DisplayIdCapabilities>(0x70)
+                            {
+                                let product_type_str = match did.product_type {
+                                    0 => "extension",
+                                    1 => "test/measurement",
+                                    2 => "desktop/notebook",
+                                    3 => "television",
+                                    4 => "repeater/translator",
+                                    5 => "direct-view LED",
+                                    _ => "reserved",
+                                };
+                                println!(
+                                    "  DisplayID:    version=0x{:02X} product_type={} ({})",
+                                    did.version, did.product_type, product_type_str
+                                );
+                            }
+
                             if let (Some(min_v), Some(max_v)) = (caps.min_v_rate, caps.max_v_rate) {
                                 println!("  V-Range:      {} - {} Hz", min_v, max_v);
                             }
@@ -733,9 +775,39 @@ fn main() {
                             if !caps.supported_modes.is_empty() {
                                 println!("  Supported Modes ({}):", caps.supported_modes.len());
                                 for mode in caps.supported_modes.iter() {
+                                    let interlaced = if mode.interlaced { "i" } else { "" };
+                                    let sync = match mode.sync {
+                                        Some(piaf::SyncDefinition::DigitalSeparate {
+                                            h_sync_positive,
+                                            v_sync_positive,
+                                        }) => format!(
+                                            " {}H{}V",
+                                            if h_sync_positive { "+" } else { "-" },
+                                            if v_sync_positive { "+" } else { "-" },
+                                        ),
+                                        Some(_) => " (analog sync)".to_string(),
+                                        None => String::new(),
+                                    };
+                                    let timing =
+                                        if mode.h_front_porch != 0 || mode.h_sync_width != 0 {
+                                            format!(
+                                                " [hfp={} hsw={} vfp={} vsw={}]",
+                                                mode.h_front_porch,
+                                                mode.h_sync_width,
+                                                mode.v_front_porch,
+                                                mode.v_sync_width,
+                                            )
+                                        } else {
+                                            String::new()
+                                        };
                                     println!(
-                                        "    - {}x{}@{}Hz",
-                                        mode.width, mode.height, mode.refresh_rate
+                                        "    - {}x{}{}@{}Hz{}{}",
+                                        mode.width,
+                                        mode.height,
+                                        interlaced,
+                                        mode.refresh_rate,
+                                        sync,
+                                        timing,
                                     );
                                 }
                             }

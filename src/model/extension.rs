@@ -1,42 +1,53 @@
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
-use crate::model::capabilities::ModeSink;
+use crate::model::capabilities::StaticContext;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::ParseWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{Box, String, Vec};
 
-/// Processes a single 128-byte EDID block and populates [`DisplayCapabilities`].
+/// Processes one or more 128-byte EDID blocks and populates [`DisplayCapabilities`].
 ///
 /// Implement this trait to add support for extension block formats or to customise
 /// base block parsing. Register handlers via [`ExtensionLibrary`].
+///
+/// The dispatch layer collects all extension blocks with the handler's registered tag in
+/// stream order and calls `process` once with the full slice. Single-block formats (such
+/// as CEA-861) receive a slice of length one per block; multi-block formats (such as
+/// DisplayID) receive all their fragments together and are responsible for reassembly.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub trait ExtensionHandler: core::fmt::Debug {
-    /// Inspect `block` and update `caps` accordingly.
+    /// Inspect `blocks` and update `caps` accordingly.
     ///
-    /// Push non-fatal issues to `warnings` rather than panicking or discarding silently.
+    /// `blocks` contains all extension blocks with this handler's registered tag, in the
+    /// order they appear in the EDID stream. Push non-fatal issues to `warnings` rather
+    /// than panicking or discarding silently.
     fn process(
         &self,
-        block: &[u8; 128],
+        blocks: &[&[u8; 128]],
         caps: &mut DisplayCapabilities,
         warnings: &mut Vec<ParseWarning>,
     );
 }
 
-/// Processes a single 128-byte EDID block in a no-alloc context.
+/// Processes one or more 128-byte EDID blocks in a no-alloc context.
 ///
 /// The no-alloc counterpart to [`ExtensionHandler`]. Implement this trait on a unit struct (or
 /// any `const`-constructible type) and place an instance in a `static` to register it with
 /// `capabilities_from_edid_static`.
 ///
+/// The dispatch layer collects all extension blocks with the handler's tag and calls `process`
+/// once with the full slice. Single-block formats (such as CEA-861) receive a slice of length
+/// one per block; multi-block formats (such as DisplayID) receive all their fragments together.
+///
 /// The trait is object-safe, so a slice of static references can be passed directly:
 ///
 /// ```
-/// # use piaf::{StaticExtensionHandler, ModeSink};
+/// # use piaf::{StaticContext, StaticExtensionHandler};
 /// # struct MyHandler;
 /// # impl StaticExtensionHandler for MyHandler {
 /// #     fn tag(&self) -> u8 { 0xFF }
-/// #     fn process(&self, _block: &[u8; 128], _sink: &mut dyn ModeSink) {}
+/// #     fn process(&self, _blocks: &[&[u8; 128]], _ctx: &mut StaticContext<'_>) {}
 /// # }
 /// static MY_HANDLER: MyHandler = MyHandler;
 /// static HANDLERS: &[&dyn piaf::StaticExtensionHandler] = &[&MY_HANDLER];
@@ -44,8 +55,10 @@ pub trait ExtensionHandler: core::fmt::Debug {
 pub trait StaticExtensionHandler: Sync {
     /// The extension block tag byte this handler processes (e.g. `0x02` for CEA-861).
     fn tag(&self) -> u8;
-    /// Inspect `block` and push decoded modes and warnings into `sink`.
-    fn process(&self, block: &[u8; 128], sink: &mut dyn ModeSink);
+    /// Inspect `blocks` and write decoded modes and warnings into `ctx`.
+    ///
+    /// `blocks` contains all extension blocks with this handler's tag, in stream order.
+    fn process(&self, blocks: &[&[u8; 128]], ctx: &mut StaticContext<'_>);
 }
 
 /// Registration entry for an EDID extension block type.

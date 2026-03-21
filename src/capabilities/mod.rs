@@ -1,5 +1,6 @@
 mod base;
 mod cea861;
+mod displayid;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use base::BaseBlockHandler;
@@ -15,7 +16,27 @@ pub use cea861::{
     VendorSpecificBlock, VesaDisplayDeviceBlock, VesaTransferCharacteristic, VideoCapability,
     VideoCapabilityFlags, VtbExtBlock, infoframe_type,
 };
-pub use cea861::{CEA861_HANDLER, Cea861Handler, STANDARD_HANDLERS};
+pub use cea861::{CEA861_HANDLER, Cea861Handler};
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use displayid::DisplayIdCapabilities;
+pub use displayid::{DISPLAYID_HANDLER, DisplayIdHandler};
+
+/// Pre-built static handler slice containing the standard built-in handlers
+/// (CEA-861 and DisplayID).
+///
+/// Pass to [`parse_edid`][crate::parse_edid] and
+/// [`capabilities_from_edid_static`] for the
+/// common case where no custom extension handlers are needed:
+///
+/// ```no_run
+/// use piaf::{parse_edid, capabilities_from_edid_static, StaticDisplayCapabilities, STANDARD_HANDLERS};
+///
+/// let bytes: &[u8] = &[/* raw EDID bytes */];
+/// let parsed = parse_edid(bytes, STANDARD_HANDLERS).unwrap();
+/// let caps: StaticDisplayCapabilities<64> =
+///     capabilities_from_edid_static(&parsed, STANDARD_HANDLERS);
+/// ```
+pub static STANDARD_HANDLERS: &[&dyn StaticExtensionHandler] = &[&Cea861Handler, &DisplayIdHandler];
 
 use crate::model::capabilities::{DisplayCapabilities, ModeSink, StaticDisplayCapabilities};
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -37,6 +58,9 @@ impl ExtensionLibrary {
         lib.add_base_handler(BaseBlockHandler);
         if let Some(cea) = lib.extensions.iter_mut().find(|e| e.tag == 0x02) {
             cea.handler = Some(Box::new(Cea861Handler));
+        }
+        if let Some(did) = lib.extensions.iter_mut().find(|e| e.tag == 0x70) {
+            did.handler = Some(Box::new(DisplayIdHandler));
         }
         lib
     }
@@ -60,17 +84,24 @@ pub fn capabilities_from_edid<T: EdidSource>(
     {
         let mut warnings: Vec<ParseWarning> = Vec::new();
 
-        // 1. Process Base Block through all registered base handlers, in order
+        // 1. Process Base Block through all registered base handlers, in order.
+        // Each handler receives a single-element slice containing the base block.
+        let base = edid.base_block();
         for handler in &library.base_handlers {
-            handler.process(edid.base_block(), &mut caps, &mut warnings);
+            handler.process(&[base], &mut caps, &mut warnings);
         }
 
-        // 2. Process Extension Blocks via registered handlers
-        for ext in edid.extension_blocks() {
-            let tag = ext[0];
-            if let Some(metadata) = library.extensions.iter().find(|e| e.tag == tag) {
-                if let Some(handler) = &metadata.handler {
-                    handler.process(ext, &mut caps, &mut warnings);
+        // 2. Dispatch extension blocks: for each registered handler, collect all
+        // blocks with its tag in stream order and call the handler once with the
+        // full slice. Handlers are responsible for any multi-block reassembly.
+        for metadata in &library.extensions {
+            if let Some(handler) = &metadata.handler {
+                let blocks: Vec<&[u8; 128]> = edid
+                    .extension_blocks()
+                    .filter(|b| b[0] == metadata.tag)
+                    .collect();
+                if !blocks.is_empty() {
+                    handler.process(&blocks, &mut caps, &mut warnings);
                 }
             }
         }
@@ -113,7 +144,7 @@ pub fn capabilities_from_edid_static<const N: usize, T: EdidSource>(
     {
         use crate::model::extension::ExtensionHandler;
         let mut w: Vec<ParseWarning> = Vec::new();
-        base::BaseBlockHandler.process(parsed.base_block(), &mut base_caps, &mut w);
+        base::BaseBlockHandler.process(&[parsed.base_block()], &mut base_caps, &mut w);
         // base_caps now holds scalar fields, preferred_image_size_mm, and supported_modes.
         // Handler-level warnings in `w` (Arc-boxed) are not copied to the static output;
         // use capabilities_from_edid if full warning detail is needed.
@@ -180,10 +211,37 @@ pub fn capabilities_from_edid_static<const N: usize, T: EdidSource>(
     }
 
     // Step 5 — Dispatch extension blocks to the static handler slice.
-    for ext in parsed.extension_blocks() {
-        let tag = ext[0];
-        if let Some(handler) = handlers.iter().find(|h| h.tag() == tag) {
-            handler.process(ext, &mut caps);
+    //
+    // In alloc/std builds, collect all blocks per handler first and call once with the
+    // full slice, so multi-block formats (e.g. DisplayID) receive all their fragments
+    // together for reassembly.
+    //
+    // In bare no_std builds there is no Vec, so each block is passed individually as a
+    // single-element slice. Single-block formats (CEA-861) work correctly. Multi-block
+    // formats receive one call per fragment and are responsible for handling that gracefully.
+    #[cfg(any(feature = "alloc", feature = "std"))]
+    {
+        use crate::model::capabilities::StaticContext;
+        for handler in handlers {
+            let blocks: Vec<&[u8; 128]> = parsed
+                .extension_blocks()
+                .filter(|b| b[0] == handler.tag())
+                .collect();
+            if !blocks.is_empty() {
+                let mut ctx = StaticContext::new(&mut caps);
+                handler.process(&blocks, &mut ctx);
+            }
+        }
+    }
+
+    #[cfg(not(any(feature = "alloc", feature = "std")))]
+    {
+        use crate::model::capabilities::StaticContext;
+        for ext in parsed.extension_blocks() {
+            if let Some(handler) = handlers.iter().find(|h| h.tag() == ext[0]) {
+                let mut ctx = StaticContext::new(&mut caps);
+                handler.process(&[ext], &mut ctx);
+            }
         }
     }
 

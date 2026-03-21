@@ -5,6 +5,12 @@
 //! 1. [`parse_edid`] — validate and decode raw bytes into [`ParsedEdidRef`] (zero-copy).
 //! 2. [`capabilities_from_edid`] — run extension handlers to produce [`DisplayCapabilities`].
 //!
+//! # Decoding philosophy
+//!
+//! PIAF decodes everything a specification defines. No field is omitted because it appears
+//! obscure or unlikely to be needed — that judgement belongs to the consumer. [`Option`]
+//! fields communicate presence or absence in the source data, not relative importance.
+//!
 //! # Quick start
 //!
 //! ```no_run
@@ -39,15 +45,21 @@ pub use model::ExtensionHandler;
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use model::ParseWarning;
 pub use model::{
-    AnalogColorType, AnalogSyncLevel, Chromaticity, ChromaticityPoint, ColorBitDepth,
-    ColorManagementData, CvtAspectRatio, CvtAspectRatios, CvtScaling, CvtSupportParams, DcmChannel,
-    DigitalColorEncoding, DisplayCapabilities, DisplayFeatureFlags, DisplayGamma, EdidError,
-    EdidSource, EdidVersion, EdidWarning, ExtensionLibrary, ExtensionMetadata,
-    ExtensionTagRegistry, GtfSecondaryParams, KnownExtensions, ManufactureDate, ManufacturerId,
-    ModeSink, MonitorString, ParsedEdid, ParsedEdidRef, ScreenSize, StaticDisplayCapabilities,
-    StaticExtensionHandler, StereoMode, SyncDefinition, TimingFormula, VideoInputFlags,
-    VideoInterface, VideoMode, WhitePoint,
+    AnalogColorType, AnalogSyncLevel, BacklightType, Chromaticity, ChromaticityPoint,
+    ColorBitDepth, ColorManagementData, CvtAspectRatio, CvtAspectRatios, CvtScaling,
+    CvtSupportParams, DcmChannel, DigitalColorEncoding, DisplayCapabilities, DisplayFeatureFlags,
+    DisplayGamma, DisplayIdInterface, DisplayIdStereoInterface, DisplayIdTiledTopology,
+    DisplayInterfaceType, DisplayTechnology, EdidError, EdidSource, EdidVersion, EdidWarning,
+    ExtensionLibrary, ExtensionMetadata, ExtensionTagRegistry, GtfSecondaryParams,
+    InterfaceContentProtection, KnownExtensions, ManufactureDate, ManufacturerId, ModeSink,
+    MonitorString, OperatingMode, ParsedEdid, ParsedEdidRef, PhysicalOrientation, PowerSequencing,
+    RotationCapability, ScanDirection, ScreenSize, StaticContext, StaticDisplayCapabilities,
+    StaticExtensionHandler, StereoMode, StereoSyncInterface, StereoViewingMode, SubpixelLayout,
+    SyncDefinition, TileBezelInfo, TileTopologyBehavior, TimingFormula, TransferPointEncoding,
+    VideoInputFlags, VideoInterface, VideoMode, WhitePoint, ZeroPixelLocation,
 };
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use model::{DisplayIdTransferCharacteristic, TransferCurve};
 
 /// EDID byte-level parser.
 pub mod parser;
@@ -56,6 +68,8 @@ pub use parser::{parse_edid, parse_edid_owned};
 /// Capability extraction from a [`ParsedEdid`].
 pub mod capabilities;
 pub use capabilities::Cea861Flags;
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use capabilities::DisplayIdCapabilities;
 pub use capabilities::capabilities_from_edid;
 pub use capabilities::capabilities_from_edid_static;
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -69,4 +83,6 @@ pub use capabilities::{
     VendorSpecificBlock, VesaDisplayDeviceBlock, VesaTransferCharacteristic, VideoCapability,
     VideoCapabilityFlags, VtbExtBlock, infoframe_type,
 };
-pub use capabilities::{CEA861_HANDLER, Cea861Handler, STANDARD_HANDLERS};
+pub use capabilities::{
+    CEA861_HANDLER, Cea861Handler, DISPLAYID_HANDLER, DisplayIdHandler, STANDARD_HANDLERS,
+};

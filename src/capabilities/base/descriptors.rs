@@ -293,7 +293,7 @@ mod tests {
         base[0x46] = 0xFF; // gamma undefined
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         assert!(caps.white_points[0].is_some());
         assert!(caps.white_points[1].is_some());
@@ -342,7 +342,7 @@ mod tests {
         }
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         assert_eq!(caps.unspecified_text[0].as_deref(), Some("ABCD"));
         assert_eq!(caps.unspecified_text[1].as_deref(), Some("EFGH"));
@@ -365,7 +365,7 @@ mod tests {
         }
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
         assert_eq!(caps.serial_number_string.as_deref(), Some("SN123456"));
     }
 
@@ -384,7 +384,7 @@ mod tests {
         base[0x3F] = 0x04;
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         assert!(caps.supported_modes.contains(&VideoMode {
             width: 1024,
@@ -433,7 +433,7 @@ mod tests {
         }
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         assert!(caps.supported_modes.contains(&VideoMode {
             width: 1920,
@@ -465,7 +465,7 @@ mod tests {
         base[0x40] = 0x01; // byte 10: RangeLimitsOnly
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         assert_eq!(caps.min_v_rate, Some(265));
         assert_eq!(caps.max_v_rate, Some(275));
@@ -496,7 +496,7 @@ mod tests {
         base[0x47] = 40; // byte 17: J = 40 / 2 = 20
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         assert_eq!(
             caps.timing_formula,
@@ -545,7 +545,7 @@ mod tests {
         base[0x47] = 60;
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         assert_eq!(
             caps.timing_formula,
@@ -588,7 +588,7 @@ mod tests {
         base[0x47] = 0x04; // blue a2
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         assert_eq!(
             caps.color_management,
@@ -618,7 +618,7 @@ mod tests {
         base[0x3D] = 0xFF;
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         assert_eq!(caps.color_management, None);
     }
@@ -650,7 +650,7 @@ mod tests {
         // Entries 2-3: unused (b0 = 0)
 
         let mut caps = DisplayCapabilities::default();
-        BaseBlockHandler.process(&base, &mut caps, &mut Vec::new());
+        BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         assert!(caps.supported_modes.contains(&VideoMode {
             width: 1920,

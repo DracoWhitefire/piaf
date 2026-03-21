@@ -155,14 +155,14 @@ fn test_static_warning_cap() {
 
 // ---------------------------------------------------------------------------
 // test_static_known_extensions
-// STANDARD_HANDLERS implements KnownExtensions: CEA-861 (0x02) is known, DisplayID (0x70) is not
+// STANDARD_HANDLERS implements KnownExtensions: CEA-861 (0x02) and DisplayID (0x70) are known
 // ---------------------------------------------------------------------------
 #[test]
 fn test_static_known_extensions() {
     assert!(STANDARD_HANDLERS.is_known(0x02), "CEA-861 should be known");
     assert!(
-        !STANDARD_HANDLERS.is_known(0x70),
-        "DisplayID should not be known"
+        STANDARD_HANDLERS.is_known(0x70),
+        "DisplayID should be known"
     );
 }
 

@@ -53,10 +53,13 @@ pub struct BaseBlockHandler;
 impl ExtensionHandler for BaseBlockHandler {
     fn process(
         &self,
-        base: &[u8; 128],
+        blocks: &[&[u8; 128]],
         caps: &mut DisplayCapabilities,
         warnings: &mut Vec<ParseWarning>,
     ) {
+        // Base handlers are always called with a single-element slice containing the
+        // base block. Guard against an empty slice from a misconfigured call site.
+        let Some(base) = blocks.first() else { return };
         if !header::decode_header_fields(base, caps) {
             warnings.push(Arc::new(EdidWarning::InvalidManufacturerId));
         }

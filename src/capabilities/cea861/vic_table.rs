@@ -6,7 +6,7 @@ use crate::model::capabilities::{StereoMode, SyncDefinition, VideoMode};
 /// Timing parameters are sourced from CEA-861-E Table 1. Vertical timings for
 /// interlaced modes are given per-field, matching the convention used in EDID
 /// detailed timing descriptors.
-pub(super) fn vic_to_mode(vic: u8) -> Option<VideoMode> {
+pub(crate) fn vic_to_mode(vic: u8) -> Option<VideoMode> {
     // Columns: (width, height, refresh_hz, interlaced,
     //           h_front_porch, h_sync_width,
     //           v_front_porch, v_sync_width,
