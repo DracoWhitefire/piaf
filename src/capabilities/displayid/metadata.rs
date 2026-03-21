@@ -20,6 +20,8 @@ use crate::model::panel::{
     StereoViewingMode, SubpixelLayout, TileBezelInfo, TileTopologyBehavior, ZeroPixelLocation,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::prelude::Vec;
+#[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::transfer::{
     DisplayIdTransferCharacteristic, TransferCurve, TransferPointEncoding,
 };
