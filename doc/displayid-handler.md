@@ -61,104 +61,104 @@ the dynamic pipeline.
 
 Stored under tag `0x70` in `DisplayCapabilities::extension_data`:
 
-| Field | Type | Description |
-|---|---|---|
-| `version` | `u8` | Version byte from the section header (0x10–0x1F = v1.x, 0x20 = v2.x) |
-| `product_type` | `u8` | Display product primary use case, bits 2:0 of header byte 3 |
+| Field          | Type | Description                                                          |
+|----------------|------|----------------------------------------------------------------------|
+| `version`      | `u8` | Version byte from the section header (0x10–0x1F = v1.x, 0x20 = v2.x) |
+| `product_type` | `u8` | Display product primary use case, bits 2:0 of header byte 3          |
 
 ## Extracted identification data
 
 **Product Identification Block** (tag `0x00`) is decoded into the following
 `DisplayCapabilities` fields (dynamic pipeline only):
 
-| `DisplayCapabilities` field | Source |
-|---|---|
-| `manufacturer` | Manufacturer PNP ID, 2-byte packed encoding (same as EDID base block) |
-| `product_code` | LE uint16 at payload bytes 2–3 |
-| `serial_number` | LE uint32 at payload bytes 4–7; `0` is treated as unspecified |
-| `manufacture_date` | Week/year bytes 8–9 (`year = byte + 1990`; week `0xFF` = model year) |
-| `display_name` | ASCII product name starting at byte 10 (up to 13 bytes stored) |
+| `DisplayCapabilities` field | Source                                                                |
+|-----------------------------|-----------------------------------------------------------------------|
+| `manufacturer`              | Manufacturer PNP ID, 2-byte packed encoding (same as EDID base block) |
+| `product_code`              | LE uint16 at payload bytes 2–3                                        |
+| `serial_number`             | LE uint32 at payload bytes 4–7; `0` is treated as unspecified         |
+| `manufacture_date`          | Week/year bytes 8–9 (`year = byte + 1990`; week `0xFF` = model year)  |
+| `display_name`              | ASCII product name starting at byte 10 (up to 13 bytes stored)        |
 
 **Display Parameters Block** (tag `0x01`) is decoded into the following
 `DisplayCapabilities` fields (dynamic pipeline only):
 
-| `DisplayCapabilities` field | Source |
-|---|---|
-| `preferred_image_size_mm` | LE uint16 pairs at payload bytes 0–3; `0` on either axis = not defined |
-| `color_bit_depth` | Payload byte 5, bits 4:0; same `001=6bpc … 110=16bpc` encoding as EDID `0x14` |
+| `DisplayCapabilities` field | Source                                                                        |
+|-----------------------------|-------------------------------------------------------------------------------|
+| `preferred_image_size_mm`   | LE uint16 pairs at payload bytes 0–3; `0` on either axis = not defined        |
+| `color_bit_depth`           | Payload byte 5, bits 4:0; same `001=6bpc … 110=16bpc` encoding as EDID `0x14` |
 
 **Color Characteristics Block** (tag `0x02`) is decoded into the following
 `DisplayCapabilities` field (dynamic pipeline only):
 
-| `DisplayCapabilities` field | Source |
-|---|---|
-| `chromaticity` | 8 × LE uint16 at payload bytes 0–15: Red x/y, Green x/y, Blue x/y, White x/y; 1/1024 scale, lower 10 bits significant |
+| `DisplayCapabilities` field | Source                                                                                                                |
+|-----------------------------|-----------------------------------------------------------------------------------------------------------------------|
+| `chromaticity`              | 8 × LE uint16 at payload bytes 0–15: Red x/y, Green x/y, Blue x/y, White x/y; 1/1024 scale, lower 10 bits significant |
 
 Payloads shorter than 16 bytes are silently ignored.
 
 **Video Timing Range Limits Block** (tag `0x09`) is decoded into the following
 `DisplayCapabilities` fields (dynamic pipeline only):
 
-| `DisplayCapabilities` field | Source |
-|---|---|
-| `max_pixel_clock_mhz` | Payload bytes 3–5 (LE 24-bit, 10 kHz units ÷ 100) |
-| `min_h_rate_khz` | Payload byte 6 |
-| `max_h_rate_khz` | Payload byte 7 |
-| `min_v_rate` | Payload byte 10 |
-| `max_v_rate` | Payload byte 11 |
+| `DisplayCapabilities` field | Source                                            |
+|-----------------------------|---------------------------------------------------|
+| `max_pixel_clock_mhz`       | Payload bytes 3–5 (LE 24-bit, 10 kHz units ÷ 100) |
+| `min_h_rate_khz`            | Payload byte 6                                    |
+| `max_h_rate_khz`            | Payload byte 7                                    |
+| `min_v_rate`                | Payload byte 10                                   |
+| `max_v_rate`                | Payload byte 11                                   |
 
 Fields are written only when the payload is long enough to contain them.
 
 **Product Serial Number Block** (tag `0x0A`) is decoded into the following
 `DisplayCapabilities` field (dynamic pipeline only):
 
-| `DisplayCapabilities` field | Source |
-|---|---|
-| `serial_number_string` | Payload bytes (ASCII, up to 13 bytes, `0x0A`-terminated) |
+| `DisplayCapabilities` field | Source                                                   |
+|-----------------------------|----------------------------------------------------------|
+| `serial_number_string`      | Payload bytes (ASCII, up to 13 bytes, `0x0A`-terminated) |
 
 **General Purpose ASCII String Blocks** (tag `0x0B`) are decoded into successive
 `unspecified_text` slots (dynamic pipeline only). Up to four blocks are stored; extras
 are silently dropped.
 
-| `DisplayCapabilities` field | Source |
-|---|---|
-| `unspecified_text[0..4]` | Each `0x0B` block payload (up to 13 bytes, `0x0A`-terminated) |
+| `DisplayCapabilities` field | Source                                                        |
+|-----------------------------|---------------------------------------------------------------|
+| `unspecified_text[0..4]`    | Each `0x0B` block payload (up to 13 bytes, `0x0A`-terminated) |
 
 **Display Device Data Block** (tag `0x0C`) is decoded into the following
 `DisplayCapabilities` fields (dynamic pipeline only):
 
-| `DisplayCapabilities` field | Source |
-|---|---|
-| `display_technology` | Byte 0 bits 7:4 — `DisplayTechnology` enum |
-| `display_subtype` | Byte 0 bits 3:0 — raw technology-specific sub-type (0–15) |
-| `operating_mode` | Byte 1 bits 3:0 — `OperatingMode` enum |
-| `backlight_type` | Byte 1 bits 5:4 — `BacklightType` enum |
-| `data_enable_used` | Byte 1 bit 6 — `true` if DE signal is used |
-| `data_enable_positive` | Byte 1 bit 7 — DE polarity (`true` = positive) |
-| `native_pixels` | Bytes 2–5, two LE uint16 — `(width_px, height_px)`; `None` if either is 0 |
-| `panel_aspect_ratio_100` | Byte 6 — raw byte; AR = value / 100 + 1 |
-| `physical_orientation` | Byte 7 bits 1:0 — `PhysicalOrientation` enum |
-| `rotation_capability` | Byte 7 bits 3:2 — `RotationCapability` enum |
-| `zero_pixel_location` | Byte 7 bits 5:4 — `ZeroPixelLocation` enum |
-| `scan_direction` | Byte 7 bits 7:6 — `ScanDirection` enum |
-| `subpixel_layout` | Byte 8 — `SubpixelLayout` enum |
-| `pixel_pitch_hundredths_mm` | Bytes 9–10 — `(h, v)` in 0.01 mm; `None` if either is 0 |
-| `color_bit_depth` | Byte 11 bits 3:0 — bpc − 1 converted to `ColorBitDepth` |
-| `pixel_response_time_ms` | Byte 12 — milliseconds; `None` if 0 |
+| `DisplayCapabilities` field | Source                                                                    |
+|-----------------------------|---------------------------------------------------------------------------|
+| `display_technology`        | Byte 0 bits 7:4 — `DisplayTechnology` enum                                |
+| `display_subtype`           | Byte 0 bits 3:0 — raw technology-specific sub-type (0–15)                 |
+| `operating_mode`            | Byte 1 bits 3:0 — `OperatingMode` enum                                    |
+| `backlight_type`            | Byte 1 bits 5:4 — `BacklightType` enum                                    |
+| `data_enable_used`          | Byte 1 bit 6 — `true` if DE signal is used                                |
+| `data_enable_positive`      | Byte 1 bit 7 — DE polarity (`true` = positive)                            |
+| `native_pixels`             | Bytes 2–5, two LE uint16 — `(width_px, height_px)`; `None` if either is 0 |
+| `panel_aspect_ratio_100`    | Byte 6 — raw byte; AR = value / 100 + 1                                   |
+| `physical_orientation`      | Byte 7 bits 1:0 — `PhysicalOrientation` enum                              |
+| `rotation_capability`       | Byte 7 bits 3:2 — `RotationCapability` enum                               |
+| `zero_pixel_location`       | Byte 7 bits 5:4 — `ZeroPixelLocation` enum                                |
+| `scan_direction`            | Byte 7 bits 7:6 — `ScanDirection` enum                                    |
+| `subpixel_layout`           | Byte 8 — `SubpixelLayout` enum                                            |
+| `pixel_pitch_hundredths_mm` | Bytes 9–10 — `(h, v)` in 0.01 mm; `None` if either is 0                   |
+| `color_bit_depth`           | Byte 11 bits 3:0 — bpc − 1 converted to `ColorBitDepth`                   |
+| `pixel_response_time_ms`    | Byte 12 — milliseconds; `None` if 0                                       |
 
 **Interface Power Sequencing Block** (tag `0x0D`) is decoded into the following
 `DisplayCapabilities` field (dynamic pipeline only):
 
-| `DisplayCapabilities` field | Source |
-|---|---|
-| `power_sequencing` | All 6 timing fields (T1–T6) decoded into a `PowerSequencing` struct; raw counts in 2 ms units; `None` if payload < 6 bytes |
+| `DisplayCapabilities` field | Source                                                                                                                     |
+|-----------------------------|----------------------------------------------------------------------------------------------------------------------------|
+| `power_sequencing`          | All 6 timing fields (T1–T6) decoded into a `PowerSequencing` struct; raw counts in 2 ms units; `None` if payload < 6 bytes |
 
 **Transfer Characteristics Block** (tag `0x0E`) is decoded into the following
 `DisplayCapabilities` field (dynamic pipeline only):
 
-| `DisplayCapabilities` field | Source |
-|---|---|
-| `transfer_characteristic` | Sample encoding (8/10/12-bit), channel mode (luminance or RGB), and normalized `[0.0, 1.0]` sample points decoded into a `DisplayIdTransferCharacteristic`; `None` if payload < 2 bytes or encoding byte is reserved |
+| `DisplayCapabilities` field | Source                                                                                                                                                                                                               |
+|-----------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `transfer_characteristic`   | Sample encoding (8/10/12-bit), channel mode (luminance or RGB), and normalized `[0.0, 1.0]` sample points decoded into a `DisplayIdTransferCharacteristic`; `None` if payload < 2 bytes or encoding byte is reserved |
 
 In single-channel mode the curve is `TransferCurve::Luminance(Vec<f32>)`. In multi-channel
 mode (byte 0 bit 5 set) the curve is `TransferCurve::Rgb { red, green, blue }` with the
@@ -168,23 +168,23 @@ be split evenly are silently skipped.
 **Display Interface Data Block** (tag `0x0F`) is decoded into the following
 `DisplayCapabilities` field:
 
-| `DisplayCapabilities` field | Source |
-|---|---|
-| `display_id_interface` | Interface type, spread-spectrum flag, lane count, min/max pixel clock (in 10 kHz units), and content protection type decoded into a `DisplayIdInterface` struct; `None` if payload < 7 bytes |
+| `DisplayCapabilities` field | Source                                                                                                                                                                                       |
+|-----------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `display_id_interface`      | Interface type, spread-spectrum flag, lane count, min/max pixel clock (in 10 kHz units), and content protection type decoded into a `DisplayIdInterface` struct; `None` if payload < 7 bytes |
 
 **Stereo Display Interface Data Block** (tag `0x10`) is decoded into the following
 `DisplayCapabilities` field:
 
-| `DisplayCapabilities` field | Source |
-|---|---|
-| `stereo_interface` | Stereo viewing mode, 3D sync signal polarity, and glasses sync interface decoded into a `DisplayIdStereoInterface` struct; `None` if payload < 2 bytes |
+| `DisplayCapabilities` field | Source                                                                                                                                                 |
+|-----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `stereo_interface`          | Stereo viewing mode, 3D sync signal polarity, and glasses sync interface decoded into a `DisplayIdStereoInterface` struct; `None` if payload < 2 bytes |
 
 **Tiled Display Topology Data Block** (tag `0x12`) is decoded into the following
 `DisplayCapabilities` field:
 
-| `DisplayCapabilities` field | Source |
-|---|---|
-| `tiled_topology` | Grid dimensions, tile position, tile pixel size, single-enclosure flag, missing-tile behavior, and optional per-edge bezel sizes decoded into a `DisplayIdTiledTopology` struct; `None` if payload < 7 bytes |
+| `DisplayCapabilities` field | Source                                                                                                                                                                                                       |
+|-----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `tiled_topology`            | Grid dimensions, tile position, tile pixel size, single-enclosure flag, missing-tile behavior, and optional per-edge bezel sizes decoded into a `DisplayIdTiledTopology` struct; `None` if payload < 7 bytes |
 
 The `h_tile_count` and `v_tile_count` fields store actual counts (raw value + 1). The
 `bezel` field is `None` when the `has_bezel_info` flag is clear or the payload has fewer
@@ -198,28 +198,28 @@ any base-block values for the same fields.
 **Type I Video Timing blocks** (tag `0x03`) are decoded in both the dynamic and static
 pipelines. Each 20-byte descriptor maps to a `VideoMode` with full timing detail:
 
-| `VideoMode` field | Source |
-|---|---|
-| `width`, `height` | Horizontal/Vertical Active (exact pixel/line counts) |
-| `refresh_rate` | Derived: `pixel_clock_hz / (h_total × v_total)` |
-| `interlaced` | Byte 19 bit 0 |
-| `h_front_porch`, `h_sync_width` | Bytes 7–10 |
-| `v_front_porch`, `v_sync_width` | Bytes 15–18 |
-| `sync` | `DigitalSeparate`; polarities from byte 19 bits 3–4 |
+| `VideoMode` field               | Source                                               |
+|---------------------------------|------------------------------------------------------|
+| `width`, `height`               | Horizontal/Vertical Active (exact pixel/line counts) |
+| `refresh_rate`                  | Derived: `pixel_clock_hz / (h_total × v_total)`      |
+| `interlaced`                    | Byte 19 bit 0                                        |
+| `h_front_porch`, `h_sync_width` | Bytes 7–10                                           |
+| `v_front_porch`, `v_sync_width` | Bytes 15–18                                          |
+| `sync`                          | `DigitalSeparate`; polarities from byte 19 bits 3–4  |
 
 Null descriptors (pixel clock = 0) are silently skipped.
 
 **Type II Video Timing blocks** (tag `0x04`) are decoded in both the dynamic and static
 pipelines. Each 11-byte descriptor maps to a `VideoMode`:
 
-| `VideoMode` field | Source |
-|---|---|
-| `width`, `height` | Horizontal/Vertical Active (8-pixel and 1-line granules respectively) |
-| `refresh_rate` | Derived: `(raw_clock + 1) × 10 000 / (h_total × v_total)` |
-| `interlaced` | Byte 3 bit 4 |
-| `h_front_porch`, `h_sync_width` | Byte 6 nibbles (8-pixel granule) |
-| `v_front_porch`, `v_sync_width` | Byte 9 nibbles (1-line granule) |
-| `sync` | `DigitalSeparate`; polarities from byte 3 bits 3–2 |
+| `VideoMode` field               | Source                                                                |
+|---------------------------------|-----------------------------------------------------------------------|
+| `width`, `height`               | Horizontal/Vertical Active (8-pixel and 1-line granules respectively) |
+| `refresh_rate`                  | Derived: `(raw_clock + 1) × 10 000 / (h_total × v_total)`             |
+| `interlaced`                    | Byte 3 bit 4                                                          |
+| `h_front_porch`, `h_sync_width` | Byte 6 nibbles (8-pixel granule)                                      |
+| `v_front_porch`, `v_sync_width` | Byte 9 nibbles (1-line granule)                                       |
+| `sync`                          | `DigitalSeparate`; polarities from byte 3 bits 3–2                    |
 
 Byte 9 is dual-role: the full byte encodes the total `v_blank`; the upper/lower nibbles
 encode `v_front_porch − 1` and `v_sync_width − 1`. The implied back porch is
@@ -229,14 +229,14 @@ encode `v_front_porch − 1` and `v_sync_width − 1`. The implied back porch is
 pipelines. Each 3-byte descriptor encodes only the horizontal active, aspect ratio, and refresh
 rate; vertical active is derived from the aspect ratio:
 
-| `VideoMode` field | Source |
-|---|---|
-| `width` | `(byte 1 + 1) × 8` pixels (8-pixel granule, max 2048) |
-| `height` | `width × height_factor / width_factor` from aspect ratio |
-| `refresh_rate` | Byte 2 bits 6:0, plus 1 Hz |
-| `interlaced` | Byte 2 bit 7 |
-| `h_front_porch`, `h_sync_width`, `v_front_porch`, `v_sync_width` | 0 (not encoded) |
-| `sync` | `None` (not encoded) |
+| `VideoMode` field                                                | Source                                                   |
+|------------------------------------------------------------------|----------------------------------------------------------|
+| `width`                                                          | `(byte 1 + 1) × 8` pixels (8-pixel granule, max 2048)    |
+| `height`                                                         | `width × height_factor / width_factor` from aspect ratio |
+| `refresh_rate`                                                   | Byte 2 bits 6:0, plus 1 Hz                               |
+| `interlaced`                                                     | Byte 2 bit 7                                             |
+| `h_front_porch`, `h_sync_width`, `v_front_porch`, `v_sync_width` | 0 (not encoded)                                          |
+| `sync`                                                           | `None` (not encoded)                                     |
 
 Descriptors with undefined or reserved aspect ratio codes are silently skipped, as are those
 where the derived vertical active is not a whole number of lines.
@@ -245,12 +245,12 @@ where the derived vertical active is not a whole number of lines.
 pipelines. Each payload byte is a timing identifier resolved via a lookup table. The code
 space is selected by bits 7:6 of the data block's revision byte:
 
-| Revision bits 7:6 | Code space | Lookup |
-|---|---|---|
-| `0` | VESA DMT ID | DMT v1.13 table (IDs 0x01–0x58) |
-| `1` | CTA-861 VIC | VIC table (codes 1–219) |
-| `2` | HDMI VIC | 4 codes: 1=3840×2160@30, 2=@25, 3=@24, 4=4096×2160@24 |
-| `3` | Reserved | silently skipped |
+| Revision bits 7:6 | Code space  | Lookup                                                |
+|-------------------|-------------|-------------------------------------------------------|
+| `0`               | VESA DMT ID | DMT v1.13 table (IDs 0x01–0x58)                       |
+| `1`               | CTA-861 VIC | VIC table (codes 1–219)                               |
+| `2`               | HDMI VIC    | 4 codes: 1=3840×2160@30, 2=@25, 3=@24, 4=4096×2160@24 |
+| `3`               | Reserved    | silently skipped                                      |
 
 Timing detail fields (`h_front_porch`, `h_sync_width`, `v_front_porch`, `v_sync_width`,
 `sync`) are fully populated for both DMT-resolved and VIC-resolved modes. HDMI VIC modes
@@ -263,30 +263,31 @@ Bit `i` (0-indexed, LSB-first within each byte) corresponds to DMT ID `i + 1`. S
 are resolved via the DMT v1.13 table with full timing detail; payload bytes beyond 10 are
 ignored.
 
-| `VideoMode` field | Source |
-|---|---|
-| `width`, `height`, `refresh_rate`, `interlaced` | DMT v1.13 table entry |
-| `h_front_porch`, `h_sync_width`, `v_front_porch`, `v_sync_width` | DMT v1.13 table entry |
-| `sync` | `DigitalSeparate`; polarities from DMT v1.13 table entry |
+| `VideoMode` field                                                | Source                                                   |
+|------------------------------------------------------------------|----------------------------------------------------------|
+| `width`, `height`, `refresh_rate`, `interlaced`                  | DMT v1.13 table entry                                    |
+| `h_front_porch`, `h_sync_width`, `v_front_porch`, `v_sync_width` | DMT v1.13 table entry                                    |
+| `sync`                                                           | `DigitalSeparate`; polarities from DMT v1.13 table entry |
 
 **CTA-861 Video Timing blocks** (tag `0x08`) are decoded in both the dynamic and static
 pipelines. The payload is a presence bitmap: up to 8 bytes encoding CTA-861 VICs 1–64.
 Bit `i` (0-indexed, LSB-first within each byte) corresponds to VIC `i + 1`. Set bits are
 resolved via the CTA-861 VIC table with full timing detail; payload bytes beyond 8 are ignored.
 
-| `VideoMode` field | Source |
-|---|---|
-| `width`, `height`, `refresh_rate`, `interlaced` | CTA-861 VIC table entry |
-| `h_front_porch`, `h_sync_width`, `v_front_porch`, `v_sync_width` | CTA-861 VIC table entry |
-| `sync` | `DigitalSeparate`; polarities from CTA-861 VIC table entry |
+| `VideoMode` field                                                | Source                                                     |
+|------------------------------------------------------------------|------------------------------------------------------------|
+| `width`, `height`, `refresh_rate`, `interlaced`                  | CTA-861 VIC table entry                                    |
+| `h_front_porch`, `h_sync_width`, `v_front_porch`, `v_sync_width` | CTA-861 VIC table entry                                    |
+| `sync`                                                           | `DigitalSeparate`; polarities from CTA-861 VIC table entry |
 
 ## Warnings
 
-| Variant | Meaning |
-|---|---|
-| `DisplayIdVersionUnknown(u8)` | Version byte is outside the known ranges (0x10–0x1F, 0x20). The block is skipped. |
-| `DisplayIdExtensionCountMismatch { declared, found }` | The extension count in the first fragment's header does not match the number of continuation blocks actually present. Processing continues with whatever fragments are available. |
-| `DisplayIdChecksumMismatch` | The DisplayID section checksum byte does not make `block[1..=4+N]` sum to zero mod 256. Processing continues with whatever data is present in the fragment. |
+| Variant                                               | Meaning                                                                                                                                                                                    |
+|-------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `DisplayIdVersionUnknown(u8)`                         | Version byte is outside the known ranges (0x10–0x1F, 0x20). The block is skipped.                                                                                                          |
+| `DisplayIdExtensionCountMismatch { declared, found }` | The extension count in the first fragment's header does not match the number of continuation blocks actually present. Processing continues with whatever fragments are available.          |
+| `DisplayIdChecksumMismatch`                           | The DisplayID section checksum byte does not make `block[1..=4+N]` sum to zero mod 256. Processing continues with whatever data is present in the fragment.                                |
+| `DisplayIdSectionBytesOutOfRange(u8)`                 | The `section_byte_count` field (byte 2) is larger than 122, placing the checksum byte outside the 128-byte extension block. The section is still parsed using the clamped available bytes. |
 
 ## Fragment layout reference
 
