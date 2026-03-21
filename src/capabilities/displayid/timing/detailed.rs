@@ -74,9 +74,10 @@ pub(super) fn decode_type_i_descriptor(d: &[u8; 20], sink: &mut dyn ModeSink) {
 /// - Byte 6:    Bits 7:4 = H-offset mantissa (4-bit); bits 3:0 = H-sync-width mantissa (4-bit)
 /// - Byte 7:    V-active bits 7:0  (12-bit mantissa; `v = 1 + mantissa`)
 /// - Byte 8:    Bits 3:0 = V-active bits 11:8; bits 7:4 = reserved
-/// - Byte 9:    Full byte = V-blank mantissa (`v_blank = 1 + byte`);
-///   bits 7:4 = V-offset mantissa (`v_fp = 1 + nibble`);
-///   bits 3:0 = V-sync-width mantissa (`v_sw = 1 + nibble`)
+/// - Byte 9:    Bits 7:4 = V-front-porch mantissa (`v_fp = 1 + nibble`, range 1–16);
+///   bits 3:0 = V-sync-width mantissa (`v_sw = 1 + nibble`, range 1–16).
+///   The full byte read as `1 + byte` gives `v_blank` for the timing calculation;
+///   the implied back porch is `v_blank − v_fp − v_sw = 15 × (v_fp − 1) − 1`.
 /// - Byte 10:   Reserved
 pub(super) fn decode_type_ii_descriptor(d: &[u8; 11], sink: &mut dyn ModeSink) {
     let raw_pixel_clock = (d[0] as u32) | ((d[1] as u32) << 8) | ((d[2] as u32) << 16);
@@ -101,7 +102,9 @@ pub(super) fn decode_type_ii_descriptor(d: &[u8; 11], sink: &mut dyn ModeSink) {
     let va_raw = (d[7] as u16) | (((d[8] & 0x0F) as u16) << 8);
     let v_active = 1u16 + va_raw;
 
-    // Byte 9 dual-role: full byte encodes v_blank; nibbles encode v_front_porch and v_sync_width.
+    // Byte 9: upper nibble = v_fp − 1 (range 1–16); lower nibble = v_sw − 1 (range 1–16).
+    // The full byte, read as 1 + byte, gives v_blank for the refresh-rate calculation;
+    // back porch is implicit: v_blank − v_fp − v_sw = 15 × (v_fp − 1) − 1.
     let v_blank = 1u16 + d[9] as u16;
     let v_front_porch = 1u16 + ((d[9] >> 4) as u16);
     let v_sync_width = 1u16 + ((d[9] & 0x0F) as u16);
