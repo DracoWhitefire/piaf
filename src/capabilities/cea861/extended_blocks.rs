@@ -5,12 +5,17 @@ pub use display_types::cea861::hdmi_forum::{
     HdmiDscMaxSlices, HdmiForumDsc, HdmiForumFrl, HdmiForumSinkCap,
 };
 pub use display_types::cea861::hdr::{HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata};
+pub use display_types::cea861::misc::{InfoFrameDescriptor, VendorSpecificBlock, infoframe_type};
 pub use display_types::cea861::speaker::{
     RoomConfigurationBlock, SpeakerAllocation, SpeakerAllocationFlags, SpeakerAllocationFlags2,
     SpeakerAllocationFlags3, SpeakerLocationEntry,
 };
+pub use display_types::cea861::vesa_dddb::VesaDisplayDeviceBlock;
 pub use display_types::cea861::vesa_transfer::{DtcPointEncoding, VesaTransferCharacteristic};
 pub use display_types::cea861::video_capability::{VideoCapability, VideoCapabilityFlags};
+pub use display_types::cea861::vtdb::{
+    T7VtdbBlock, T8VtdbBlock, T10VtdbBlock, T10VtdbEntry, VtbExtBlock,
+};
 
 /// Extended tag codes used in CEA Extended Tag Data Blocks (outer tag `0x07`).
 /// The first byte of the block payload is the extended tag.
@@ -322,46 +327,6 @@ pub(super) fn parse_speaker_location(block_data: &[u8]) -> Vec<SpeakerLocationEn
 // InfoFrame Data Block (extended tag 0x20)
 // ---------------------------------------------------------------------------
 
-/// Well-known InfoFrame type codes from the InfoFrame Data Block (extended tag `0x20`).
-///
-/// These correspond to the InfoFrame types defined in HDMI and CTA-861.
-pub mod infoframe_type {
-    /// Vendor-Specific InfoFrame (VSI). The associated OUI identifies the vendor.
-    pub const VENDOR_SPECIFIC: u8 = 0x01;
-    /// AVI InfoFrame — active video format, colorimetry, aspect ratio.
-    pub const AVI: u8 = 0x02;
-    /// Source Product Descriptor InfoFrame.
-    pub const SOURCE_PRODUCT_DESCRIPTOR: u8 = 0x03;
-    /// Audio InfoFrame.
-    pub const AUDIO: u8 = 0x04;
-    /// MPEG Source InfoFrame.
-    pub const MPEG_SOURCE: u8 = 0x05;
-    /// NTSC VBI InfoFrame.
-    pub const NTSC_VBI: u8 = 0x06;
-    /// Dynamic Range and Mastering InfoFrame (HDR10 static metadata).
-    pub const DYNAMIC_RANGE_MASTERING: u8 = 0x07;
-}
-
-/// One entry from an InfoFrame Data Block (extended tag `0x20`).
-///
-/// Each descriptor identifies an InfoFrame type that the sink is capable of
-/// receiving. For Vendor-Specific InfoFrames (`type_code == 0x01`) the IEEE OUI
-/// of the vendor is also present.
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct InfoFrameDescriptor {
-    /// InfoFrame type code (bits 4:0 of the SID byte).
-    ///
-    /// See the constants in [`infoframe_type`] for the well-known values.
-    pub type_code: u8,
-    /// IEEE OUI for Vendor-Specific InfoFrames (`type_code == 0x01`).
-    ///
-    /// Stored as `(byte0 << 16) | (byte1 << 8) | byte2` following the byte
-    /// order used in CTA-861.  `None` for all other types.
-    pub vendor_oui: Option<u32>,
-}
-
 pub(super) fn parse_infoframe_db(block_data: &[u8]) -> Vec<InfoFrameDescriptor> {
     // block_data[0] = extended tag; SIDs start at [1].
     // Each SID: bits 7:5 = additional bytes after this byte, bits 4:0 = type.
@@ -384,10 +349,7 @@ pub(super) fn parse_infoframe_db(block_data: &[u8]) -> Vec<InfoFrameDescriptor> 
             None
         };
 
-        out.push(InfoFrameDescriptor {
-            type_code,
-            vendor_oui,
-        });
+        out.push(InfoFrameDescriptor::new(type_code, vendor_oui));
 
         // Advance past the extra bytes, clamping to remaining payload.
         i += extra.min(payload.len().saturating_sub(i));
@@ -401,27 +363,6 @@ pub(super) fn parse_infoframe_db(block_data: &[u8]) -> Vec<InfoFrameDescriptor> 
 // Vendor-Specific Audio Data Block (extended tag 0x11)
 // ---------------------------------------------------------------------------
 
-/// A decoded Vendor-Specific Video Data Block (VSVDB, extended tag `0x01`) or
-/// Vendor-Specific Audio Data Block (VSADB, extended tag `0x11`).
-///
-/// Both block types share the same structure: a 3-byte IEEE OUI followed by an
-/// opaque vendor-defined payload (CTA-861 Tables 56–57). The payload is stored
-/// verbatim for consumers that recognise the OUI.
-///
-/// Well-known video OUIs include Dolby Vision (`0x00D046`) and HDR10+ (`0x90848B`).
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VendorSpecificBlock {
-    /// 24-bit IEEE OUI in canonical (MSB-first) form.
-    ///
-    /// Assembled from the three OUI bytes as `(byte2 << 16) | (byte1 << 8) | byte0`,
-    /// where byte0 is the least-significant byte as stored on the wire.
-    pub oui: u32,
-    /// Vendor-defined payload bytes following the OUI.
-    pub payload: Vec<u8>,
-}
-
 /// Parse a VSVDB or VSADB payload (`block_data` starts after the extended tag byte).
 ///
 /// Returns `None` if the payload is shorter than the 3-byte OUI minimum.
@@ -432,33 +373,12 @@ pub(super) fn parse_vendor_specific_block(block_data: &[u8]) -> Option<VendorSpe
     let oui =
         ((block_data[2] as u32) << 16) | ((block_data[1] as u32) << 8) | (block_data[0] as u32);
     let payload = block_data[3..].to_vec();
-    Some(VendorSpecificBlock { oui, payload })
+    Some(VendorSpecificBlock::new(oui, payload))
 }
 
 // ---------------------------------------------------------------------------
 // DisplayID Type VII Video Timing Data Block (extended tag 0x22)
 // ---------------------------------------------------------------------------
-
-/// A decoded DisplayID Type VII Video Timing Data Block (T7VTDB, extended tag `0x22`).
-///
-/// Each CTA T7VTDB carries exactly one 20-byte DisplayID-style timing descriptor.
-/// Unlike an 18-byte EDID DTD, the pixel clock is expressed in kHz (not 10 kHz units)
-/// and all horizontal/vertical fields are 16-bit rather than packed.
-///
-/// Multiple T7VTDBs are permitted per CTA extension block (one timing per block).
-/// Per CTA-861, `interlaced` shall always be `false`; `y420` reflects the T7Y420 flag.
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq)]
-pub struct T7VtdbBlock {
-    /// Block revision (`Block_Rev` field, bits 2:0 of the descriptor header byte).
-    /// CTA-861 expects revision `0x02`.
-    pub version: u8,
-    /// Decoded video timing for this descriptor.
-    pub mode: VideoMode,
-    /// When `true`, this timing also supports YCbCr 4:2:0 sampling (T7Y420 flag).
-    pub y420: bool,
-}
 
 /// Parse a T7VTDB payload (`block_data` starts after the extended tag byte, at the descriptor
 /// header). Returns `None` for payloads shorter than 22 bytes, zero pixel clock, or geometry
@@ -508,39 +428,12 @@ pub(super) fn parse_t7vtdb(block_data: &[u8]) -> Option<T7VtdbBlock> {
 
     let mode = VideoMode::new(hactive, vactive, refresh_rate, interlaced);
 
-    Some(T7VtdbBlock {
-        version,
-        mode,
-        y420,
-    })
+    Some(T7VtdbBlock::new(version, mode, y420))
 }
 
 // ---------------------------------------------------------------------------
 // DisplayID Type VIII Video Timing Data Block (extended tag 0x23)
 // ---------------------------------------------------------------------------
-
-/// A decoded DisplayID Type VIII Video Timing Data Block (T8VTDB, extended tag `0x23`).
-///
-/// Contains a list of VESA DMT (Display Monitor Timings) ID codes referencing
-/// standardised monitor timings. Only `Code_Type = 0x00` (DMT) is defined by
-/// CTA-861; other code types are returned as `None` by the parser.
-///
-/// Codes whose DMT IDs are not in the standard table are stored in `codes` but
-/// omitted from `timings`.
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq)]
-pub struct T8VtdbBlock {
-    /// Block revision (`Block_Rev` field, bits 2:0).
-    pub version: u8,
-    /// When `true`, all timings also support YCbCr 4:2:0 sampling (T8Y420 flag).
-    pub y420: bool,
-    /// Raw DMT timing codes as they appear in the block (1-byte or 2-byte each).
-    pub codes: Vec<u16>,
-    /// `VideoMode` values resolved from the DMT codes. Entries for unrecognised
-    /// or reserved DMT IDs are omitted.
-    pub timings: Vec<VideoMode>,
-}
 
 use super::dmt_table::dmt_to_mode;
 
@@ -584,52 +477,12 @@ pub(super) fn parse_t8vtdb(block_data: &[u8]) -> Option<T8VtdbBlock> {
         }
     }
 
-    Some(T8VtdbBlock {
-        version,
-        y420,
-        codes,
-        timings,
-    })
+    Some(T8VtdbBlock::new(version, y420, codes, timings))
 }
 
 // ---------------------------------------------------------------------------
 // DisplayID Type X Video Timing Data Block (extended tag 0x2A)
 // ---------------------------------------------------------------------------
-
-/// A single timing entry from a T10VTDB block.
-///
-/// Type X timings use a CVT formula to derive the full signal, but only the
-/// display-facing parameters (resolution and refresh rate) are exposed here.
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct T10VtdbEntry {
-    /// Horizontal active pixels.
-    pub width: u16,
-    /// Vertical active lines.
-    pub height: u16,
-    /// Vertical refresh rate in Hz (1–1024).
-    ///
-    /// Values above 255 are only possible when the block uses 7- or 8-byte
-    /// descriptors (M ≥ 1 in the `rev` byte).
-    pub refresh_hz: u16,
-    /// When `true`, this timing also supports YCbCr 4:2:0 sampling (YCC420 flag).
-    pub y420: bool,
-}
-
-/// A decoded DisplayID Type X Video Timing Data Block (T10VTDB, extended tag `0x2A`).
-///
-/// Type X timings are CVT formula-based: each descriptor encodes the active
-/// resolution and refresh rate directly, with blanking derived by the display.
-/// A block may contain 1–4 descriptors (limited by the 30-byte CTA extended
-/// block payload cap).
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct T10VtdbBlock {
-    /// Decoded timing entries. Each entry corresponds to one descriptor in the block.
-    pub entries: Vec<T10VtdbEntry>,
-}
 
 /// Parse a T10VTDB payload (`block_data` starts after the extended tag byte).
 ///
@@ -675,17 +528,12 @@ pub(super) fn parse_t10vtdb(block_data: &[u8]) -> Option<T10VtdbBlock> {
             refresh_lsb + 1
         };
 
-        entries.push(T10VtdbEntry {
-            width,
-            height,
-            refresh_hz,
-            y420,
-        });
+        entries.push(T10VtdbEntry::new(width, height, refresh_hz, y420));
 
         i += sz;
     }
 
-    Some(T10VtdbBlock { entries })
+    Some(T10VtdbBlock::new(entries))
 }
 
 // ---------------------------------------------------------------------------
@@ -885,87 +733,6 @@ pub(super) fn parse_hf_vsdb(block_data: &[u8]) -> Option<HdmiForumSinkCap> {
 // VESA Display Device Data Block (extended tag 0x02)
 // ---------------------------------------------------------------------------
 
-/// Decoded VESA Display Device Data Block (extended tag `0x02`).
-///
-/// A fixed 30-byte payload describing the physical and electrical characteristics
-/// of the display, per the VESA Display Device Data Block (DDDB) Standard, Version 1.
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VesaDisplayDeviceBlock {
-    /// Interface type code (bits 7:4). 0=Analog, 1=LVDS, 3=DVI-D, 6=HDMI-A, 9=DP, etc.
-    pub interface_type: u8,
-    /// Number of lanes/channels (bits 3:0). For analog interfaces this is a subtype code.
-    pub num_links: u8,
-    /// Interface standard version (bits 7:4 of byte 0x03).
-    pub interface_version: u8,
-    /// Interface standard release (bits 3:0 of byte 0x03).
-    pub interface_release: u8,
-    /// Content protection code (byte 0x04). 0=none, 1=HDCP, 2=DTCP, 3=DPCP.
-    pub content_protection: u8,
-    /// Minimum supported clock frequency per link in MHz (6-bit, range 0–63).
-    pub min_clock_mhz: u8,
-    /// Maximum supported clock frequency per link in MHz (10-bit, range 0–1023).
-    pub max_clock_mhz: u16,
-    /// Native horizontal pixel count, or `None` if the display has no fixed format.
-    pub native_width: Option<u16>,
-    /// Native vertical pixel count, or `None` if the display has no fixed format.
-    pub native_height: Option<u16>,
-    /// Aspect ratio raw byte. Physical AR = (raw / 100.0) + 1.0 (long-axis / short-axis).
-    pub aspect_ratio_raw: u8,
-    /// Default orientation: 0=landscape, 1=portrait, 2=not_fixed, 3=undefined.
-    pub default_orientation: u8,
-    /// Rotation capability: 0=none, 1=90°CW, 2=90°CCW, 3=both.
-    pub rotation_capability: u8,
-    /// Zero pixel (scan origin) location: 0=upper-left, 1=upper-right, 2=lower-left, 3=lower-right.
-    pub zero_pixel_location: u8,
-    /// Scan direction: 0=undefined, 1=long-axis-fast, 2=short-axis-fast, 3=reserved.
-    pub scan_direction: u8,
-    /// Subpixel layout code (byte 0x0D). 0=undefined, 1=RGB-V, 2=RGB-H, etc.
-    pub subpixel_layout: u8,
-    /// Horizontal pixel pitch in 0.01 mm increments (range 0.00–2.55 mm).
-    pub h_pitch_hundredths_mm: u8,
-    /// Vertical pixel pitch in 0.01 mm increments (range 0.00–2.55 mm).
-    pub v_pitch_hundredths_mm: u8,
-    /// Dithering type: 0=none, 1=spatial, 2=temporal, 3=spatial+temporal.
-    pub dithering: u8,
-    /// Display is direct-drive — no internal scaling/de-interlacing/FRC.
-    pub direct_drive: bool,
-    /// Video source should not apply overdrive for this display.
-    pub overdrive_not_recommended: bool,
-    /// Display can de-interlace interlaced input to progressive scan.
-    pub deinterlacing: bool,
-    /// Audio is supported on the video interface.
-    pub audio_on_video_interface: bool,
-    /// Separate audio inputs are provided independently of the video interface.
-    pub separate_audio_inputs: bool,
-    /// Audio received on the video interface automatically overrides other audio inputs.
-    pub audio_input_override: bool,
-    /// Signed audio delay in milliseconds (positive = audio after video, negative = before).
-    /// `None` means no delay information is provided (raw delay byte was 0x00).
-    pub audio_delay_ms: Option<i16>,
-    /// Frame-rate conversion capability: 0=none, 1=single-buffer, 2=double-buffer, 3=interpolation.
-    pub frame_rate_conversion: u8,
-    /// Maximum excursion (±FPS) from the nominal frame rate (6 bits, 0–63).
-    pub frame_rate_range: u8,
-    /// Native or nominal display frame rate in frames/second.
-    pub native_frame_rate: u8,
-    /// Color bit depth per primary on the video interface (1–16).
-    pub interface_color_depth: u8,
-    /// Color bit depth per primary at the display panel without temporal dithering (1–16).
-    pub display_color_depth: u8,
-    /// Raw bytes 0x16–0x1D: chromaticity data for up to three additional primaries.
-    pub additional_chromaticities: [u8; 8],
-    /// Response time in milliseconds (0 = < 1 ms, 127 = > 126 ms).
-    pub response_time_ms: u8,
-    /// `true` if the response time is white-to-black; `false` if black-to-white.
-    pub response_time_white_to_black: bool,
-    /// Percentage of active image outside the visible screen area, horizontally (0–15%).
-    pub h_overscan_pct: u8,
-    /// Percentage of active image outside the visible screen area, vertically (0–15%).
-    pub v_overscan_pct: u8,
-}
-
 pub(super) fn parse_vesa_display_device(block_data: &[u8]) -> Option<VesaDisplayDeviceBlock> {
     // Fixed 30-byte payload after the extended tag byte.
     if block_data.len() < 30 {
@@ -1046,7 +813,7 @@ pub(super) fn parse_vesa_display_device(block_data: &[u8]) -> Option<VesaDisplay
     let h_overscan_pct = (overscan >> 4) & 0x0F;
     let v_overscan_pct = overscan & 0x0F;
 
-    Some(VesaDisplayDeviceBlock {
+    Some(VesaDisplayDeviceBlock::new(
         interface_type,
         num_links,
         interface_version,
@@ -1082,28 +849,12 @@ pub(super) fn parse_vesa_display_device(block_data: &[u8]) -> Option<VesaDisplay
         response_time_white_to_black,
         h_overscan_pct,
         v_overscan_pct,
-    })
+    ))
 }
 
 // ---------------------------------------------------------------------------
 // VESA Video Timing Block Extension (extended tag 0x03)
 // ---------------------------------------------------------------------------
-
-/// Decoded VESA Video Timing Block Extension (extended tag `0x03`).
-///
-/// Carries additional video timing modes beyond what fits in the base EDID block.
-/// Each block may contain Detailed Timing Descriptors (DTBs), Coordinated Video
-/// Timings (CVTs), and Standard Timing (ST) entries, per the VESA VTB-EXT Standard,
-/// Release A.
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq)]
-pub struct VtbExtBlock {
-    /// VTB-EXT version byte (expected `0x01`).
-    pub version: u8,
-    /// All video modes decoded from this block (DTBs, CVTs, and STs combined).
-    pub timings: Vec<VideoMode>,
-}
 
 /// Decodes a single 18-byte DTD slice into a [`VideoMode`], without side effects.
 /// Returns `None` for non-timing descriptors (zero pixel clock) or invalid geometry.
@@ -1222,7 +973,7 @@ pub(super) fn parse_vtb_ext(block_data: &[u8]) -> Option<VtbExtBlock> {
         }
     }
 
-    Some(VtbExtBlock { version, timings })
+    Some(VtbExtBlock::new(version, timings))
 }
 
 #[cfg(test)]
