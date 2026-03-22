@@ -201,23 +201,19 @@ pub(crate) fn vic_to_mode(vic: u8) -> Option<VideoMode> {
         _ => return None,
     };
 
-    Some(VideoMode {
-        width: w,
-        height: h,
-        refresh_rate: r,
-        interlaced,
-        h_front_porch: hfp,
-        h_sync_width: hsw,
-        v_front_porch: vfp,
-        v_sync_width: vsw,
-        h_border: 0,
-        v_border: 0,
-        stereo: StereoMode::None,
-        sync: Some(SyncDefinition::DigitalSeparate {
+    Some(VideoMode::new(w, h, r, interlaced).with_detailed_timing(
+        hfp,
+        hsw,
+        vfp,
+        vsw,
+        0,
+        0,
+        StereoMode::None,
+        Some(SyncDefinition::DigitalSeparate {
             v_sync_positive: vpos,
             h_sync_positive: hpos,
         }),
-    })
+    ))
 }
 
 #[cfg(test)]

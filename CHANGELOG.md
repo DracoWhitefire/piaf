@@ -5,6 +5,102 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-03-22
+
+### Fixed
+
+- **`VideoMode` was not `#[non_exhaustive]`**: the 0.3.0 release claimed all output structs
+  were marked `#[non_exhaustive]`, but `VideoMode` was inadvertently omitted. This is now
+  corrected via `display-types 0.1.1`. External crates that were already following the
+  documented contract (using `..Default::default()` or the `::new` constructor rather than
+  exhaustive struct literals) are unaffected.
+- **Transfer Characteristics block with reserved encoding**: a DisplayID Transfer
+  Characteristics block whose encoding byte carried the reserved value `0b11` was previously
+  silently ignored. It now emits `EdidWarning::UnknownTransferEncoding(bits)` before
+  skipping the block, consistent with how other undecodable fields are handled.
+
+### Changed
+
+- `display-types` dependency updated to `"0.1.1"`, which adds `#[non_exhaustive]` to
+  `VideoMode` and provides `VideoMode::new(width, height, refresh_rate, interlaced)` and
+  `VideoMode::with_detailed_timing(…)` constructors.
+
+### Internal
+
+- All `VideoMode` construction sites within piaf migrated from struct literal syntax to
+  `VideoMode::new` / `VideoMode::with_detailed_timing`, in line with the `#[non_exhaustive]`
+  contract.
+
+## [0.3.0] - 2026-03-22
+
+### Breaking changes
+
+**Shared type library**
+
+All display capability types have been extracted into the
+[`display-types`](https://crates.io/crates/display-types) crate (version 0.1), which is now a
+required dependency. Types that were previously defined in `piaf` are now re-exported from
+`display-types`; existing `use piaf::…` imports continue to work, but the types themselves now
+originate from `display-types`.
+
+The following types are affected:
+`DisplayCapabilities`, `ExtensionData`, `ParseWarning`, `EdidVersion`,
+`VideoMode`, `StereoMode`, `SyncDefinition`,
+`Chromaticity`, `ChromaticityPoint`, `WhitePoint`, `ColorManagementData`, `DcmChannel`,
+`ColorBitDepth`, `DigitalColorEncoding`, `AnalogColorType`, `DisplayGamma`,
+`VideoInputFlags`, `VideoInterface`, `AnalogSyncLevel`,
+`DisplayFeatureFlags`,
+`ManufacturerId`, `ManufactureDate`, `MonitorString`,
+`ScreenSize`,
+`TimingFormula`, `GtfSecondaryParams`, `CvtSupportParams`, `CvtAspectRatios`, `CvtAspectRatio`, `CvtScaling`,
+`BacklightType`, `DisplayIdInterface`, `DisplayIdStereoInterface`, `DisplayIdTiledTopology`,
+`DisplayInterfaceType`, `DisplayTechnology`, `InterfaceContentProtection`, `OperatingMode`,
+`PhysicalOrientation`, `PowerSequencing`, `RotationCapability`, `ScanDirection`,
+`StereoSyncInterface`, `StereoViewingMode`, `SubpixelLayout`, `TileBezelInfo`,
+`TileTopologyBehavior`, `ZeroPixelLocation`,
+`TransferPointEncoding`, `TransferCurve`, `DisplayIdTransferCharacteristic`.
+
+**`#[non_exhaustive]` on all output structs**
+
+All public output structs are now marked `#[non_exhaustive]`. Code that constructs these structs
+with struct literal syntax (e.g. in tests or custom pipelines) must switch to the provided
+`::new(…)` constructors or use `..Default::default()` for the remaining fields.
+
+**`serde` feature now requires `display-types/serde`**
+
+Enabling the `serde` feature now also enables `display-types/serde`. Projects that previously
+activated serde serialization by enabling only `piaf/serde` will automatically get serialization
+for all re-exported types as before, with no action required.
+
+### Fixed
+
+- **Bare `no_std` builds**: Both `capabilities_from_edid` and `capabilities_from_edid_static`
+  failed to compile in bare `no_std` mode after the type extraction. The root cause was that
+  `decode_base_block` gained a `warn: &mut dyn ModeSink` parameter to route warnings in the
+  absence of heap allocation, but the call sites had not been updated.
+  `capabilities_from_edid_static` now initialises `StaticDisplayCapabilities` before the
+  base-block decode and passes it directly as the warning sink, so base-block warnings (e.g.
+  `InvalidManufacturerId`) are preserved in `StaticDisplayCapabilities::warnings` exactly as
+  they were before the type extraction. `capabilities_from_edid` uses a local `NullSink`
+  because `DisplayCapabilities` carries no warning storage in bare `no_std` builds; use
+  `capabilities_from_edid_static` if warnings are needed in that build configuration.
+
+### Added
+
+- **`display-types` dependency**: `display-types = "0.1"` is now a required dependency,
+  providing the stable shared vocabulary between piaf and downstream consumers such as
+  [concordance](https://crates.io/crates/concordance).
+- **Code of conduct**: `CODE_OF_CONDUCT.md` added (Contributor Covenant 3.0).
+
+### Internal
+
+- `decode_base_block` gained a `warn: &mut dyn ModeSink` parameter so warnings can be routed
+  to the appropriate sink in bare `no_std` builds where `DisplayCapabilities` has no warning
+  storage.
+- Decoder methods that were `pub(crate)` on shared types in display-types have been moved to
+  free functions inside piaf, keeping the public API of display-types free of parser internals.
+- Unused imports removed following the type extraction.
+
 ## [0.2.1] - 2026-03-21
 
 ### Fixed

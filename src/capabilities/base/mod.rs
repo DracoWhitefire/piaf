@@ -13,6 +13,11 @@ mod descriptors;
 mod header;
 pub(crate) mod timings;
 
+// Byte-to-type decode primitives shared with the DisplayID sub-decoder.
+// DisplayID reuses the EDID encoding for manufacture date (product ID block)
+// and color bit depth (display params and display device data blocks).
+pub(crate) use header::{decode_color_bit_depth, decode_manufacture_date};
+
 /// Decodes the base block fields that are available in all build configurations,
 /// including bare `no_std` without `alloc`.
 ///
@@ -34,9 +39,13 @@ pub(super) fn decode_base_modes(base: &[u8; 128], sink: &mut dyn ModeSink) {
 }
 
 #[cfg(not(any(feature = "alloc", feature = "std")))]
-pub(super) fn decode_base_block(base: &[u8; 128], caps: &mut DisplayCapabilities) {
+pub(super) fn decode_base_block(
+    base: &[u8; 128],
+    caps: &mut DisplayCapabilities,
+    warn: &mut dyn ModeSink,
+) {
     if !header::decode_header_fields(base, caps) {
-        caps.push_warning(EdidWarning::InvalidManufacturerId);
+        warn.push_warning(EdidWarning::InvalidManufacturerId);
     }
     descriptors::decode_descriptors_meta(base, caps);
 }

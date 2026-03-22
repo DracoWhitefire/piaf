@@ -46,6 +46,20 @@ use crate::model::extension::{ExtensionLibrary, StaticExtensionHandler};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{Box, Vec};
 
+/// A [`ModeSink`] that discards all output.
+///
+/// Used by [`capabilities_from_edid`] in bare `no_std` builds where `DisplayCapabilities`
+/// carries no warning or mode storage. Warnings are unrecoverable in that path; use
+/// [`capabilities_from_edid_static`] if warnings are needed in a bare `no_std` build.
+#[cfg(not(any(feature = "alloc", feature = "std")))]
+struct NullSink;
+
+#[cfg(not(any(feature = "alloc", feature = "std")))]
+impl ModeSink for NullSink {
+    fn push_mode(&mut self, _: crate::model::capabilities::VideoMode) {}
+    fn push_warning(&mut self, _: crate::model::diagnostics::EdidWarning) {}
+}
+
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl ExtensionLibrary {
     /// Creates a library pre-loaded with the built-in [`BaseBlockHandler`] and [`Cea861Handler`].
@@ -75,9 +89,6 @@ pub fn capabilities_from_edid<T: EdidSource>(
     edid: &T,
     library: &ExtensionLibrary,
 ) -> DisplayCapabilities {
-    #[cfg(any(feature = "alloc", feature = "std"))]
-    let mut caps = DisplayCapabilities::default();
-    #[cfg(not(any(feature = "alloc", feature = "std")))]
     let mut caps = DisplayCapabilities::default();
 
     #[cfg(any(feature = "alloc", feature = "std"))]
@@ -113,7 +124,7 @@ pub fn capabilities_from_edid<T: EdidSource>(
     #[cfg(not(any(feature = "alloc", feature = "std")))]
     {
         let _ = library;
-        base::decode_base_block(edid.base_block(), &mut caps);
+        base::decode_base_block(edid.base_block(), &mut caps, &mut NullSink);
     }
 
     caps
@@ -139,6 +150,8 @@ pub fn capabilities_from_edid_static<const N: usize, T: EdidSource>(
     // This gives us all scalar fields and preferred_image_size_mm "for free" from the
     // existing base-block decoder, without duplicating its logic here.
     let mut base_caps = DisplayCapabilities::default();
+    // Initialised early so it can serve as the warning sink in bare no_std builds.
+    let mut caps = StaticDisplayCapabilities::<N>::default();
 
     #[cfg(any(feature = "alloc", feature = "std"))]
     {
@@ -152,40 +165,38 @@ pub fn capabilities_from_edid_static<const N: usize, T: EdidSource>(
 
     #[cfg(not(any(feature = "alloc", feature = "std")))]
     {
-        base::decode_base_block(parsed.base_block(), &mut base_caps);
+        // Route warnings directly into caps so they are preserved in the static output.
+        base::decode_base_block(parsed.base_block(), &mut base_caps, &mut caps);
     }
 
     // Step 2 — Copy all scalar fields from the temporary into the static output.
-    let mut caps = StaticDisplayCapabilities::<N> {
-        manufacturer: base_caps.manufacturer,
-        manufacture_date: base_caps.manufacture_date,
-        edid_version: base_caps.edid_version,
-        product_code: base_caps.product_code,
-        serial_number: base_caps.serial_number,
-        serial_number_string: base_caps.serial_number_string,
-        display_name: base_caps.display_name,
-        unspecified_text: base_caps.unspecified_text,
-        white_points: base_caps.white_points,
-        digital: base_caps.digital,
-        color_bit_depth: base_caps.color_bit_depth,
-        chromaticity: base_caps.chromaticity,
-        gamma: base_caps.gamma,
-        display_features: base_caps.display_features,
-        digital_color_encoding: base_caps.digital_color_encoding,
-        analog_color_type: base_caps.analog_color_type,
-        video_interface: base_caps.video_interface,
-        analog_sync_level: base_caps.analog_sync_level,
-        screen_size: base_caps.screen_size,
-        min_v_rate: base_caps.min_v_rate,
-        max_v_rate: base_caps.max_v_rate,
-        min_h_rate_khz: base_caps.min_h_rate_khz,
-        max_h_rate_khz: base_caps.max_h_rate_khz,
-        max_pixel_clock_mhz: base_caps.max_pixel_clock_mhz,
-        preferred_image_size_mm: base_caps.preferred_image_size_mm,
-        timing_formula: base_caps.timing_formula,
-        color_management: base_caps.color_management,
-        ..Default::default()
-    };
+    caps.manufacturer = base_caps.manufacturer;
+    caps.manufacture_date = base_caps.manufacture_date;
+    caps.edid_version = base_caps.edid_version;
+    caps.product_code = base_caps.product_code;
+    caps.serial_number = base_caps.serial_number;
+    caps.serial_number_string = base_caps.serial_number_string;
+    caps.display_name = base_caps.display_name;
+    caps.unspecified_text = base_caps.unspecified_text;
+    caps.white_points = base_caps.white_points;
+    caps.digital = base_caps.digital;
+    caps.color_bit_depth = base_caps.color_bit_depth;
+    caps.chromaticity = base_caps.chromaticity;
+    caps.gamma = base_caps.gamma;
+    caps.display_features = base_caps.display_features;
+    caps.digital_color_encoding = base_caps.digital_color_encoding;
+    caps.analog_color_type = base_caps.analog_color_type;
+    caps.video_interface = base_caps.video_interface;
+    caps.analog_sync_level = base_caps.analog_sync_level;
+    caps.screen_size = base_caps.screen_size;
+    caps.min_v_rate = base_caps.min_v_rate;
+    caps.max_v_rate = base_caps.max_v_rate;
+    caps.min_h_rate_khz = base_caps.min_h_rate_khz;
+    caps.max_h_rate_khz = base_caps.max_h_rate_khz;
+    caps.max_pixel_clock_mhz = base_caps.max_pixel_clock_mhz;
+    caps.preferred_image_size_mm = base_caps.preferred_image_size_mm;
+    caps.timing_formula = base_caps.timing_formula;
+    caps.color_management = base_caps.color_management;
 
     // Step 3 — Populate modes.
     #[cfg(any(feature = "alloc", feature = "std"))]
@@ -202,15 +213,7 @@ pub fn capabilities_from_edid_static<const N: usize, T: EdidSource>(
         base::decode_base_modes(parsed.base_block(), &mut caps);
     }
 
-    // Step 4 — Copy base-block warnings (bare no_std only; alloc warnings are Arc-boxed).
-    #[cfg(not(any(feature = "alloc", feature = "std")))]
-    {
-        for w in base_caps.warnings.iter().flatten().copied() {
-            caps.push_warning(w);
-        }
-    }
-
-    // Step 5 — Dispatch extension blocks to the static handler slice.
+    // Step 4 — Dispatch extension blocks to the static handler slice.
     //
     // In alloc/std builds, collect all blocks per handler first and call once with the
     // full slice, so multi-block formats (e.g. DisplayID) receive all their fragments

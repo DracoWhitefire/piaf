@@ -4,14 +4,16 @@ use super::{
     TAG_STEREO_DISPLAY_INTERFACE, TAG_TILED_TOPOLOGY, TAG_TRANSFER_CHARACTERISTICS,
     TAG_VIDEO_TIMING_RANGE, for_each_data_block,
 };
+
+use crate::capabilities::base::{decode_color_bit_depth, decode_manufacture_date};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::color::ColorBitDepth;
-#[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::color::{Chromaticity, ChromaticityPoint};
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::manufacture::{ManufactureDate, ManufacturerId, MonitorString};
+use crate::model::diagnostics::EdidWarning;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::manufacture::{ManufacturerId, MonitorString};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::panel::{
     BacklightType, DisplayIdInterface, DisplayIdStereoInterface, DisplayIdTiledTopology,
@@ -20,7 +22,7 @@ use crate::model::panel::{
     StereoViewingMode, SubpixelLayout, TileBezelInfo, TileTopologyBehavior, ZeroPixelLocation,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::Vec;
+use crate::model::prelude::{Arc, Vec};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::transfer::{
     DisplayIdTransferCharacteristic, TransferCurve, TransferPointEncoding,
@@ -71,7 +73,7 @@ pub(super) fn decode_product_id_block(payload: &[u8], caps: &mut DisplayCapabili
 
     // Manufacture / model year.
     if payload.len() >= 10 {
-        caps.manufacture_date = Some(ManufactureDate::from_edid_bytes(payload[8], payload[9]));
+        caps.manufacture_date = Some(decode_manufacture_date(payload[8], payload[9]));
     }
 
     // Product name: bytes 10+ (ASCII, 0x0A-terminated, space-padded; max 13 bytes stored).
@@ -155,7 +157,7 @@ pub(super) fn decode_display_params_block(payload: &[u8], caps: &mut DisplayCapa
             16 => 6,
             _ => 0,
         };
-        caps.color_bit_depth = ColorBitDepth::from_edid_bits(edid_bits);
+        caps.color_bit_depth = decode_color_bit_depth(edid_bits);
     }
 }
 
@@ -414,7 +416,7 @@ pub(super) fn decode_display_device_data_block(payload: &[u8], caps: &mut Displa
             16 => 6,
             _ => 0,
         };
-        caps.color_bit_depth = ColorBitDepth::from_edid_bits(edid_bits);
+        caps.color_bit_depth = decode_color_bit_depth(edid_bits);
     }
 
     // Byte 12: pixel response time in ms (0 = not defined).
@@ -455,14 +457,9 @@ pub(super) fn scan_display_device_data_block(payload: &[u8], caps: &mut DisplayC
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn decode_power_sequencing_block(payload: &[u8], caps: &mut DisplayCapabilities) {
     if payload.len() >= 6 {
-        caps.power_sequencing = Some(PowerSequencing {
-            t1_power_to_signal: payload[0],
-            t2_signal_to_backlight: payload[1],
-            t3_backlight_to_signal_off: payload[2],
-            t4_signal_to_power_off: payload[3],
-            t5_power_off_min: payload[4],
-            t6_backlight_off_min: payload[5],
-        });
+        caps.power_sequencing = Some(PowerSequencing::new(
+            payload[0], payload[1], payload[2], payload[3], payload[4], payload[5],
+        ));
     }
 }
 
@@ -506,7 +503,8 @@ pub(super) fn scan_power_sequencing_block(payload: &[u8], caps: &mut DisplayCapa
 /// byte2[7:0] = p1[7:0]
 /// ```
 ///
-/// Payloads with a reserved encoding byte (bits 7:6 = `11`) are silently skipped.
+/// Payloads with a reserved encoding byte (bits 7:6 = `11`) push an
+/// [`EdidWarning::UnknownTransferEncoding`] warning and are otherwise skipped.
 /// Payloads shorter than 2 bytes are silently skipped.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn decode_transfer_characteristics_block(
@@ -521,7 +519,11 @@ pub(super) fn decode_transfer_characteristics_block(
         0x00 => TransferPointEncoding::Bits8,
         0x01 => TransferPointEncoding::Bits10,
         0x02 => TransferPointEncoding::Bits12,
-        _ => return, // reserved
+        bits => {
+            caps.warnings
+                .push(Arc::new(EdidWarning::UnknownTransferEncoding(bits)));
+            return;
+        }
     };
     let multi_channel = (payload[0] & 0x20) != 0;
 
@@ -579,6 +581,7 @@ pub(super) fn decode_transfer_characteristics_block(
             TransferPointEncoding::Bits8 => (unpack8(r_data), unpack8(g_data), unpack8(b_data)),
             TransferPointEncoding::Bits10 => (unpack10(r_data), unpack10(g_data), unpack10(b_data)),
             TransferPointEncoding::Bits12 => (unpack12(r_data), unpack12(g_data), unpack12(b_data)),
+            _ => return,
         };
         TransferCurve::Rgb { red, green, blue }
     } else {
@@ -586,11 +589,12 @@ pub(super) fn decode_transfer_characteristics_block(
             TransferPointEncoding::Bits8 => unpack8(data),
             TransferPointEncoding::Bits10 => unpack10(data),
             TransferPointEncoding::Bits12 => unpack12(data),
+            _ => return,
         };
         TransferCurve::Luminance(points)
     };
 
-    caps.transfer_characteristic = Some(DisplayIdTransferCharacteristic { encoding, curve });
+    caps.transfer_characteristic = Some(DisplayIdTransferCharacteristic::new(encoding, curve));
 }
 
 /// Scans all data blocks in `payload` for a Transfer Characteristics Block (tag `0x0E`)
@@ -634,14 +638,14 @@ pub(super) fn decode_display_interface_block(payload: &[u8], caps: &mut DisplayC
     let max_pixel_clock_10khz = u32::from(u16::from_le_bytes([payload[4], payload[5]]));
     let content_protection = InterfaceContentProtection::from_bits(payload[6]);
 
-    caps.display_id_interface = Some(DisplayIdInterface {
+    caps.display_id_interface = Some(DisplayIdInterface::new(
         interface_type,
         spread_spectrum,
         num_lanes,
         min_pixel_clock_10khz,
         max_pixel_clock_10khz,
         content_protection,
-    });
+    ));
 }
 
 /// Scans all data blocks in `payload` for a Display Interface Data Block (tag `0x0F`)
@@ -683,11 +687,11 @@ pub(super) fn decode_stereo_display_interface_block(
     let sync_polarity_positive = (payload[0] & 0x10) != 0;
     let sync_interface = StereoSyncInterface::from_byte(payload[1]);
 
-    caps.stereo_interface = Some(DisplayIdStereoInterface {
+    caps.stereo_interface = Some(DisplayIdStereoInterface::new(
         viewing_mode,
         sync_polarity_positive,
         sync_interface,
-    });
+    ));
 }
 
 /// Scans all data blocks in `payload` for a Stereo Display Interface Data Block (tag `0x10`)
@@ -744,17 +748,17 @@ pub(super) fn decode_tiled_topology_block(payload: &[u8], caps: &mut DisplayCapa
     let tile_height_px = u16::from_le_bytes([payload[5], payload[6]]);
 
     let bezel = if has_bezel_info && payload.len() >= 11 {
-        Some(TileBezelInfo {
-            top_px: payload[7],
-            bottom_px: payload[8],
-            right_px: payload[9],
-            left_px: payload[10],
-        })
+        Some(TileBezelInfo::new(
+            payload[7],
+            payload[8],
+            payload[9],
+            payload[10],
+        ))
     } else {
         None
     };
 
-    caps.tiled_topology = Some(DisplayIdTiledTopology {
+    caps.tiled_topology = Some(DisplayIdTiledTopology::new(
         single_enclosure,
         topology_behavior,
         h_tile_count,
@@ -764,7 +768,7 @@ pub(super) fn decode_tiled_topology_block(payload: &[u8], caps: &mut DisplayCapa
         tile_width_px,
         tile_height_px,
         bezel,
-    });
+    ));
 }
 
 /// Scans all data blocks in `payload` for a Tiled Display Topology Data Block (tag `0x12`)

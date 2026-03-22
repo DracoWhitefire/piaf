@@ -4,7 +4,53 @@ use crate::model::capabilities::VideoMode;
 use crate::model::color::ChromaticityPoint;
 use crate::model::color::{ColorManagementData, DcmChannel, DisplayGamma, WhitePoint};
 use crate::model::manufacture::MonitorString;
-use crate::model::timing::TimingFormula;
+use crate::model::timing::{
+    CvtAspectRatio, CvtAspectRatios, CvtScaling, CvtSupportParams, GtfSecondaryParams,
+    TimingFormula,
+};
+
+fn decode_timing_formula(bytes: &[u8]) -> Option<TimingFormula> {
+    match bytes[10] {
+        0x00 => Some(TimingFormula::DefaultGtf),
+        0x01 => Some(TimingFormula::RangeLimitsOnly),
+        0x02 => Some(TimingFormula::SecondaryGtf(GtfSecondaryParams {
+            start_freq_khz: (bytes[12] as u16) * 2,
+            c: bytes[13] / 2,
+            m: ((bytes[15] as u16) << 8) | (bytes[14] as u16),
+            k: bytes[16],
+            j: bytes[17] / 2,
+        })),
+        0x04 => {
+            let pixel_clock_adjust = (bytes[12] >> 2) & 0x3F;
+            let h_raw = (bytes[13] as u16) + (((bytes[12] & 0x03) as u16) << 8);
+            let max_h_active_pixels = if h_raw == 0 { None } else { Some(h_raw * 8) };
+            let preferred_aspect_ratio = match (bytes[15] >> 5) & 0x07 {
+                0b000 => Some(CvtAspectRatio::R4_3),
+                0b001 => Some(CvtAspectRatio::R16_9),
+                0b010 => Some(CvtAspectRatio::R16_10),
+                0b011 => Some(CvtAspectRatio::R5_4),
+                0b100 => Some(CvtAspectRatio::R15_9),
+                _ => None,
+            };
+            Some(TimingFormula::Cvt(CvtSupportParams {
+                version: bytes[11],
+                pixel_clock_adjust,
+                max_h_active_pixels,
+                supported_aspect_ratios: CvtAspectRatios::from_bits_truncate(bytes[14]),
+                preferred_aspect_ratio,
+                standard_blanking: bytes[15] & 0x08 != 0,
+                reduced_blanking: bytes[15] & 0x10 != 0,
+                scaling: CvtScaling::from_bits_truncate(bytes[16]),
+                preferred_v_rate: if bytes[17] != 0 {
+                    Some(bytes[17])
+                } else {
+                    None
+                },
+            }))
+        }
+        _ => None,
+    }
+}
 
 /// Decodes the non-mode-producing monitor descriptor slots (offsets 0x36, 0x48, 0x5A, 0x6C).
 ///
@@ -110,7 +156,7 @@ pub(super) fn decode_descriptors_meta(base: &[u8; 128], caps: &mut DisplayCapabi
             caps.min_h_rate_khz = Some(descriptor[7] as u16 + min_h_off);
             caps.max_h_rate_khz = Some(descriptor[8] as u16 + max_h_off);
             caps.max_pixel_clock_mhz = Some((descriptor[9] as u16) * 10);
-            caps.timing_formula = TimingFormula::from_descriptor_bytes(descriptor);
+            caps.timing_formula = decode_timing_formula(descriptor);
         }
     }
 }
@@ -181,13 +227,7 @@ pub(super) fn decode_descriptors_modes(base: &[u8; 128], sink: &mut dyn ModeSink
             ];
             for &(byte_off, mask, w, h, rate) in ET3 {
                 if descriptor[byte_off] & mask != 0 {
-                    sink.push_mode(VideoMode {
-                        width: w,
-                        height: h,
-                        refresh_rate: rate,
-                        interlaced: false,
-                        ..Default::default()
-                    });
+                    sink.push_mode(VideoMode::new(w, h, rate, false));
                 }
             }
         }
@@ -233,13 +273,7 @@ pub(super) fn decode_descriptors_modes(base: &[u8; 128], sink: &mut dyn ModeSink
                     (0x01, 60),
                 ] {
                     if b2 & mask != 0 {
-                        sink.push_mode(VideoMode {
-                            width: h_add,
-                            height: v_add,
-                            refresh_rate: rate,
-                            interlaced: false,
-                            ..Default::default()
-                        });
+                        sink.push_mode(VideoMode::new(h_add, v_add, rate, false));
                     }
                 }
             }
@@ -386,30 +420,22 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 1024,
-            height: 768,
-            refresh_rate: 85,
-            ..Default::default()
-        }));
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 1152,
-            height: 864,
-            refresh_rate: 75,
-            ..Default::default()
-        }));
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 1280,
-            height: 1024,
-            refresh_rate: 60,
-            ..Default::default()
-        }));
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 1600,
-            height: 1200,
-            refresh_rate: 60,
-            ..Default::default()
-        }));
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(1024, 768, 85, false))
+        );
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(1152, 864, 75, false))
+        );
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(1280, 1024, 60, false))
+        );
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(1600, 1200, 60, false))
+        );
         assert_eq!(caps.supported_modes.len(), 4);
     }
 
@@ -435,18 +461,14 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 1920,
-            height: 1080,
-            refresh_rate: 60,
-            ..Default::default()
-        }));
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 1280,
-            height: 720,
-            refresh_rate: 60,
-            ..Default::default()
-        }));
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(1920, 1080, 60, false))
+        );
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(1280, 720, 60, false))
+        );
     }
 
     #[test]
@@ -652,18 +674,14 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 1920,
-            height: 1080,
-            refresh_rate: 60,
-            ..Default::default()
-        }));
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 1280,
-            height: 720,
-            refresh_rate: 50,
-            ..Default::default()
-        }));
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(1920, 1080, 60, false))
+        );
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(1280, 720, 50, false))
+        );
         // 60 Hz RB (0x01 bit) deduplicates against preferred 60 Hz
         assert_eq!(
             caps.supported_modes

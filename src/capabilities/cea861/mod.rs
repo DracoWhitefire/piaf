@@ -499,13 +499,12 @@ impl ExtensionHandler for Cea861Handler {
                                 if let Some(t10) = parse_t10vtdb(&block_data[1..]) {
                                     for entry in &t10.entries {
                                         if let Ok(refresh_rate) = u8::try_from(entry.refresh_hz) {
-                                            let mode = VideoMode {
-                                                width: entry.width,
-                                                height: entry.height,
+                                            let mode = VideoMode::new(
+                                                entry.width,
+                                                entry.height,
                                                 refresh_rate,
-                                                interlaced: false,
-                                                ..Default::default()
-                                            };
+                                                false,
+                                            );
                                             let already_present =
                                                 caps.supported_modes.iter().any(|m| {
                                                     m.width == mode.width
@@ -659,13 +658,12 @@ pub(crate) fn cea861_process_into_sink(ext: &[u8; 128], sink: &mut dyn ModeSink)
                         if let Some(t10) = parse_t10vtdb(&block_data[1..]) {
                             for entry in &t10.entries {
                                 if let Ok(refresh_rate) = u8::try_from(entry.refresh_hz) {
-                                    sink.push_mode(VideoMode {
-                                        width: entry.width,
-                                        height: entry.height,
+                                    sink.push_mode(VideoMode::new(
+                                        entry.width,
+                                        entry.height,
                                         refresh_rate,
-                                        interlaced: false,
-                                        ..Default::default()
-                                    });
+                                        false,
+                                    ));
                                 }
                             }
                         }

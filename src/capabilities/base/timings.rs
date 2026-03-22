@@ -33,13 +33,7 @@ pub(super) fn decode_established_timings(base: &[u8; 128], sink: &mut dyn ModeSi
 
     for &(byte_off, mask, w, h, rate) in TIMINGS {
         if base[byte_off] & mask != 0 {
-            sink.push_mode(VideoMode {
-                width: w,
-                height: h,
-                refresh_rate: rate,
-                interlaced: false,
-                ..Default::default()
-            });
+            sink.push_mode(VideoMode::new(w, h, rate, false));
         }
     }
 }
@@ -58,13 +52,7 @@ pub(super) fn decode_standard_timing_entry(b1: u8, b2: u8) -> Option<VideoMode> 
         0x02 => (w * 4) / 5,   // 5:4
         _ => (w * 9) / 16,     // 16:9
     };
-    Some(VideoMode {
-        width: w,
-        height: h,
-        refresh_rate: (b2 & 0x3F) + 60,
-        interlaced: false,
-        ..Default::default()
-    })
+    Some(VideoMode::new(w, h, (b2 & 0x3F) + 60, false))
 }
 
 /// Decodes the eight standard timing descriptors (offsets 0x26–0x35, 2 bytes each).
@@ -168,20 +156,18 @@ fn build_dtd_mode(dtd: &[u8]) -> Result<Option<VideoMode>, EdidWarning> {
         }
     });
 
-    Ok(Some(VideoMode {
-        width: hactive,
-        height: vactive,
-        refresh_rate,
-        interlaced,
-        h_front_porch,
-        h_sync_width,
-        v_front_porch,
-        v_sync_width,
-        h_border,
-        v_border,
-        stereo,
-        sync,
-    }))
+    Ok(Some(
+        VideoMode::new(hactive, vactive, refresh_rate, interlaced).with_detailed_timing(
+            h_front_porch,
+            h_sync_width,
+            v_front_porch,
+            v_sync_width,
+            h_border,
+            v_border,
+            stereo,
+            sync,
+        ),
+    ))
 }
 
 /// Decodes a single 18-byte Detailed Timing Descriptor slice into [`DisplayCapabilities`].
@@ -276,30 +262,22 @@ mod tests {
         BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
         assert_eq!(caps.supported_modes.len(), 4);
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 640,
-            height: 480,
-            refresh_rate: 60,
-            ..Default::default()
-        }));
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 800,
-            height: 600,
-            refresh_rate: 60,
-            ..Default::default()
-        }));
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 1024,
-            height: 768,
-            refresh_rate: 60,
-            ..Default::default()
-        }));
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 1280,
-            height: 1024,
-            refresh_rate: 75,
-            ..Default::default()
-        }));
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(640, 480, 60, false))
+        );
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(800, 600, 60, false))
+        );
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(1024, 768, 60, false))
+        );
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(1280, 1024, 75, false))
+        );
     }
 
     #[test]
