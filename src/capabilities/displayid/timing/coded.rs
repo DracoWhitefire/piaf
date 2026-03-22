@@ -39,12 +39,7 @@ fn hdmi_vic_to_mode(code: u8) -> Option<VideoMode> {
         4 => (4096, 2160, 24),
         _ => return None,
     };
-    Some(VideoMode {
-        width: w,
-        height: h,
-        refresh_rate: r,
-        ..Default::default()
-    })
+    Some(VideoMode::new(w, h, r, false))
 }
 
 /// Iterates the VESA Video Timing Block presence bitmap and pushes supported modes to `sink`.

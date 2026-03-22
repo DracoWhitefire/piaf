@@ -46,23 +46,21 @@ pub(super) fn decode_type_i_descriptor(d: &[u8; 20], sink: &mut dyn ModeSink) {
     let h_sync_positive = (flags & 0x08) != 0;
     let v_sync_positive = (flags & 0x10) != 0;
 
-    sink.push_mode(VideoMode {
-        width: h_active,
-        height: v_active,
-        refresh_rate,
-        interlaced,
-        h_front_porch,
-        h_sync_width,
-        v_front_porch,
-        v_sync_width,
-        h_border: 0,
-        v_border: 0,
-        stereo: StereoMode::None,
-        sync: Some(SyncDefinition::DigitalSeparate {
-            v_sync_positive,
-            h_sync_positive,
-        }),
-    });
+    sink.push_mode(
+        VideoMode::new(h_active, v_active, refresh_rate, interlaced).with_detailed_timing(
+            h_front_porch,
+            h_sync_width,
+            v_front_porch,
+            v_sync_width,
+            0,
+            0,
+            StereoMode::None,
+            Some(SyncDefinition::DigitalSeparate {
+                v_sync_positive,
+                h_sync_positive,
+            }),
+        ),
+    );
 }
 
 /// Decodes one 11-byte Type II Video Timing descriptor and pushes a mode to `sink`.
@@ -119,23 +117,21 @@ pub(super) fn decode_type_ii_descriptor(d: &[u8; 11], sink: &mut dyn ModeSink) {
     let pixel_clock_hz = pixel_clock_10khz * 10_000;
     let refresh_rate = (pixel_clock_hz / (h_total * v_total)).min(255) as u8;
 
-    sink.push_mode(VideoMode {
-        width: h_active,
-        height: v_active,
-        refresh_rate,
-        interlaced,
-        h_front_porch,
-        h_sync_width,
-        v_front_porch,
-        v_sync_width,
-        h_border: 0,
-        v_border: 0,
-        stereo: StereoMode::None,
-        sync: Some(SyncDefinition::DigitalSeparate {
-            v_sync_positive,
-            h_sync_positive,
-        }),
-    });
+    sink.push_mode(
+        VideoMode::new(h_active, v_active, refresh_rate, interlaced).with_detailed_timing(
+            h_front_porch,
+            h_sync_width,
+            v_front_porch,
+            v_sync_width,
+            0,
+            0,
+            StereoMode::None,
+            Some(SyncDefinition::DigitalSeparate {
+                v_sync_positive,
+                h_sync_positive,
+            }),
+        ),
+    );
 }
 
 /// Decodes one Type VI Video Timing descriptor from `d` and pushes a mode to `sink`.
@@ -197,23 +193,21 @@ pub(super) fn decode_type_vi_descriptor(d: &[u8], sink: &mut dyn ModeSink) -> us
     let pixel_clock_hz = pixel_clock_khz as u64 * 1000;
     let refresh_rate = (pixel_clock_hz / (h_total * v_total)).min(255) as u8;
 
-    sink.push_mode(VideoMode {
-        width: h_active,
-        height: v_active,
-        refresh_rate,
-        interlaced,
-        h_front_porch: h_fp,
-        h_sync_width,
-        v_front_porch: v_fp,
-        v_sync_width,
-        h_border: 0,
-        v_border: 0,
-        stereo: StereoMode::None,
-        sync: Some(SyncDefinition::DigitalSeparate {
-            h_sync_positive,
-            v_sync_positive,
-        }),
-    });
+    sink.push_mode(
+        VideoMode::new(h_active, v_active, refresh_rate, interlaced).with_detailed_timing(
+            h_fp,
+            h_sync_width,
+            v_fp,
+            v_sync_width,
+            0,
+            0,
+            StereoMode::None,
+            Some(SyncDefinition::DigitalSeparate {
+                h_sync_positive,
+                v_sync_positive,
+            }),
+        ),
+    );
 
     descriptor_size
 }

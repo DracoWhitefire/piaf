@@ -97,8 +97,8 @@ use piaf::{ExtensionHandler, DisplayCapabilities, ParseWarning, ExtensionLibrary
 struct MyHandler;
 
 impl ExtensionHandler for MyHandler {
-    fn process(&self, block: &[u8; 128], caps: &mut DisplayCapabilities, warnings: &mut Vec<ParseWarning>) {
-        // inspect block, set fields on caps
+    fn process(&self, blocks: &[&[u8; 128]], caps: &mut DisplayCapabilities, warnings: &mut Vec<ParseWarning>) {
+        // inspect blocks, set fields on caps
     }
 }
 
@@ -132,8 +132,8 @@ struct MyHandler;
 
 impl StaticExtensionHandler for MyHandler {
     fn tag(&self) -> u8 { 0xAB }
-    fn process(&self, block: &[u8; 128], sink: &mut dyn ModeSink) {
-        // push modes via sink.push_mode(...)
+    fn process(&self, blocks: &[&[u8; 128]], ctx: &mut StaticContext<'_>) {
+        // push modes via ctx.push_mode(...) and warnings via ctx.push_warning(...)
     }
 }
 
@@ -154,6 +154,11 @@ require the dynamic pipeline.
 | `std`   | yes     | Enables `std`-backed types and the full extension system |
 | `alloc` | no      | Enables dynamic allocation without `std`                 |
 | `serde` | no      | Derives `Serialize`/`Deserialize` on public types        |
+
+All output types (`DisplayCapabilities`, `VideoMode`, `ManufacturerId`, etc.) are defined in
+the [`display-types`](https://crates.io/crates/display-types) crate and re-exported from
+`piaf`. Importing from `piaf::*` is sufficient; adding `display-types` as a direct dependency
+is only needed if you want to use the types in an API shared between piaf and other crates.
 
 ## `no_std` builds
 

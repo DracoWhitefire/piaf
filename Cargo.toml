@@ -1,6 +1,6 @@
 [package]
 name = "piaf"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.85"
 description = "A library for reading and interpreting display capability data (EDID)."
@@ -14,9 +14,10 @@ categories = ["hardware-support", "embedded", "parser-implementations"]
 default = ["std"]
 std = []
 alloc = []
-serde = ["dep:serde", "bitflags/serde"]
+serde = ["dep:serde", "bitflags/serde", "display-types/serde"]
 
 [dependencies]
+display-types = "0.1.1"
 serde = { version = "1.0", optional = true, features = ["derive"] }
 bitflags = "2.4"
 thiserror = "2.0"

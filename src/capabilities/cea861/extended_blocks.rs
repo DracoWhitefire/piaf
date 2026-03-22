@@ -811,13 +811,7 @@ pub(super) fn parse_t7vtdb(block_data: &[u8]) -> Option<T7VtdbBlock> {
     let refresh_hz = (pixel_clock_khz as u64 * 1000) / (h_total * v_total);
     let refresh_rate = u8::try_from(refresh_hz).ok()?;
 
-    let mode = VideoMode {
-        width: hactive,
-        height: vactive,
-        refresh_rate,
-        interlaced,
-        ..Default::default()
-    };
+    let mode = VideoMode::new(hactive, vactive, refresh_rate, interlaced);
 
     Some(T7VtdbBlock {
         version,
@@ -1621,13 +1615,12 @@ fn decode_dtd_to_mode(dtd: &[u8]) -> Option<VideoMode> {
     let total = (hactive + hblank) as u32 * (vactive + vblank) as u32;
     let rate = (pixel_clock * 10_000) / total;
     let refresh_rate = u8::try_from(rate).ok()?;
-    Some(VideoMode {
-        width: hactive,
-        height: vactive,
+    Some(VideoMode::new(
+        hactive,
+        vactive,
         refresh_rate,
-        interlaced: dtd[17] & 0x80 != 0,
-        ..Default::default()
-    })
+        dtd[17] & 0x80 != 0,
+    ))
 }
 
 pub(super) fn parse_vtb_ext(block_data: &[u8]) -> Option<VtbExtBlock> {
@@ -1690,13 +1683,7 @@ pub(super) fn parse_vtb_ext(block_data: &[u8]) -> Option<VtbExtBlock> {
             (0x01, 60),
         ] {
             if b2 & mask != 0 {
-                let mode = VideoMode {
-                    width: h_add,
-                    height: v_add,
-                    refresh_rate: rate,
-                    interlaced: false,
-                    ..Default::default()
-                };
+                let mode = VideoMode::new(h_add, v_add, rate, false);
                 if !timings.contains(&mode) {
                     timings.push(mode);
                 }
@@ -1719,13 +1706,7 @@ pub(super) fn parse_vtb_ext(block_data: &[u8]) -> Option<VtbExtBlock> {
             0x02 => (width * 4) / 5,   // 5:4
             _ => (width * 9) / 16,     // 16:9
         };
-        let mode = VideoMode {
-            width,
-            height,
-            refresh_rate: (b2 & 0x3F) + 60,
-            interlaced: false,
-            ..Default::default()
-        };
+        let mode = VideoMode::new(width, height, (b2 & 0x3F) + 60, false);
         if !timings.contains(&mode) {
             timings.push(mode);
         }

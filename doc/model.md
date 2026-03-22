@@ -61,9 +61,9 @@ pub struct DisplayCapabilities {
     pub edid_version: Option<EdidVersion>,
     pub product_code: Option<u16>,
     pub serial_number: Option<u32>,
-    pub serial_number_string: Option<String>,
-    pub display_name: Option<String>,
-    pub unspecified_text: Vec<String>,
+    pub serial_number_string: Option<MonitorString>,
+    pub display_name: Option<MonitorString>,
+    pub unspecified_text: [Option<MonitorString>; 4],
     // Input
     pub digital: bool,
     pub color_bit_depth: Option<ColorBitDepth>,
@@ -87,10 +87,29 @@ pub struct DisplayCapabilities {
     pub max_h_rate_khz: Option<u16>,
     pub max_pixel_clock_mhz: Option<u16>,
     pub timing_formula: Option<TimingFormula>,
+    // alloc/std only:
     pub supported_modes: Vec<VideoMode>,
-    // Extensions
-    // alloc/std: pub warnings: Vec<ParseWarning>,
-    // no_std:    pub warnings: [Option<EdidWarning>; 8],
+    // Panel (from DisplayID, alloc/std only):
+    pub display_technology: Option<DisplayTechnology>,
+    pub operating_mode: Option<OperatingMode>,
+    pub backlight_type: Option<BacklightType>,
+    pub native_pixels: Option<(u16, u16)>,
+    pub physical_orientation: Option<PhysicalOrientation>,
+    pub rotation_capability: Option<RotationCapability>,
+    pub zero_pixel_location: Option<ZeroPixelLocation>,
+    pub scan_direction: Option<ScanDirection>,
+    pub subpixel_layout: Option<SubpixelLayout>,
+    pub pixel_pitch_hundredths_mm: Option<u16>,
+    pub pixel_response_time_ms: Option<u8>,
+    pub data_enable_used: Option<bool>,
+    pub panel_aspect_ratio_100: Option<u32>,
+    pub power_sequencing: Option<PowerSequencing>,
+    pub transfer_characteristic: Option<DisplayIdTransferCharacteristic>, // alloc/std only
+    pub display_id_interface: Option<DisplayIdInterface>,
+    pub stereo_interface: Option<DisplayIdStereoInterface>,
+    pub tiled_topology: Option<DisplayIdTiledTopology>,
+    // Diagnostics and extension data (alloc/std only):
+    pub warnings: Vec<ParseWarning>,
     pub extension_data: Vec<(u8, Arc<dyn ExtensionData>)>,
 }
 ```
@@ -125,6 +144,28 @@ Access modes and warnings through iterators rather than indexing directly:
 for mode in caps.iter_modes() { /* &VideoMode */ }
 for warn in caps.iter_warnings() { /* &EdidWarning */ }
 ```
+
+### `VideoMode` construction
+
+`VideoMode` is `#[non_exhaustive]`. Use the constructors provided by `display-types` rather
+than struct literal syntax:
+
+```rust
+// Simple mode (established timings, standard timings, SVDs):
+let mode = VideoMode::new(1920, 1080, 60, false);
+
+// Full DTD mode with blanking-interval and sync fields:
+let mode = VideoMode::new(1920, 1080, 60, false)
+    .with_detailed_timing(88, 44, 4, 5, 0, 0, StereoMode::None,
+                          Some(SyncDefinition::DigitalSeparate {
+                              h_sync_positive: true,
+                              v_sync_positive: true,
+                          }));
+```
+
+All other fields (`h_front_porch`, `h_sync_width`, etc.) default to `0` / `None` when not
+set via `with_detailed_timing`. This matches the sparse data available from non-DTD sources
+such as SVDs and standard timing entries.
 
 Modes and warnings beyond capacity are silently dropped — matching the existing 8-warning cap
 philosophy. 64 is a reasonable default for `MAX_MODES`.
@@ -165,15 +206,33 @@ pub enum EdidWarning {
     /// Manufacturer ID bytes outside the valid PNP range (1–26 per 5-bit field).
     /// `DisplayCapabilities::manufacturer` is left as `None`.
     InvalidManufacturerId,
-    /// Byte slice length differs from `(1 + extension_count) × 128`.
-    /// Extra bytes are ignored; too few is a hard `EdidError::InvalidLength`.
-    SizeMismatch { expected: usize, actual: usize },
     /// A data block inside an extension block declared a length that extends past the
     /// end of the data block collection. Remaining data blocks are skipped.
     MalformedDataBlock,
+    /// A DTD slot was skipped because the slice was shorter than the required 18 bytes.
+    DtdSlotTooShort,
     /// A DTD slot was skipped because the pixel clock value would overflow during
     /// refresh rate calculation. Indicates a malformed or corrupted EDID.
     DtdPixelClockOverflow,
+    /// The extension block count declared in the base block exceeds the parser's
+    /// safety limit; only the first `limit` blocks were parsed.
+    ExtensionBlockLimitReached { declared: usize, limit: usize },
+    /// A DisplayID extension block carries an unrecognised version byte.
+    DisplayIdVersionUnknown(u8),
+    /// The extension count in a DisplayID section header does not match the number
+    /// of `0x70`-tagged blocks present in the EDID stream.
+    DisplayIdExtensionCountMismatch { declared: u8, found: u8 },
+    /// The DisplayID section checksum does not make the section sum to zero.
+    DisplayIdChecksumMismatch,
+    /// `section_byte_count` in the DisplayID section header is too large to fit
+    /// within the 128-byte extension block.
+    DisplayIdSectionBytesOutOfRange(u8),
+    /// A DisplayID Transfer Characteristics block carries a reserved encoding byte
+    /// (bits 7:6 = `0b11`). The block is skipped.
+    UnknownTransferEncoding(u8),
+    /// Byte slice length differs from `(1 + extension_count) × 128`.
+    /// Extra bytes are ignored; too few is a hard `EdidError::InvalidLength`.
+    SizeMismatch { expected: usize, actual: usize },
 }
 ```
 
