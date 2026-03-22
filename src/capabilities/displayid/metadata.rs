@@ -457,14 +457,14 @@ pub(super) fn scan_display_device_data_block(payload: &[u8], caps: &mut DisplayC
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn decode_power_sequencing_block(payload: &[u8], caps: &mut DisplayCapabilities) {
     if payload.len() >= 6 {
-        caps.power_sequencing = Some(PowerSequencing {
-            t1_power_to_signal: payload[0],
-            t2_signal_to_backlight: payload[1],
-            t3_backlight_to_signal_off: payload[2],
-            t4_signal_to_power_off: payload[3],
-            t5_power_off_min: payload[4],
-            t6_backlight_off_min: payload[5],
-        });
+        caps.power_sequencing = Some(PowerSequencing::new(
+            payload[0],
+            payload[1],
+            payload[2],
+            payload[3],
+            payload[4],
+            payload[5],
+        ));
     }
 }
 
@@ -594,7 +594,7 @@ pub(super) fn decode_transfer_characteristics_block(
         TransferCurve::Luminance(points)
     };
 
-    caps.transfer_characteristic = Some(DisplayIdTransferCharacteristic { encoding, curve });
+    caps.transfer_characteristic = Some(DisplayIdTransferCharacteristic::new(encoding, curve));
 }
 
 /// Scans all data blocks in `payload` for a Transfer Characteristics Block (tag `0x0E`)
@@ -638,14 +638,14 @@ pub(super) fn decode_display_interface_block(payload: &[u8], caps: &mut DisplayC
     let max_pixel_clock_10khz = u32::from(u16::from_le_bytes([payload[4], payload[5]]));
     let content_protection = InterfaceContentProtection::from_bits(payload[6]);
 
-    caps.display_id_interface = Some(DisplayIdInterface {
+    caps.display_id_interface = Some(DisplayIdInterface::new(
         interface_type,
         spread_spectrum,
         num_lanes,
         min_pixel_clock_10khz,
         max_pixel_clock_10khz,
         content_protection,
-    });
+    ));
 }
 
 /// Scans all data blocks in `payload` for a Display Interface Data Block (tag `0x0F`)
@@ -687,11 +687,11 @@ pub(super) fn decode_stereo_display_interface_block(
     let sync_polarity_positive = (payload[0] & 0x10) != 0;
     let sync_interface = StereoSyncInterface::from_byte(payload[1]);
 
-    caps.stereo_interface = Some(DisplayIdStereoInterface {
+    caps.stereo_interface = Some(DisplayIdStereoInterface::new(
         viewing_mode,
         sync_polarity_positive,
         sync_interface,
-    });
+    ));
 }
 
 /// Scans all data blocks in `payload` for a Stereo Display Interface Data Block (tag `0x10`)
@@ -748,17 +748,12 @@ pub(super) fn decode_tiled_topology_block(payload: &[u8], caps: &mut DisplayCapa
     let tile_height_px = u16::from_le_bytes([payload[5], payload[6]]);
 
     let bezel = if has_bezel_info && payload.len() >= 11 {
-        Some(TileBezelInfo {
-            top_px: payload[7],
-            bottom_px: payload[8],
-            right_px: payload[9],
-            left_px: payload[10],
-        })
+        Some(TileBezelInfo::new(payload[7], payload[8], payload[9], payload[10]))
     } else {
         None
     };
 
-    caps.tiled_topology = Some(DisplayIdTiledTopology {
+    caps.tiled_topology = Some(DisplayIdTiledTopology::new(
         single_enclosure,
         topology_behavior,
         h_tile_count,
@@ -768,7 +763,7 @@ pub(super) fn decode_tiled_topology_block(payload: &[u8], caps: &mut DisplayCapa
         tile_width_px,
         tile_height_px,
         bezel,
-    });
+    ));
 }
 
 /// Scans all data blocks in `payload` for a Tiled Display Topology Data Block (tag `0x12`)
