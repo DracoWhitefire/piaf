@@ -154,6 +154,81 @@ fn test_static_warning_cap() {
 }
 
 // ---------------------------------------------------------------------------
+// test_static_scalar_fields
+// Verifies that base-block scalar fields are correctly populated in the static
+// output after the struct-literal → individual-assignment refactor.
+// ---------------------------------------------------------------------------
+#[test]
+fn test_static_scalar_fields() {
+    let mut bytes = minimal_base_edid();
+    // Manufacturer "SAM" (Samsung):  each letter encodes as (c - 'A' + 1) in 5 bits.
+    let ca = (b'S' - b'A' + 1) as u16;
+    let cb = (b'A' - b'A' + 1) as u16;
+    let cc = (b'M' - b'A' + 1) as u16;
+    let packed: u16 = (ca << 10) | (cb << 5) | cc;
+    bytes[8] = (packed >> 8) as u8;
+    bytes[9] = (packed & 0xFF) as u8;
+    // Product code 0x1234 (little-endian)
+    bytes[10] = 0x34;
+    bytes[11] = 0x12;
+    // EDID version 1.4
+    bytes[18] = 1;
+    bytes[19] = 4;
+    // Digital input flag
+    bytes[0x14] = 0x80;
+    // Re-fix checksum
+    let sum: u8 = bytes[..127].iter().fold(0u8, |a, &x| a.wrapping_add(x));
+    bytes[127] = 0u8.wrapping_sub(sum);
+
+    let registry = ExtensionTagRegistry::new();
+    let parsed = parse_edid(&bytes, &registry).unwrap();
+    let caps: StaticDisplayCapabilities<64> =
+        capabilities_from_edid_static(&parsed, STANDARD_HANDLERS);
+
+    assert_eq!(
+        caps.manufacturer.map(|m| m.to_string()),
+        Some("SAM".to_string()),
+        "manufacturer should be SAM"
+    );
+    assert_eq!(
+        caps.product_code,
+        Some(0x1234),
+        "product code should be 0x1234"
+    );
+    assert_eq!(
+        caps.edid_version.map(|v| (v.version, v.revision)),
+        Some((1, 4)),
+        "EDID version should be 1.4"
+    );
+    assert!(caps.digital, "digital flag should be set");
+}
+
+// ---------------------------------------------------------------------------
+// test_static_base_block_warning
+// An invalid manufacturer ID in the base block must appear in StaticDisplayCapabilities
+// warnings. In alloc builds this comes from the alloc pipeline's handler warnings
+// being dropped intentionally, so this test is only meaningful in bare no_std
+// builds; the alloc variant below verifies the warning appears via capabilities_from_edid.
+// ---------------------------------------------------------------------------
+#[test]
+fn test_static_base_block_warning_via_alloc_pipeline() {
+    // An all-zero manufacturer ID is invalid (not uppercase ASCII A–Z).
+    let bytes = minimal_base_edid(); // bytes 8–9 are 0x00, 0x00 → invalid
+
+    let library = ExtensionLibrary::with_standard_handlers();
+    let parsed = parse_edid(&bytes, &library).unwrap();
+    let alloc_caps = capabilities_from_edid(&parsed, &library);
+
+    assert!(
+        alloc_caps
+            .iter_warnings()
+            .any(|w| (**w).downcast_ref::<EdidWarning>()
+                == Some(&EdidWarning::InvalidManufacturerId)),
+        "expected InvalidManufacturerId warning in alloc caps"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // test_static_known_extensions
 // STANDARD_HANDLERS implements KnownExtensions: CEA-861 (0x02) and DisplayID (0x70) are known
 // ---------------------------------------------------------------------------

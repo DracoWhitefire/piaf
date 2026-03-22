@@ -51,8 +51,13 @@ for all re-exported types as before, with no action required.
 - **Bare `no_std` builds**: Both `capabilities_from_edid` and `capabilities_from_edid_static`
   failed to compile in bare `no_std` mode after the type extraction. The root cause was that
   `decode_base_block` gained a `warn: &mut dyn ModeSink` parameter to route warnings in the
-  absence of heap allocation, but the call sites had not been updated. Both functions now
-  construct a local `NullSink` that silently drops warnings and pass it to `decode_base_block`.
+  absence of heap allocation, but the call sites had not been updated.
+  `capabilities_from_edid_static` now initialises `StaticDisplayCapabilities` before the
+  base-block decode and passes it directly as the warning sink, so base-block warnings (e.g.
+  `InvalidManufacturerId`) are preserved in `StaticDisplayCapabilities::warnings` exactly as
+  they were before the type extraction. `capabilities_from_edid` uses a local `NullSink`
+  because `DisplayCapabilities` carries no warning storage in bare `no_std` builds; use
+  `capabilities_from_edid_static` if warnings are needed in that build configuration.
 
 ### Added
 
@@ -64,7 +69,8 @@ for all re-exported types as before, with no action required.
 ### Internal
 
 - `decode_base_block` gained a `warn: &mut dyn ModeSink` parameter so warnings can be routed
-  in bare `no_std` builds where `DisplayCapabilities` has no warning storage.
+  to the appropriate sink in bare `no_std` builds where `DisplayCapabilities` has no warning
+  storage.
 - Decoder methods that were `pub(crate)` on shared types in display-types have been moved to
   free functions inside piaf, keeping the public API of display-types free of parser internals.
 - Unused imports removed following the type extraction.
