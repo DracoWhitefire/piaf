@@ -17,20 +17,8 @@ use crate::model::prelude::{Arc, Vec};
 use metadata::scan_all_metadata_blocks;
 use timing::process_data_blocks;
 
-/// Rich capabilities extracted from a DisplayID extension section.
-///
-/// Stored in [`DisplayCapabilities`] via `set_extension_data(0x70, ...)` by the dynamic
-/// pipeline; retrieve with `caps.get_extension_data::<DisplayIdCapabilities>(0x70)`.
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg(any(feature = "alloc", feature = "std"))]
-#[derive(Debug, Clone, PartialEq)]
-pub struct DisplayIdCapabilities {
-    /// DisplayID version byte (0x10–0x1F for v1.x, 0x20 for v2.x).
-    pub version: u8,
-    /// Display product primary use case (bits 2:0 of header byte 3).
-    pub product_type: u8,
-}
+pub use display_types::DisplayIdCapabilities;
 
 /// Processes DisplayID extension blocks (tag `0x70`).
 ///
@@ -232,13 +220,7 @@ impl ExtensionHandler for DisplayIdHandler {
         }
 
         // Store rich capabilities.
-        caps.set_extension_data(
-            0x70,
-            DisplayIdCapabilities {
-                version,
-                product_type,
-            },
-        );
+        caps.set_extension_data(0x70, DisplayIdCapabilities::new(version, product_type));
 
         // Process data blocks from all fragments.
         for block in blocks {
