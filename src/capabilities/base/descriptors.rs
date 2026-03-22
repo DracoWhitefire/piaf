@@ -4,7 +4,49 @@ use crate::model::capabilities::VideoMode;
 use crate::model::color::ChromaticityPoint;
 use crate::model::color::{ColorManagementData, DcmChannel, DisplayGamma, WhitePoint};
 use crate::model::manufacture::MonitorString;
-use crate::model::timing::TimingFormula;
+use crate::model::timing::{
+    CvtAspectRatio, CvtAspectRatios, CvtScaling, CvtSupportParams, GtfSecondaryParams,
+    TimingFormula,
+};
+
+fn decode_timing_formula(bytes: &[u8]) -> Option<TimingFormula> {
+    match bytes[10] {
+        0x00 => Some(TimingFormula::DefaultGtf),
+        0x01 => Some(TimingFormula::RangeLimitsOnly),
+        0x02 => Some(TimingFormula::SecondaryGtf(GtfSecondaryParams {
+            start_freq_khz: (bytes[12] as u16) * 2,
+            c: bytes[13] / 2,
+            m: ((bytes[15] as u16) << 8) | (bytes[14] as u16),
+            k: bytes[16],
+            j: bytes[17] / 2,
+        })),
+        0x04 => {
+            let pixel_clock_adjust = (bytes[12] >> 2) & 0x3F;
+            let h_raw = (bytes[13] as u16) + (((bytes[12] & 0x03) as u16) << 8);
+            let max_h_active_pixels = if h_raw == 0 { None } else { Some(h_raw * 8) };
+            let preferred_aspect_ratio = match (bytes[15] >> 5) & 0x07 {
+                0b000 => Some(CvtAspectRatio::R4_3),
+                0b001 => Some(CvtAspectRatio::R16_9),
+                0b010 => Some(CvtAspectRatio::R16_10),
+                0b011 => Some(CvtAspectRatio::R5_4),
+                0b100 => Some(CvtAspectRatio::R15_9),
+                _ => None,
+            };
+            Some(TimingFormula::Cvt(CvtSupportParams {
+                version: bytes[11],
+                pixel_clock_adjust,
+                max_h_active_pixels,
+                supported_aspect_ratios: CvtAspectRatios::from_bits_truncate(bytes[14]),
+                preferred_aspect_ratio,
+                standard_blanking: bytes[15] & 0x08 != 0,
+                reduced_blanking: bytes[15] & 0x10 != 0,
+                scaling: CvtScaling::from_bits_truncate(bytes[16]),
+                preferred_v_rate: if bytes[17] != 0 { Some(bytes[17]) } else { None },
+            }))
+        }
+        _ => None,
+    }
+}
 
 /// Decodes the non-mode-producing monitor descriptor slots (offsets 0x36, 0x48, 0x5A, 0x6C).
 ///
@@ -110,7 +152,7 @@ pub(super) fn decode_descriptors_meta(base: &[u8; 128], caps: &mut DisplayCapabi
             caps.min_h_rate_khz = Some(descriptor[7] as u16 + min_h_off);
             caps.max_h_rate_khz = Some(descriptor[8] as u16 + max_h_off);
             caps.max_pixel_clock_mhz = Some((descriptor[9] as u16) * 10);
-            caps.timing_formula = TimingFormula::from_descriptor_bytes(descriptor);
+            caps.timing_formula = decode_timing_formula(descriptor);
         }
     }
 }

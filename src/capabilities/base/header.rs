@@ -8,6 +8,98 @@ use crate::model::input::{AnalogSyncLevel, VideoInputFlags, VideoInterface};
 use crate::model::manufacture::{ManufactureDate, ManufacturerId};
 use crate::model::screen::ScreenSize;
 
+pub(crate) fn decode_manufacture_date(week: u8, year: u8) -> ManufactureDate {
+    let y = year as u16 + 1990;
+    match week {
+        0xFF => ManufactureDate::ModelYear(y),
+        0x00 => ManufactureDate::Manufactured { week: None, year: y },
+        w => ManufactureDate::Manufactured { week: Some(w), year: y },
+    }
+}
+
+fn decode_chromaticity(base: &[u8; 128]) -> Chromaticity {
+    let lsb0 = base[0x19];
+    let lsb1 = base[0x1A];
+    Chromaticity {
+        red: crate::model::color::ChromaticityPoint {
+            x_raw: ((base[0x1B] as u16) << 2) | ((lsb0 >> 6) & 0x03) as u16,
+            y_raw: ((base[0x1C] as u16) << 2) | ((lsb0 >> 4) & 0x03) as u16,
+        },
+        green: crate::model::color::ChromaticityPoint {
+            x_raw: ((base[0x1D] as u16) << 2) | ((lsb0 >> 2) & 0x03) as u16,
+            y_raw: ((base[0x1E] as u16) << 2) | (lsb0 & 0x03) as u16,
+        },
+        blue: crate::model::color::ChromaticityPoint {
+            x_raw: ((base[0x1F] as u16) << 2) | ((lsb1 >> 6) & 0x03) as u16,
+            y_raw: ((base[0x20] as u16) << 2) | ((lsb1 >> 4) & 0x03) as u16,
+        },
+        white: crate::model::color::ChromaticityPoint {
+            x_raw: ((base[0x21] as u16) << 2) | ((lsb1 >> 2) & 0x03) as u16,
+            y_raw: ((base[0x22] as u16) << 2) | (lsb1 & 0x03) as u16,
+        },
+    }
+}
+
+fn decode_digital_color_encoding(bits: u8) -> DigitalColorEncoding {
+    match (bits >> 3) & 0x03 {
+        0b00 => DigitalColorEncoding::Rgb444,
+        0b01 => DigitalColorEncoding::Rgb444YCbCr444,
+        0b10 => DigitalColorEncoding::Rgb444YCbCr422,
+        _ => DigitalColorEncoding::Rgb444YCbCr444YCbCr422,
+    }
+}
+
+fn decode_analog_color_type(bits: u8) -> Option<AnalogColorType> {
+    match (bits >> 3) & 0x03 {
+        0b00 => Some(AnalogColorType::Monochrome),
+        0b01 => Some(AnalogColorType::Rgb),
+        0b10 => Some(AnalogColorType::NonRgb),
+        _ => None,
+    }
+}
+
+pub(crate) fn decode_color_bit_depth(bits: u8) -> Option<ColorBitDepth> {
+    match bits & 0x07 {
+        0b001 => Some(ColorBitDepth::Depth6),
+        0b010 => Some(ColorBitDepth::Depth8),
+        0b011 => Some(ColorBitDepth::Depth10),
+        0b100 => Some(ColorBitDepth::Depth12),
+        0b101 => Some(ColorBitDepth::Depth14),
+        0b110 => Some(ColorBitDepth::Depth16),
+        _ => None,
+    }
+}
+
+fn decode_video_interface(bits: u8) -> Option<VideoInterface> {
+    match bits & 0x0F {
+        0x1 => Some(VideoInterface::Dvi),
+        0x2 => Some(VideoInterface::HdmiA),
+        0x3 => Some(VideoInterface::HdmiB),
+        0x4 => Some(VideoInterface::Mddi),
+        0x5 => Some(VideoInterface::DisplayPort),
+        _ => None,
+    }
+}
+
+fn decode_analog_sync_level(bits: u8) -> AnalogSyncLevel {
+    match (bits >> 5) & 0x03 {
+        0b00 => AnalogSyncLevel::V700_300,
+        0b01 => AnalogSyncLevel::V714_286,
+        0b10 => AnalogSyncLevel::V1000_400,
+        _ => AnalogSyncLevel::V700_0,
+    }
+}
+
+fn decode_screen_size(byte15: u8, byte16: u8) -> Option<ScreenSize> {
+    match (byte15, byte16) {
+        (0, 0) => None,
+        (w, h) if w != 0 && h != 0 => Some(ScreenSize::Physical { width_cm: w, height_cm: h }),
+        (v, 0) => Some(ScreenSize::Landscape(v)),
+        (0, v) => Some(ScreenSize::Portrait(v)),
+        _ => unreachable!(),
+    }
+}
+
 /// Decodes fixed-position header fields and returns `true` if the manufacturer ID was valid.
 ///
 /// The caller is responsible for emitting [`EdidWarning::InvalidManufacturerId`][crate::EdidWarning]
@@ -45,7 +137,7 @@ pub(super) fn decode_header_fields(base: &[u8; 128], caps: &mut DisplayCapabilit
     }
 
     // Manufacture date (bytes 16-17)
-    caps.manufacture_date = Some(ManufactureDate::from_edid_bytes(base[16], base[17]));
+    caps.manufacture_date = Some(decode_manufacture_date(base[16], base[17]));
 
     // EDID version and revision (bytes 18-19)
     caps.edid_version = Some(EdidVersion {
@@ -54,7 +146,7 @@ pub(super) fn decode_header_fields(base: &[u8; 128], caps: &mut DisplayCapabilit
     });
 
     // Chromaticity coordinates (bytes 0x19-0x22)
-    caps.chromaticity = Chromaticity::from_edid_bytes(base);
+    caps.chromaticity = decode_chromaticity(base);
 
     // Display gamma (byte 0x17); 0xFF means undefined
     caps.gamma = DisplayGamma::from_edid_byte(base[0x17]);
@@ -67,23 +159,23 @@ pub(super) fn decode_header_fields(base: &[u8; 128], caps: &mut DisplayCapabilit
     let is_digital = base[0x14] & 0x80 != 0;
     let edid_revision = base[19];
     if is_digital && edid_revision >= 4 {
-        caps.digital_color_encoding = Some(DigitalColorEncoding::from_edid_bits(base[0x18]));
+        caps.digital_color_encoding = Some(decode_digital_color_encoding(base[0x18]));
     } else if !is_digital {
-        caps.analog_color_type = AnalogColorType::from_edid_bits(base[0x18]);
+        caps.analog_color_type = decode_analog_color_type(base[0x18]);
     }
 
     // Video input definition (byte 0x14)
     let video_input = VideoInputFlags::from_bits_truncate(base[0x14]);
     caps.digital = video_input.contains(VideoInputFlags::DIGITAL);
     if caps.digital {
-        caps.color_bit_depth = ColorBitDepth::from_edid_bits(base[0x14] >> 4);
-        caps.video_interface = VideoInterface::from_edid_bits(base[0x14]);
+        caps.color_bit_depth = decode_color_bit_depth(base[0x14] >> 4);
+        caps.video_interface = decode_video_interface(base[0x14]);
     } else {
-        caps.analog_sync_level = Some(AnalogSyncLevel::from_edid_bits(base[0x14]));
+        caps.analog_sync_level = Some(decode_analog_sync_level(base[0x14]));
     }
 
     // Screen size or aspect ratio (bytes 0x15-0x16)
-    caps.screen_size = ScreenSize::from_edid_bytes(base[0x15], base[0x16]);
+    caps.screen_size = decode_screen_size(base[0x15], base[0x16]);
 
     manufacturer_valid
 }
@@ -91,6 +183,7 @@ pub(super) fn decode_header_fields(base: &[u8; 128], caps: &mut DisplayCapabilit
 #[cfg(test)]
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod tests {
+    use super::decode_chromaticity;
     use crate::capabilities::base::BaseBlockHandler;
     use crate::model::capabilities::DisplayCapabilities;
     use crate::model::color::{
@@ -303,7 +396,7 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
-        assert_eq!(caps.chromaticity, Chromaticity::from_edid_bytes(&base));
+        assert_eq!(caps.chromaticity, decode_chromaticity(&base));
         assert_eq!(caps.chromaticity.red.x_raw, 655);
         assert_eq!(caps.chromaticity.red.y_raw, 338);
         assert_eq!(caps.chromaticity.green.x_raw, 307);
