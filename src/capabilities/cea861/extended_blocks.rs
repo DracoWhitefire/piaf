@@ -708,8 +708,15 @@ pub(super) fn parse_hf_scdb(block_data: &[u8]) -> Option<HdmiForumSinkCap> {
     parse_hdmi_scds(&block_data[2..])
 }
 
-/// IEEE OUI for the HDMI Forum: `0xC45DD8` (stored little-endian as `[0xD8, 0x5D, 0xC4]`).
-pub(super) const HF_VSDB_OUI: [u8; 3] = [0xD8, 0x5D, 0xC4];
+/// IEEE OUI for the HDMI Forum (`0xC45DD8`), in wire order (little-endian).
+pub(super) const HF_VSDB_OUI: [u8; 3] = {
+    let v = display_types::cea861::oui::HDMI_FORUM;
+    [
+        (v & 0xFF) as u8,
+        ((v >> 8) & 0xFF) as u8,
+        ((v >> 16) & 0xFF) as u8,
+    ]
+};
 
 /// Parses `block_data` (the full VSDB payload, starting with the 3-byte OUI)
 /// as an HDMI Forum VSDB (HF-VSDB, OUI `0xC45DD8`).

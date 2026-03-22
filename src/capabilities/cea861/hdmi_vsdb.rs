@@ -1,7 +1,14 @@
 pub use display_types::cea861::hdmi_vsdb::{HdmiVsdb, HdmiVsdbFlags};
 
-/// IEEE OUI for HDMI Licensing, LLC: `0x000C03` (stored little-endian as `[0x03, 0x0C, 0x00]`).
-pub(super) const HDMI_OUI: [u8; 3] = [0x03, 0x0C, 0x00];
+/// IEEE OUI for HDMI Licensing, LLC (`0x000C03`), in wire order (little-endian).
+pub(super) const HDMI_OUI: [u8; 3] = {
+    let v = display_types::cea861::oui::HDMI_LICENSING;
+    [
+        (v & 0xFF) as u8,
+        ((v >> 8) & 0xFF) as u8,
+        ((v >> 16) & 0xFF) as u8,
+    ]
+};
 
 /// Decodes a latency byte per the HDMI 1.x spec:
 /// - `0` or `255` → `None` (not defined / unknown)
