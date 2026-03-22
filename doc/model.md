@@ -61,9 +61,9 @@ pub struct DisplayCapabilities {
     pub edid_version: Option<EdidVersion>,
     pub product_code: Option<u16>,
     pub serial_number: Option<u32>,
-    pub serial_number_string: Option<String>,
-    pub display_name: Option<String>,
-    pub unspecified_text: Vec<String>,
+    pub serial_number_string: Option<MonitorString>,
+    pub display_name: Option<MonitorString>,
+    pub unspecified_text: [Option<MonitorString>; 4],
     // Input
     pub digital: bool,
     pub color_bit_depth: Option<ColorBitDepth>,
@@ -87,10 +87,29 @@ pub struct DisplayCapabilities {
     pub max_h_rate_khz: Option<u16>,
     pub max_pixel_clock_mhz: Option<u16>,
     pub timing_formula: Option<TimingFormula>,
+    // alloc/std only:
     pub supported_modes: Vec<VideoMode>,
-    // Extensions
-    // alloc/std: pub warnings: Vec<ParseWarning>,
-    // no_std:    pub warnings: [Option<EdidWarning>; 8],
+    // Panel (from DisplayID, alloc/std only):
+    pub display_technology: Option<DisplayTechnology>,
+    pub operating_mode: Option<OperatingMode>,
+    pub backlight_type: Option<BacklightType>,
+    pub native_pixels: Option<(u16, u16)>,
+    pub physical_orientation: Option<PhysicalOrientation>,
+    pub rotation_capability: Option<RotationCapability>,
+    pub zero_pixel_location: Option<ZeroPixelLocation>,
+    pub scan_direction: Option<ScanDirection>,
+    pub subpixel_layout: Option<SubpixelLayout>,
+    pub pixel_pitch_hundredths_mm: Option<u16>,
+    pub pixel_response_time_ms: Option<u8>,
+    pub data_enable_used: Option<bool>,
+    pub panel_aspect_ratio_100: Option<u32>,
+    pub power_sequencing: Option<PowerSequencing>,
+    pub transfer_characteristic: Option<DisplayIdTransferCharacteristic>, // alloc/std only
+    pub display_id_interface: Option<DisplayIdInterface>,
+    pub stereo_interface: Option<DisplayIdStereoInterface>,
+    pub tiled_topology: Option<DisplayIdTiledTopology>,
+    // Diagnostics and extension data (alloc/std only):
+    pub warnings: Vec<ParseWarning>,
     pub extension_data: Vec<(u8, Arc<dyn ExtensionData>)>,
 }
 ```
