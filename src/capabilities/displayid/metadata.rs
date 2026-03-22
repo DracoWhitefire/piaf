@@ -5,7 +5,7 @@ use super::{
     TAG_VIDEO_TIMING_RANGE, for_each_data_block,
 };
 
-use crate::capabilities::base::header::{decode_color_bit_depth, decode_manufacture_date};
+use crate::capabilities::base::{decode_color_bit_depth, decode_manufacture_date};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
