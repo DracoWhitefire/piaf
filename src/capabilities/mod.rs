@@ -112,6 +112,7 @@ pub fn capabilities_from_edid<T: EdidSource>(
 
     #[cfg(not(any(feature = "alloc", feature = "std")))]
     {
+        use crate::model::capabilities::VideoMode;
         struct NullSink;
         impl ModeSink for NullSink {
             fn push_mode(&mut self, _: VideoMode) {}
@@ -157,7 +158,13 @@ pub fn capabilities_from_edid_static<const N: usize, T: EdidSource>(
 
     #[cfg(not(any(feature = "alloc", feature = "std")))]
     {
-        base::decode_base_block(parsed.base_block(), &mut base_caps, &mut caps);
+        use crate::model::capabilities::VideoMode;
+        struct NullSink;
+        impl ModeSink for NullSink {
+            fn push_mode(&mut self, _: VideoMode) {}
+            fn push_warning(&mut self, _: crate::model::diagnostics::EdidWarning) {}
+        }
+        base::decode_base_block(parsed.base_block(), &mut base_caps, &mut NullSink);
     }
 
     // Step 2 — Copy all scalar fields from the temporary into the static output.

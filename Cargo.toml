@@ -14,10 +14,10 @@ categories = ["hardware-support", "embedded", "parser-implementations"]
 default = ["std"]
 std = []
 alloc = []
-serde = ["dep:serde", "bitflags/serde"]
+serde = ["dep:serde", "bitflags/serde", "display-types/serde"]
 
 [dependencies]
-display-types = { path = "../display-types" }
+display-types = "0.1"
 serde = { version = "1.0", optional = true, features = ["derive"] }
 bitflags = "2.4"
 thiserror = "2.0"
