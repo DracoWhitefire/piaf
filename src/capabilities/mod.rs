@@ -46,6 +46,20 @@ use crate::model::extension::{ExtensionLibrary, StaticExtensionHandler};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::prelude::{Box, Vec};
 
+/// A [`ModeSink`] that discards all output.
+///
+/// Used by [`capabilities_from_edid`] in bare `no_std` builds where `DisplayCapabilities`
+/// carries no warning or mode storage. Warnings are unrecoverable in that path; use
+/// [`capabilities_from_edid_static`] if warnings are needed in a bare `no_std` build.
+#[cfg(not(any(feature = "alloc", feature = "std")))]
+struct NullSink;
+
+#[cfg(not(any(feature = "alloc", feature = "std")))]
+impl ModeSink for NullSink {
+    fn push_mode(&mut self, _: crate::model::capabilities::VideoMode) {}
+    fn push_warning(&mut self, _: crate::model::diagnostics::EdidWarning) {}
+}
+
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl ExtensionLibrary {
     /// Creates a library pre-loaded with the built-in [`BaseBlockHandler`] and [`Cea861Handler`].
@@ -75,9 +89,6 @@ pub fn capabilities_from_edid<T: EdidSource>(
     edid: &T,
     library: &ExtensionLibrary,
 ) -> DisplayCapabilities {
-    #[cfg(any(feature = "alloc", feature = "std"))]
-    let mut caps = DisplayCapabilities::default();
-    #[cfg(not(any(feature = "alloc", feature = "std")))]
     let mut caps = DisplayCapabilities::default();
 
     #[cfg(any(feature = "alloc", feature = "std"))]
@@ -112,12 +123,6 @@ pub fn capabilities_from_edid<T: EdidSource>(
 
     #[cfg(not(any(feature = "alloc", feature = "std")))]
     {
-        use crate::model::capabilities::VideoMode;
-        struct NullSink;
-        impl ModeSink for NullSink {
-            fn push_mode(&mut self, _: VideoMode) {}
-            fn push_warning(&mut self, _: crate::model::diagnostics::EdidWarning) {}
-        }
         let _ = library;
         base::decode_base_block(edid.base_block(), &mut caps, &mut NullSink);
     }
