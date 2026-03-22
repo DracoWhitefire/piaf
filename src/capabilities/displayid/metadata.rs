@@ -11,6 +11,8 @@ use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::color::{Chromaticity, ChromaticityPoint};
 #[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::diagnostics::EdidWarning;
+#[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::manufacture::{ManufacturerId, MonitorString};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::panel::{
@@ -20,7 +22,7 @@ use crate::model::panel::{
     StereoViewingMode, SubpixelLayout, TileBezelInfo, TileTopologyBehavior, ZeroPixelLocation,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::prelude::Vec;
+use crate::model::prelude::{Arc, Vec};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::transfer::{
     DisplayIdTransferCharacteristic, TransferCurve, TransferPointEncoding,
@@ -501,7 +503,8 @@ pub(super) fn scan_power_sequencing_block(payload: &[u8], caps: &mut DisplayCapa
 /// byte2[7:0] = p1[7:0]
 /// ```
 ///
-/// Payloads with a reserved encoding byte (bits 7:6 = `11`) are silently skipped.
+/// Payloads with a reserved encoding byte (bits 7:6 = `11`) push an
+/// [`EdidWarning::UnknownTransferEncoding`] warning and are otherwise skipped.
 /// Payloads shorter than 2 bytes are silently skipped.
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn decode_transfer_characteristics_block(
@@ -516,7 +519,11 @@ pub(super) fn decode_transfer_characteristics_block(
         0x00 => TransferPointEncoding::Bits8,
         0x01 => TransferPointEncoding::Bits10,
         0x02 => TransferPointEncoding::Bits12,
-        _ => return, // reserved
+        bits => {
+            caps.warnings
+                .push(Arc::new(EdidWarning::UnknownTransferEncoding(bits)));
+            return;
+        }
     };
     let multi_channel = (payload[0] & 0x20) != 0;
 

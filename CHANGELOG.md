@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   corrected via `display-types 0.1.1`. External crates that were already following the
   documented contract (using `..Default::default()` or the `::new` constructor rather than
   exhaustive struct literals) are unaffected.
+- **Transfer Characteristics block with reserved encoding**: a DisplayID Transfer
+  Characteristics block whose encoding byte carried the reserved value `0b11` was previously
+  silently ignored. It now emits `EdidWarning::UnknownTransferEncoding(bits)` before
+  skipping the block, consistent with how other undecodable fields are handled.
 
 ### Changed
 

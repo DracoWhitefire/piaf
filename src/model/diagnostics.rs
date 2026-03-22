@@ -95,6 +95,12 @@ pub enum EdidWarning {
         "DisplayID section_byte_count {0} places checksum outside the extension block (max 122)"
     )]
     DisplayIdSectionBytesOutOfRange(u8),
+    /// A DisplayID Transfer Characteristics block carries a reserved encoding byte.
+    ///
+    /// Bits 7:6 of the first payload byte encode the sample bit depth; value `0b11` is
+    /// reserved. The inner value is the raw 2-bit field. The block is skipped.
+    #[error("DisplayID Transfer Characteristics block has reserved encoding byte: {0:#04x}")]
+    UnknownTransferEncoding(u8),
     /// The byte slice length does not match the size implied by the extension count.
     ///
     /// The EDID header declares `extension_count` extension blocks, so the expected
