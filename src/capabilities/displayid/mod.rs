@@ -35,71 +35,28 @@ const DISPLAYID_V1_MAX: u8 = 0x1F;
 /// Version byte for DisplayID 2.x.
 const DISPLAYID_V2: u8 = 0x20;
 
-/// Data block tag for the Product Identification Block (DisplayID 1.x §4.2).
-const TAG_PRODUCT_ID: u8 = 0x00;
+use display_types::displayid::tag;
 
-/// Data block tag for the Display Parameters Block (DisplayID 1.x §4.3).
-const TAG_DISPLAY_PARAMS: u8 = 0x01;
-
-/// Data block tag for the Color Characteristics Block (DisplayID 1.x §4.4).
-const TAG_COLOR_CHARACTERISTICS: u8 = 0x02;
-
-/// Data block tag for the Detailed Timings Block (Type I descriptors, DisplayID 1.x §4.4.2).
-const TAG_TYPE_I_TIMING: u8 = 0x03;
-
-/// Data block tag for the Video Timing Modes Type II — Detailed Timings Block (DisplayID 1.x §4.4.3).
-const TAG_TYPE_II_TIMING: u8 = 0x04;
-
-/// Data block tag for the Video Timing Modes Type III — Short Timings Block (DisplayID 1.x §4.4.4).
-const TAG_TYPE_III_TIMING: u8 = 0x05;
-
-/// Data block tag for the Video Timing Modes Type IV — DMT/VIC Code Block (DisplayID 1.x §4.4.5).
-const TAG_TYPE_IV_TIMING: u8 = 0x06;
-
-/// Data block tag for the VESA Video Timing Block (DisplayID 1.x §4.4.6).
-///
-/// Payload is a compact presence bitmap: up to 10 bytes encoding DMT IDs 0x01–0x50.
-/// Bit `i` (0-indexed, LSB-first within each byte) is set if DMT ID `i + 1` is supported.
-const TAG_VESA_VIDEO_TIMING: u8 = 0x07;
-
-/// Data block tag for the CTA-861 Video Timing Block (DisplayID 1.x §4.4.7).
-///
-/// Payload is a compact presence bitmap: up to 8 bytes encoding CTA-861 VIC codes 1–64.
-/// Bit `i` (0-indexed, LSB-first within each byte) is set if VIC `i + 1` is supported.
-const TAG_CTA_VIDEO_TIMING: u8 = 0x08;
-
-/// Data block tag for the Video Timing Range Limits Block (DisplayID 1.x §4.5).
-const TAG_VIDEO_TIMING_RANGE: u8 = 0x09;
-
-/// Data block tag for the Product Serial Number Block (DisplayID 1.x §4.8).
-const TAG_SERIAL_NUMBER: u8 = 0x0A;
-
-/// Data block tag for the General Purpose ASCII String Block (DisplayID 1.x §4.9).
-const TAG_ASCII_STRING: u8 = 0x0B;
-
-/// Data block tag for the Display Device Data Block (DisplayID 1.x §4.10).
-const TAG_DISPLAY_DEVICE_DATA: u8 = 0x0C;
-
-/// Data block tag for the Interface Power Sequencing Block (DisplayID 1.x §4.11).
-const TAG_POWER_SEQUENCING: u8 = 0x0D;
-
-/// Data block tag for the Transfer Characteristics Block (DisplayID 1.x §4.12).
-const TAG_TRANSFER_CHARACTERISTICS: u8 = 0x0E;
-
-/// Data block tag for the Display Interface Data Block (DisplayID 1.x §4.13).
-const TAG_DISPLAY_INTERFACE: u8 = 0x0F;
-
-/// Data block tag for the Stereo Display Interface Data Block (DisplayID 1.x §4.14).
-const TAG_STEREO_DISPLAY_INTERFACE: u8 = 0x10;
-
-/// Data block tag for the Tiled Display Topology Data Block (DisplayID 1.x §4.15).
-const TAG_TILED_TOPOLOGY: u8 = 0x12;
-
-/// Data block tag for the Video Timing Modes Type V — Short Timings Block (DisplayID 1.x §4.6).
-const TAG_TYPE_V_TIMING: u8 = 0x11;
-
-/// Data block tag for the Video Timing Modes Type VI — Detailed Timings Block (DisplayID 1.x §4.7).
-const TAG_TYPE_VI_TIMING: u8 = 0x13;
+const TAG_PRODUCT_ID: u8 = tag::PRODUCT_ID;
+const TAG_DISPLAY_PARAMS: u8 = tag::DISPLAY_PARAMS;
+const TAG_COLOR_CHARACTERISTICS: u8 = tag::COLOR_CHARACTERISTICS;
+const TAG_TYPE_I_TIMING: u8 = tag::TYPE_I_TIMING;
+const TAG_TYPE_II_TIMING: u8 = tag::TYPE_II_TIMING;
+const TAG_TYPE_III_TIMING: u8 = tag::TYPE_III_TIMING;
+const TAG_TYPE_IV_TIMING: u8 = tag::TYPE_IV_TIMING;
+const TAG_VESA_VIDEO_TIMING: u8 = tag::VESA_VIDEO_TIMING;
+const TAG_CTA_VIDEO_TIMING: u8 = tag::CTA_VIDEO_TIMING;
+const TAG_VIDEO_TIMING_RANGE: u8 = tag::VIDEO_TIMING_RANGE;
+const TAG_SERIAL_NUMBER: u8 = tag::SERIAL_NUMBER;
+const TAG_ASCII_STRING: u8 = tag::ASCII_STRING;
+const TAG_DISPLAY_DEVICE_DATA: u8 = tag::DISPLAY_DEVICE_DATA;
+const TAG_POWER_SEQUENCING: u8 = tag::POWER_SEQUENCING;
+const TAG_TRANSFER_CHARACTERISTICS: u8 = tag::TRANSFER_CHARACTERISTICS;
+const TAG_DISPLAY_INTERFACE: u8 = tag::DISPLAY_INTERFACE;
+const TAG_STEREO_DISPLAY_INTERFACE: u8 = tag::STEREO_DISPLAY_INTERFACE;
+const TAG_TYPE_V_TIMING: u8 = tag::TYPE_V_TIMING;
+const TAG_TILED_TOPOLOGY: u8 = tag::TILED_TOPOLOGY;
+const TAG_TYPE_VI_TIMING: u8 = tag::TYPE_VI_TIMING;
 
 /// Calls `f(tag, revision, block_payload)` for each well-formed data block in `payload`.
 ///
