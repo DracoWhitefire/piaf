@@ -5,7 +5,6 @@ mod dmt_table;
 mod extended_blocks;
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod hdmi_vsdb;
-mod vic_table;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use audio::{AudioFormat, AudioFormatInfo, AudioSampleRates, ShortAudioDescriptor};
@@ -24,8 +23,8 @@ pub use extended_blocks::{
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use hdmi_vsdb::{HdmiVsdb, HdmiVsdbFlags};
 
+pub(crate) use display_types::cea861::vic_to_mode;
 pub(crate) use dmt_table::dmt_to_mode;
-pub(crate) use vic_table::vic_to_mode;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::capabilities::base::timings::decode_dtd_slot;
