@@ -1,14 +1,15 @@
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod audio;
-mod dmt_table;
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod extended_blocks;
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod hdmi_vsdb;
-mod vic_table;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use audio::{AudioFormat, AudioFormatInfo, AudioSampleRates, ShortAudioDescriptor};
+pub use display_types::cea861::Cea861Flags;
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub use display_types::cea861::{Cea861Capabilities, HdmiAudioBlock};
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use extended_blocks::{
     ColorimetryBlock, ColorimetryFlags, DtcPointEncoding, HdmiDscMaxSlices, HdmiForumDsc,
@@ -21,8 +22,7 @@ pub use extended_blocks::{
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use hdmi_vsdb::{HdmiVsdb, HdmiVsdbFlags};
 
-pub(crate) use dmt_table::dmt_to_mode;
-pub(crate) use vic_table::vic_to_mode;
+pub(crate) use display_types::cea861::{dmt_to_mode, vic_to_mode};
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::capabilities::base::timings::decode_dtd_slot;
@@ -58,171 +58,6 @@ use extended_blocks::{
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use hdmi_vsdb::parse_hdmi_vsdb;
-bitflags::bitflags! {
-    /// Capability flags from byte 3 of a CEA-861 extension block.
-    ///
-    /// | Bit | Mask   | Meaning                  |
-    /// |-----|--------|--------------------------|
-    /// | 7   | `0x80` | Underscan support        |
-    /// | 6   | `0x40` | Basic audio support      |
-    /// | 5   | `0x20` | YCbCr 4:4:4 support      |
-    /// | 4   | `0x10` | YCbCr 4:2:2 support      |
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct Cea861Flags: u8 {
-        /// The display supports underscan.
-        const UNDERSCAN   = 0x80;
-        /// The display supports basic audio.
-        const BASIC_AUDIO = 0x40;
-        /// The display supports YCbCr 4:4:4 color encoding.
-        const YCBCR_444   = 0x20;
-        /// The display supports YCbCr 4:2:2 color encoding.
-        const YCBCR_422   = 0x10;
-    }
-}
-
-/// Decoded HDMI Audio Data Block (extended tag `0x12`).
-///
-/// Advertises HDMI-specific audio capabilities, including Multi-Stream Audio (MSA)
-/// support and a set of Short Audio Descriptors for the HDMI audio path.
-#[non_exhaustive]
-#[cfg(any(feature = "alloc", feature = "std"))]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HdmiAudioBlock {
-    /// If `true`, the sink supports HDMI Multi-Stream Audio (MSA).
-    pub multi_stream_audio: bool,
-    /// Short Audio Descriptors for the HDMI audio path (eARC-capable formats, etc.).
-    pub audio_descriptors: Vec<ShortAudioDescriptor>,
-}
-
-/// Decoded capabilities from a CEA-861 extension block.
-///
-/// Stored in [`DisplayCapabilities::extension_data`] under tag `0x02` by [`Cea861Handler`].
-/// Retrieve it with `caps.get_extension_data::<Cea861Capabilities>(0x02)`.
-#[non_exhaustive]
-#[cfg(any(feature = "alloc", feature = "std"))]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq)] // no Eq: HdrStaticMetadata contains f32
-pub struct Cea861Capabilities {
-    /// Capability flags from byte 3 of the CEA-861 header.
-    pub flags: Cea861Flags,
-    /// Short Video Descriptors from the CEA Video Data Block (tag `0x02`).
-    ///
-    /// Each entry is `(vic_number, is_native)`. VICs beyond the range of the
-    /// built-in lookup table are included here but do not produce an entry in
-    /// [`DisplayCapabilities::supported_modes`].
-    pub vics: Vec<(u8, bool)>,
-    /// Short Audio Descriptors from the CEA Audio Data Block (tag `0x01`).
-    pub audio_descriptors: Vec<ShortAudioDescriptor>,
-    /// Decoded HDMI 1.x Vendor-Specific Data Block (OUI `0x000C03`), if present.
-    pub hdmi_vsdb: Option<HdmiVsdb>,
-    /// Decoded HDMI Forum Vendor-Specific Data Block (OUI `0xC45DD8`), if present.
-    ///
-    /// Carries the same HDMI Forum Sink Capability Data Structure (SCDS) as
-    /// [`hf_scdb`][Self::hf_scdb]. Typically found on HDMI 2.0 sinks; HDMI 2.1 sinks
-    /// more commonly use the HF-SCDB (extended tag `0x79`) instead.
-    pub hf_vsdb: Option<HdmiForumSinkCap>,
-    /// Decoded Video Capability Data Block (extended tag `0x00`), if present.
-    pub video_capability: Option<VideoCapability>,
-    /// Decoded Colorimetry Data Block (extended tag `0x05`), if present.
-    pub colorimetry: Option<ColorimetryBlock>,
-    /// Decoded HDR Static Metadata Data Block (extended tag `0x06`), if present.
-    pub hdr_static_metadata: Option<HdrStaticMetadata>,
-    /// Decoded HDMI Audio Data Block (extended tag `0x12`), if present.
-    pub hdmi_audio: Option<HdmiAudioBlock>,
-    /// InfoFrame descriptors from the InfoFrame Data Block (extended tag `0x20`).
-    ///
-    /// Each entry identifies an InfoFrame type the sink can receive. For
-    /// Vendor-Specific InfoFrames the IEEE OUI is also decoded.
-    pub infoframe_descriptors: Vec<InfoFrameDescriptor>,
-    /// Decoded Room Configuration Data Block (extended tag `0x13`), if present.
-    pub room_configuration: Option<RoomConfigurationBlock>,
-    /// Speaker location entries from the Speaker Location Data Block (extended tag `0x14`).
-    pub speaker_locations: Vec<SpeakerLocationEntry>,
-    /// Decoded VESA Display Transfer Characteristic Data Block (standard tag `0x05`), if present.
-    ///
-    /// Encodes the display's luminance transfer function as normalized sample points.
-    pub vesa_transfer_characteristic: Option<VesaTransferCharacteristic>,
-    /// Decoded Speaker Allocation Data Block (standard tag `0x04`), if present.
-    pub speaker_allocation: Option<SpeakerAllocation>,
-    /// HDR Dynamic Metadata application descriptors (extended tag `0x07`).
-    ///
-    /// One entry per application type found (e.g. HDR10+, Dolby Vision).
-    pub hdr_dynamic_metadata: Vec<HdrDynamicMetadataDescriptor>,
-    /// Raw Short Video References from the Video Format Preference Data Block
-    /// (extended tag `0x0D`), if present.
-    ///
-    /// Each byte encodes a preferred format: `1`–`127` = VIC reference,
-    /// `129`–`144` = DTD reference, `145`–`160` = Y420 VDB reference.
-    pub video_format_preferences: Vec<u8>,
-    /// VICs from the YCbCr 4:2:0 Video Data Block (extended tag `0x0E`).
-    ///
-    /// These modes are **only** supported in 4:2:0 colour format.
-    /// The corresponding [`VideoMode`][crate::VideoMode] entries are also added to
-    /// [`DisplayCapabilities::supported_modes`] when the VIC is in the lookup table.
-    pub y420_vics: Vec<u8>,
-    /// Raw capability bitmap from the YCbCr 4:2:0 Capability Map Data Block
-    /// (extended tag `0x0F`).
-    ///
-    /// Bit `n` (0-indexed, LSB-first across bytes) corresponds to the `(n+1)`-th
-    /// Short Video Descriptor in the standard Video Data Block. A set bit means
-    /// that mode also supports YCbCr 4:2:0.
-    pub y420_capability_map: Vec<u8>,
-    /// Decoded VESA Display Device Data Block (extended tag `0x02`), if present.
-    ///
-    /// Describes the physical and electrical characteristics of the display, including
-    /// interface type, native resolution, pixel pitch, and audio support.
-    pub vesa_display_device: Option<VesaDisplayDeviceBlock>,
-    /// Additional timing modes from VESA Video Timing Block Extension blocks
-    /// (extended tag `0x03`).
-    ///
-    /// Each element corresponds to one VTB-EXT data block. The decoded timings are
-    /// also added to [`DisplayCapabilities::supported_modes`].
-    pub vtb_ext: Vec<VtbExtBlock>,
-    /// Vendor-Specific Video Data Blocks (extended tag `0x01`).
-    ///
-    /// Each entry holds the vendor's IEEE OUI and their opaque payload. Multiple
-    /// VSVDBs are allowed (one per vendor). Well-known OUIs include Dolby Vision
-    /// (`0x00D046`) and HDR10+ (`0x90848B`).
-    pub vendor_specific_video: Vec<VendorSpecificBlock>,
-    /// Vendor-Specific Audio Data Blocks (extended tag `0x11`).
-    ///
-    /// Each entry holds the vendor's IEEE OUI and their opaque payload. Multiple
-    /// VSADBs are allowed (one per vendor).
-    pub vendor_specific_audio: Vec<VendorSpecificBlock>,
-    /// DisplayID Type VII Video Timing Data Blocks (extended tag `0x22`).
-    ///
-    /// Each entry corresponds to one T7VTDB block, carrying a single DisplayID-style
-    /// 20-byte timing descriptor. The decoded modes are also added to
-    /// [`DisplayCapabilities::supported_modes`].
-    pub t7_vtdb: Vec<T7VtdbBlock>,
-    /// DisplayID Type VIII Video Timing Data Blocks (extended tag `0x23`).
-    ///
-    /// Each entry corresponds to one T8VTDB block, carrying a list of VESA DMT
-    /// timing codes. The decoded modes are also added to
-    /// [`DisplayCapabilities::supported_modes`].
-    pub t8_vtdb: Vec<T8VtdbBlock>,
-    /// DisplayID Type X Video Timing Data Blocks (extended tag `0x2A`).
-    ///
-    /// Each entry corresponds to one T10VTDB block carrying 1–4 CVT
-    /// formula-based timing descriptors. Modes with refresh rates that fit in
-    /// `u8` (≤ 255 Hz) are also added to [`DisplayCapabilities::supported_modes`].
-    pub t10_vtdb: Vec<T10VtdbBlock>,
-    /// Extension block count from the HDMI Forum EDID Extension Override Data Block
-    /// (extended tag `0x78`).
-    ///
-    /// When present, this overrides the 1-byte extension count in the base EDID header
-    /// and indicates the true number of 128-byte extension blocks. Defined in HDMI 2.1
-    /// section 10.3.6; only meaningful on HDMI 2.1 sinks with large E-EDIDs.
-    pub hf_eeodb_extension_count: Option<u8>,
-    /// HDMI Forum Sink Capability Data Block (extended tag `0x79`).
-    ///
-    /// Present on HDMI 2.1 sinks. Carries FRL bandwidth, SCDC, Deep Color 4:2:0,
-    /// ALLM, VRR range, and DSC capabilities.
-    pub hf_scdb: Option<HdmiForumSinkCap>,
-}
-
 /// Processes a CEA-861 extension block (tag `0x02`).
 #[derive(Debug)]
 pub struct Cea861Handler;
@@ -238,35 +73,7 @@ impl ExtensionHandler for Cea861Handler {
         let Some(first) = blocks.first() else { return };
         let flags = Cea861Flags::from_bits_truncate(first[3]);
 
-        let mut cea_caps = Cea861Capabilities {
-            flags,
-            vics: Vec::new(),
-            audio_descriptors: Vec::new(),
-            hdmi_vsdb: None,
-            hf_vsdb: None,
-            video_capability: None,
-            colorimetry: None,
-            hdr_static_metadata: None,
-            hdmi_audio: None,
-            infoframe_descriptors: Vec::new(),
-            room_configuration: None,
-            speaker_locations: Vec::new(),
-            vesa_transfer_characteristic: None,
-            speaker_allocation: None,
-            hdr_dynamic_metadata: Vec::new(),
-            video_format_preferences: Vec::new(),
-            y420_vics: Vec::new(),
-            y420_capability_map: Vec::new(),
-            vesa_display_device: None,
-            vtb_ext: Vec::new(),
-            vendor_specific_video: Vec::new(),
-            vendor_specific_audio: Vec::new(),
-            t7_vtdb: Vec::new(),
-            t8_vtdb: Vec::new(),
-            t10_vtdb: Vec::new(),
-            hf_eeodb_extension_count: None,
-            hf_scdb: None,
-        };
+        let mut cea_caps = Cea861Capabilities::new(flags);
 
         for ext in blocks {
             // Parse the data block collection: bytes 4 through dtd_offset-1.
@@ -537,10 +344,10 @@ impl ExtensionHandler for Cea861Handler {
                                     .get(2..)
                                     .map(parse_audio_data_block)
                                     .unwrap_or_default();
-                                cea_caps.hdmi_audio = Some(HdmiAudioBlock {
+                                cea_caps.hdmi_audio = Some(HdmiAudioBlock::new(
                                     multi_stream_audio,
                                     audio_descriptors,
-                                });
+                                ));
                             }
                             _ => {}
                         }

@@ -1,5 +1,21 @@
 use crate::model::capabilities::VideoMode;
 use crate::model::prelude::Vec;
+pub use display_types::cea861::colorimetry::{ColorimetryBlock, ColorimetryFlags};
+pub use display_types::cea861::hdmi_forum::{
+    HdmiDscMaxSlices, HdmiForumDsc, HdmiForumFrl, HdmiForumSinkCap,
+};
+pub use display_types::cea861::hdr::{HdrDynamicMetadataDescriptor, HdrEotf, HdrStaticMetadata};
+pub use display_types::cea861::misc::{InfoFrameDescriptor, VendorSpecificBlock, infoframe_type};
+pub use display_types::cea861::speaker::{
+    RoomConfigurationBlock, SpeakerAllocation, SpeakerAllocationFlags, SpeakerAllocationFlags2,
+    SpeakerAllocationFlags3, SpeakerLocationEntry,
+};
+pub use display_types::cea861::vesa_dddb::VesaDisplayDeviceBlock;
+pub use display_types::cea861::vesa_transfer::{DtcPointEncoding, VesaTransferCharacteristic};
+pub use display_types::cea861::video_capability::{VideoCapability, VideoCapabilityFlags};
+pub use display_types::cea861::vtdb::{
+    T7VtdbBlock, T8VtdbBlock, T10VtdbBlock, T10VtdbEntry, VtbExtBlock,
+};
 
 /// Extended tag codes used in CEA Extended Tag Data Blocks (outer tag `0x07`).
 /// The first byte of the block payload is the extended tag.
@@ -76,148 +92,31 @@ pub(super) const RESERVED_EXTENDED_TAG_RANGES: &[(u8, u8)] = &[
 // Video Capability Data Block (extended tag 0x00)
 // ---------------------------------------------------------------------------
 
-bitflags::bitflags! {
-    /// Flags from the Video Capability Data Block (extended tag `0x00`).
-    ///
-    /// Describes over-/underscan behaviour and quantization range support.
-    ///
-    /// | Bit | Mask   | Meaning                                          |
-    /// |-----|--------|--------------------------------------------------|
-    /// | 7   | `0x80` | QY: quantization range selectable (YCC)          |
-    /// | 6   | `0x40` | QS: quantization range selectable (RGB)          |
-    /// | 5–4 | `0x30` | PT: preferred PT behavior (2-bit field)          |
-    /// | 3–2 | `0x0C` | IT: IT content behavior (2-bit field)            |
-    /// | 1–0 | `0x03` | CE: CE content behavior (2-bit field)            |
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct VideoCapabilityFlags: u8 {
-        /// YCC quantization range is selectable (QY).
-        const QY = 0x80;
-        /// RGB quantization range is selectable (QS).
-        const QS = 0x40;
-    }
-}
-
-/// Decoded Video Capability Data Block (extended tag `0x00`).
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct VideoCapability {
-    /// Quantization range and overscan flags.
-    pub flags: VideoCapabilityFlags,
-    /// Preferred timing overscan/underscan behaviour (bits 5–4, 2-bit field).
-    pub pt_behaviour: u8,
-    /// IT content overscan/underscan behaviour (bits 3–2, 2-bit field).
-    pub it_behaviour: u8,
-    /// CE content overscan/underscan behaviour (bits 1–0, 2-bit field).
-    pub ce_behaviour: u8,
-}
-
 pub(super) fn parse_video_capability(block_data: &[u8]) -> Option<VideoCapability> {
     // block_data[0] = extended tag; payload starts at [1].
     let b = *block_data.get(1)?;
-    Some(VideoCapability {
-        flags: VideoCapabilityFlags::from_bits_truncate(b & 0xC0),
-        pt_behaviour: (b >> 4) & 0x03,
-        it_behaviour: (b >> 2) & 0x03,
-        ce_behaviour: b & 0x03,
-    })
+    Some(VideoCapability::new(
+        VideoCapabilityFlags::from_bits_truncate(b & 0xC0),
+        (b >> 4) & 0x03,
+        (b >> 2) & 0x03,
+        b & 0x03,
+    ))
 }
 
 // ---------------------------------------------------------------------------
 // Colorimetry Data Block (extended tag 0x05)
 // ---------------------------------------------------------------------------
 
-bitflags::bitflags! {
-    /// Colorimetry standards supported by the display, from the Colorimetry
-    /// Data Block (extended tag `0x05`).
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct ColorimetryFlags: u8 {
-        /// xvYCC 601.
-        const XVYCC601   = 0x01;
-        /// xvYCC 709.
-        const XVYCC709   = 0x02;
-        /// sYCC 601.
-        const SYCC601    = 0x04;
-        /// opYCC 601.
-        const OPYCC601   = 0x08;
-        /// opRGB.
-        const OPRGB      = 0x10;
-        /// BT.2020 cYCC.
-        const BT2020CYCC = 0x20;
-        /// BT.2020 YCC.
-        const BT2020YCC  = 0x40;
-        /// BT.2020 RGB.
-        const BT2020RGB  = 0x80;
-    }
-}
-
-/// Decoded Colorimetry Data Block (extended tag `0x05`).
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ColorimetryBlock {
-    /// Supported colorimetry standards.
-    pub colorimetry: ColorimetryFlags,
-    /// Gamut metadata profile support bitmap (bits 3–0 of byte 2).
-    pub metadata_profiles: u8,
-}
-
 pub(super) fn parse_colorimetry(block_data: &[u8]) -> Option<ColorimetryBlock> {
     // block_data[0] = extended tag; payload is [1] and optionally [2].
     let colorimetry = ColorimetryFlags::from_bits_truncate(*block_data.get(1)?);
     let metadata_profiles = block_data.get(2).map_or(0, |&b| b & 0x0F);
-    Some(ColorimetryBlock {
-        colorimetry,
-        metadata_profiles,
-    })
+    Some(ColorimetryBlock::new(colorimetry, metadata_profiles))
 }
 
 // ---------------------------------------------------------------------------
 // HDR Static Metadata Data Block (extended tag 0x06)
 // ---------------------------------------------------------------------------
-
-bitflags::bitflags! {
-    /// Electro-Optical Transfer Functions (EOTFs) supported by the display,
-    /// from the HDR Static Metadata Data Block (extended tag `0x06`).
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct HdrEotf: u8 {
-        /// Traditional gamma — SDR luminance range.
-        const SDR    = 0x01;
-        /// Traditional gamma — HDR luminance range.
-        const HDR    = 0x02;
-        /// SMPTE ST 2084 (PQ / HDR10).
-        const ST2084 = 0x04;
-        /// Hybrid Log-Gamma (HLG).
-        const HLG    = 0x08;
-    }
-}
-
-/// Decoded HDR Static Metadata Data Block (extended tag `0x06`).
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq)] // no Eq: contains f32
-pub struct HdrStaticMetadata {
-    /// Supported EOTFs (tone-mapping curves).
-    pub eotf: HdrEotf,
-    /// Static Metadata Descriptor type bitmap (usually bit 0 = Type 1 / MaxCLL/MaxFALL).
-    pub static_metadata_descriptors: u8,
-    /// Desired content maximum luminance in cd/m², decoded from byte 3.
-    ///
-    /// Encoded as `50 × 2^(raw / 32)`. `None` when the byte is absent.
-    pub max_luminance: Option<f32>,
-    /// Desired content maximum frame-average light level (MaxFALL) in cd/m².
-    ///
-    /// Same encoding as `max_luminance`. `None` when absent.
-    pub max_fall: Option<f32>,
-    /// Desired content minimum luminance in cd/m², decoded from byte 5.
-    ///
-    /// Encoded as `max_luminance × (raw / 255)² / 100`. `None` when absent or when
-    /// `max_luminance` is not present.
-    pub min_luminance: Option<f32>,
-}
 
 /// Decodes the `50 × 2^(raw/32)` luminance encoding used in the HDR block.
 fn decode_luminance(raw: u8) -> f32 {
@@ -235,13 +134,13 @@ pub(super) fn parse_hdr_static_metadata(block_data: &[u8]) -> Option<HdrStaticMe
         .get(5)
         .and_then(|&b| max_luminance.map(|max| max * (b as f32 / 255.0).powi(2) / 100.0));
 
-    Some(HdrStaticMetadata {
+    Some(HdrStaticMetadata::new(
         eotf,
         static_metadata_descriptors,
         max_luminance,
         max_fall,
         min_luminance,
-    })
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -251,35 +150,6 @@ pub(super) fn parse_hdr_static_metadata(block_data: &[u8]) -> Option<HdrStaticMe
 // ---------------------------------------------------------------------------
 // VESA Display Transfer Characteristic Data Block (standard tag 0x05)
 // ---------------------------------------------------------------------------
-
-/// Point encoding precision for the VESA Display Transfer Characteristic Data Block.
-///
-/// Encoded in bits 7:6 of the first payload byte.
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DtcPointEncoding {
-    /// 8 bits per luminance point.
-    Bits8,
-    /// 10 bits per luminance point (packed, 5 bytes per 4 points).
-    Bits10,
-    /// 12 bits per luminance point (packed, 3 bytes per 2 points).
-    Bits12,
-}
-
-/// Decoded VESA Display Transfer Characteristic Data Block (standard tag `0x05`).
-///
-/// Encodes the display's luminance transfer function as a sequence of sample
-/// points at evenly-spaced input levels from 0 (black) to 1 (white).
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq)] // no Eq: contains f32
-pub struct VesaTransferCharacteristic {
-    /// Bit depth used to encode each luminance point.
-    pub encoding: DtcPointEncoding,
-    /// Luminance values, normalized to [0.0, 1.0].
-    pub points: Vec<f32>,
-}
 
 pub(super) fn parse_vesa_transfer_characteristic(
     block_data: &[u8],
@@ -327,115 +197,11 @@ pub(super) fn parse_vesa_transfer_characteristic(
             }
             pts
         }
+        // Reserved encoding filtered out above; unreachable in practice.
+        _ => return None,
     };
 
-    Some(VesaTransferCharacteristic { encoding, points })
-}
-
-bitflags::bitflags! {
-    /// Speaker channel presence flags, byte 1 of the Speaker Allocation Data Block.
-    ///
-    /// | Bit | Mask   | Channels                        |
-    /// |-----|--------|---------------------------------|
-    /// | 7   | `0x80` | FLW/FRW (Front Left/Right Wide) |
-    /// | 6   | `0x40` | RLC/RRC (Rear Left/Right Center)|
-    /// | 5   | `0x20` | FLC/FRC (Front Left/Right Ctr)  |
-    /// | 4   | `0x10` | BC (Back Center)                |
-    /// | 3   | `0x08` | BL/BR (Back Left/Right)         |
-    /// | 2   | `0x04` | FC (Front Center)               |
-    /// | 1   | `0x02` | LFE1 (Low-Frequency Effects 1)  |
-    /// | 0   | `0x01` | FL/FR (Front Left/Right)        |
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct SpeakerAllocationFlags: u8 {
-        /// Front Left / Front Right channels.
-        const FL_FR   = 0x01;
-        /// Low-Frequency Effects channel 1.
-        const LFE1    = 0x02;
-        /// Front Center channel.
-        const FC      = 0x04;
-        /// Back Left / Back Right channels.
-        const BL_BR   = 0x08;
-        /// Back Center channel.
-        const BC      = 0x10;
-        /// Front Left Center / Front Right Center channels.
-        const FLC_FRC = 0x20;
-        /// Rear Left Center / Rear Right Center channels.
-        const RLC_RRC = 0x40;
-        /// Front Left Wide / Front Right Wide channels.
-        const FLW_FRW = 0x80;
-    }
-}
-
-bitflags::bitflags! {
-    /// Speaker channel presence flags, byte 2 of the Speaker Allocation Data Block.
-    ///
-    /// | Bit | Mask   | Channels                           |
-    /// |-----|--------|------------------------------------|
-    /// | 7   | `0x80` | TpSiL/TpSiR (Top Side Left/Right)  |
-    /// | 6   | `0x40` | SiL/SiR (Side Left/Right)          |
-    /// | 5   | `0x20` | TpBC (Top Back Center)             |
-    /// | 4   | `0x10` | LFE2 (Low-Frequency Effects 2)     |
-    /// | 3   | `0x08` | LS/RS (Left/Right Surround)        |
-    /// | 2   | `0x04` | TpFC (Top Front Center)            |
-    /// | 1   | `0x02` | TpC (Top Center)                   |
-    /// | 0   | `0x01` | TpFL/TpFR (Top Front Left/Right)   |
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct SpeakerAllocationFlags2: u8 {
-        /// Top Front Left / Top Front Right channels.
-        const TP_FL_FR      = 0x01;
-        /// Top Center channel.
-        const TP_C          = 0x02;
-        /// Top Front Center channel.
-        const TP_FC         = 0x04;
-        /// Left Surround / Right Surround channels.
-        const LS_RS         = 0x08;
-        /// Low-Frequency Effects channel 2.
-        const LFE2          = 0x10;
-        /// Top Back Center channel.
-        const TP_BC         = 0x20;
-        /// Side Left / Side Right channels.
-        const SI_L_SI_R     = 0x40;
-        /// Top Side Left / Top Side Right channels.
-        const TP_SI_L_TP_SI_R = 0x80;
-    }
-}
-
-bitflags::bitflags! {
-    /// Speaker channel presence flags, byte 3 of the Speaker Allocation Data Block.
-    ///
-    /// | Bit | Mask   | Channels                              |
-    /// |-----|--------|---------------------------------------|
-    /// | 3   | `0x08` | TpLS/TpRS (Top Left/Right Surround)   |
-    /// | 2   | `0x04` | BtFL/BtFR (Bottom Front Left/Right)   |
-    /// | 1   | `0x02` | BtFC (Bottom Front Center)            |
-    /// | 0   | `0x01` | TpBL/TpBR (Top Back Left/Right)       |
-    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct SpeakerAllocationFlags3: u8 {
-        /// Top Back Left / Top Back Right channels.
-        const TP_BL_TP_BR  = 0x01;
-        /// Bottom Front Center channel.
-        const BT_FC        = 0x02;
-        /// Bottom Front Left / Bottom Front Right channels.
-        const BT_FL_BT_FR  = 0x04;
-        /// Top Left Surround / Top Right Surround channels.
-        const TP_LS_TP_RS  = 0x08;
-    }
-}
-
-/// Decoded Speaker Allocation Data Block (standard tag `0x04`).
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SpeakerAllocation {
-    /// Channels from byte 1 (core speaker channels).
-    pub channels: SpeakerAllocationFlags,
-    /// Channels from byte 2 (extended — top/surround/LFE2).
-    pub channels_2: SpeakerAllocationFlags2,
-    /// Channels from byte 3 (extended — top-back/bottom-front).
-    pub channels_3: SpeakerAllocationFlags3,
+    Some(VesaTransferCharacteristic::new(encoding, points))
 }
 
 pub(super) fn parse_speaker_allocation(block_data: &[u8]) -> Option<SpeakerAllocation> {
@@ -444,32 +210,12 @@ pub(super) fn parse_speaker_allocation(block_data: &[u8]) -> Option<SpeakerAlloc
         SpeakerAllocationFlags2::from_bits_truncate(block_data.get(1).copied().unwrap_or(0));
     let channels_3 =
         SpeakerAllocationFlags3::from_bits_truncate(block_data.get(2).copied().unwrap_or(0));
-    Some(SpeakerAllocation {
-        channels,
-        channels_2,
-        channels_3,
-    })
+    Some(SpeakerAllocation::new(channels, channels_2, channels_3))
 }
 
 // ---------------------------------------------------------------------------
 // HDR Dynamic Metadata Data Block (extended tag 0x07)
 // ---------------------------------------------------------------------------
-
-/// One entry from an HDR Dynamic Metadata Data Block (extended tag `0x07`).
-///
-/// Each descriptor identifies the HDR dynamic metadata technology supported
-/// (e.g. HDR10+ / SMPTE ST 2094, or Dolby Vision).
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct HdrDynamicMetadataDescriptor {
-    /// Application type identifier (bits 5–0 of the descriptor byte).
-    ///
-    /// `1` = SMPTE ST 2094 (HDR10+); `2` = Dolby Vision.
-    pub application_type: u8,
-    /// Application metadata version (bits 7–6 of the descriptor byte).
-    pub application_version: u8,
-}
 
 pub(super) fn parse_hdr_dynamic_metadata(block_data: &[u8]) -> Vec<HdrDynamicMetadataDescriptor> {
     // block_data[0] = extended tag; descriptors start at [1].
@@ -480,10 +226,7 @@ pub(super) fn parse_hdr_dynamic_metadata(block_data: &[u8]) -> Vec<HdrDynamicMet
     // Without type-specific knowledge of their length we cannot skip them,
     // so we parse only the first descriptor rather than risk misalignment.
     if let Some(&b) = block_data.get(1) {
-        out.push(HdrDynamicMetadataDescriptor {
-            application_type: b & 0x3F,
-            application_version: (b >> 6) & 0x03,
-        });
+        out.push(HdrDynamicMetadataDescriptor::new(b & 0x3F, (b >> 6) & 0x03));
     }
     out
 }
@@ -562,110 +305,27 @@ pub(super) fn parse_y420_capability_map(block_data: &[u8]) -> Vec<u8> {
 // Room Configuration Data Block (extended tag 0x13)
 // ---------------------------------------------------------------------------
 
-/// Decoded Room Configuration Data Block (extended tag `0x13`).
-///
-/// Describes the number of loudspeakers in the listening room and whether
-/// individual speaker locations are provided in an accompanying
-/// Speaker Location Data Block (extended tag `0x14`).
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RoomConfigurationBlock {
-    /// Number of loudspeakers in the room (bits 4:0).  `0` means not specified.
-    pub speaker_count: u8,
-    /// If `true`, individual speaker location entries are present in an
-    /// accompanying Speaker Location Data Block (extended tag `0x14`).
-    pub has_speaker_locations: bool,
-}
-
 pub(super) fn parse_room_configuration(block_data: &[u8]) -> Option<RoomConfigurationBlock> {
     // block_data[0] = extended tag; payload byte at [1].
     let b = *block_data.get(1)?;
-    Some(RoomConfigurationBlock {
-        speaker_count: b & 0x1F,
-        has_speaker_locations: b & 0x40 != 0,
-    })
+    Some(RoomConfigurationBlock::new(b & 0x1F, b & 0x40 != 0))
 }
 
 // ---------------------------------------------------------------------------
 // Speaker Location Data Block (extended tag 0x14)
 // ---------------------------------------------------------------------------
 
-/// A single speaker location entry from the Speaker Location Data Block
-/// (extended tag `0x14`).
-///
-/// Each entry is two bytes: a channel assignment and a normalized distance
-/// from the listener (0 = closest, 255 = furthest).
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SpeakerLocationEntry {
-    /// Channel assignment code (speaker role).
-    ///
-    /// Values follow the CTA-861-I Table 49 channel assignment codes
-    /// (e.g. `0x00` = FL/FR, `0x01` = LFE1, `0x02` = FC, etc.).
-    pub channel_assignment: u8,
-    /// Normalized distance from the listener position.
-    ///
-    /// `0` = at or very close to the listener; `255` = furthest.
-    /// The absolute distance is not encoded.
-    pub distance: u8,
-}
-
 pub(super) fn parse_speaker_location(block_data: &[u8]) -> Vec<SpeakerLocationEntry> {
     // block_data[0] = extended tag; entries start at [1], each 2 bytes.
     block_data[1..]
         .chunks_exact(2)
-        .map(|c| SpeakerLocationEntry {
-            channel_assignment: c[0],
-            distance: c[1],
-        })
+        .map(|c| SpeakerLocationEntry::new(c[0], c[1]))
         .collect()
 }
 
 // ---------------------------------------------------------------------------
 // InfoFrame Data Block (extended tag 0x20)
 // ---------------------------------------------------------------------------
-
-/// Well-known InfoFrame type codes from the InfoFrame Data Block (extended tag `0x20`).
-///
-/// These correspond to the InfoFrame types defined in HDMI and CTA-861.
-pub mod infoframe_type {
-    /// Vendor-Specific InfoFrame (VSI). The associated OUI identifies the vendor.
-    pub const VENDOR_SPECIFIC: u8 = 0x01;
-    /// AVI InfoFrame — active video format, colorimetry, aspect ratio.
-    pub const AVI: u8 = 0x02;
-    /// Source Product Descriptor InfoFrame.
-    pub const SOURCE_PRODUCT_DESCRIPTOR: u8 = 0x03;
-    /// Audio InfoFrame.
-    pub const AUDIO: u8 = 0x04;
-    /// MPEG Source InfoFrame.
-    pub const MPEG_SOURCE: u8 = 0x05;
-    /// NTSC VBI InfoFrame.
-    pub const NTSC_VBI: u8 = 0x06;
-    /// Dynamic Range and Mastering InfoFrame (HDR10 static metadata).
-    pub const DYNAMIC_RANGE_MASTERING: u8 = 0x07;
-}
-
-/// One entry from an InfoFrame Data Block (extended tag `0x20`).
-///
-/// Each descriptor identifies an InfoFrame type that the sink is capable of
-/// receiving. For Vendor-Specific InfoFrames (`type_code == 0x01`) the IEEE OUI
-/// of the vendor is also present.
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct InfoFrameDescriptor {
-    /// InfoFrame type code (bits 4:0 of the SID byte).
-    ///
-    /// See the constants in [`infoframe_type`] for the well-known values.
-    pub type_code: u8,
-    /// IEEE OUI for Vendor-Specific InfoFrames (`type_code == 0x01`).
-    ///
-    /// Stored as `(byte0 << 16) | (byte1 << 8) | byte2` following the byte
-    /// order used in CTA-861.  `None` for all other types.
-    pub vendor_oui: Option<u32>,
-}
 
 pub(super) fn parse_infoframe_db(block_data: &[u8]) -> Vec<InfoFrameDescriptor> {
     // block_data[0] = extended tag; SIDs start at [1].
@@ -689,10 +349,7 @@ pub(super) fn parse_infoframe_db(block_data: &[u8]) -> Vec<InfoFrameDescriptor> 
             None
         };
 
-        out.push(InfoFrameDescriptor {
-            type_code,
-            vendor_oui,
-        });
+        out.push(InfoFrameDescriptor::new(type_code, vendor_oui));
 
         // Advance past the extra bytes, clamping to remaining payload.
         i += extra.min(payload.len().saturating_sub(i));
@@ -706,27 +363,6 @@ pub(super) fn parse_infoframe_db(block_data: &[u8]) -> Vec<InfoFrameDescriptor> 
 // Vendor-Specific Audio Data Block (extended tag 0x11)
 // ---------------------------------------------------------------------------
 
-/// A decoded Vendor-Specific Video Data Block (VSVDB, extended tag `0x01`) or
-/// Vendor-Specific Audio Data Block (VSADB, extended tag `0x11`).
-///
-/// Both block types share the same structure: a 3-byte IEEE OUI followed by an
-/// opaque vendor-defined payload (CTA-861 Tables 56–57). The payload is stored
-/// verbatim for consumers that recognise the OUI.
-///
-/// Well-known video OUIs include Dolby Vision (`0x00D046`) and HDR10+ (`0x90848B`).
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VendorSpecificBlock {
-    /// 24-bit IEEE OUI in canonical (MSB-first) form.
-    ///
-    /// Assembled from the three OUI bytes as `(byte2 << 16) | (byte1 << 8) | byte0`,
-    /// where byte0 is the least-significant byte as stored on the wire.
-    pub oui: u32,
-    /// Vendor-defined payload bytes following the OUI.
-    pub payload: Vec<u8>,
-}
-
 /// Parse a VSVDB or VSADB payload (`block_data` starts after the extended tag byte).
 ///
 /// Returns `None` if the payload is shorter than the 3-byte OUI minimum.
@@ -737,33 +373,12 @@ pub(super) fn parse_vendor_specific_block(block_data: &[u8]) -> Option<VendorSpe
     let oui =
         ((block_data[2] as u32) << 16) | ((block_data[1] as u32) << 8) | (block_data[0] as u32);
     let payload = block_data[3..].to_vec();
-    Some(VendorSpecificBlock { oui, payload })
+    Some(VendorSpecificBlock::new(oui, payload))
 }
 
 // ---------------------------------------------------------------------------
 // DisplayID Type VII Video Timing Data Block (extended tag 0x22)
 // ---------------------------------------------------------------------------
-
-/// A decoded DisplayID Type VII Video Timing Data Block (T7VTDB, extended tag `0x22`).
-///
-/// Each CTA T7VTDB carries exactly one 20-byte DisplayID-style timing descriptor.
-/// Unlike an 18-byte EDID DTD, the pixel clock is expressed in kHz (not 10 kHz units)
-/// and all horizontal/vertical fields are 16-bit rather than packed.
-///
-/// Multiple T7VTDBs are permitted per CTA extension block (one timing per block).
-/// Per CTA-861, `interlaced` shall always be `false`; `y420` reflects the T7Y420 flag.
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq)]
-pub struct T7VtdbBlock {
-    /// Block revision (`Block_Rev` field, bits 2:0 of the descriptor header byte).
-    /// CTA-861 expects revision `0x02`.
-    pub version: u8,
-    /// Decoded video timing for this descriptor.
-    pub mode: VideoMode,
-    /// When `true`, this timing also supports YCbCr 4:2:0 sampling (T7Y420 flag).
-    pub y420: bool,
-}
 
 /// Parse a T7VTDB payload (`block_data` starts after the extended tag byte, at the descriptor
 /// header). Returns `None` for payloads shorter than 22 bytes, zero pixel clock, or geometry
@@ -813,41 +428,14 @@ pub(super) fn parse_t7vtdb(block_data: &[u8]) -> Option<T7VtdbBlock> {
 
     let mode = VideoMode::new(hactive, vactive, refresh_rate, interlaced);
 
-    Some(T7VtdbBlock {
-        version,
-        mode,
-        y420,
-    })
+    Some(T7VtdbBlock::new(version, mode, y420))
 }
 
 // ---------------------------------------------------------------------------
 // DisplayID Type VIII Video Timing Data Block (extended tag 0x23)
 // ---------------------------------------------------------------------------
 
-/// A decoded DisplayID Type VIII Video Timing Data Block (T8VTDB, extended tag `0x23`).
-///
-/// Contains a list of VESA DMT (Display Monitor Timings) ID codes referencing
-/// standardised monitor timings. Only `Code_Type = 0x00` (DMT) is defined by
-/// CTA-861; other code types are returned as `None` by the parser.
-///
-/// Codes whose DMT IDs are not in the standard table are stored in `codes` but
-/// omitted from `timings`.
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq)]
-pub struct T8VtdbBlock {
-    /// Block revision (`Block_Rev` field, bits 2:0).
-    pub version: u8,
-    /// When `true`, all timings also support YCbCr 4:2:0 sampling (T8Y420 flag).
-    pub y420: bool,
-    /// Raw DMT timing codes as they appear in the block (1-byte or 2-byte each).
-    pub codes: Vec<u16>,
-    /// `VideoMode` values resolved from the DMT codes. Entries for unrecognised
-    /// or reserved DMT IDs are omitted.
-    pub timings: Vec<VideoMode>,
-}
-
-use super::dmt_table::dmt_to_mode;
+use display_types::cea861::dmt_to_mode;
 
 /// Parse a T8VTDB payload (`block_data` starts after the extended tag byte).
 ///
@@ -889,52 +477,12 @@ pub(super) fn parse_t8vtdb(block_data: &[u8]) -> Option<T8VtdbBlock> {
         }
     }
 
-    Some(T8VtdbBlock {
-        version,
-        y420,
-        codes,
-        timings,
-    })
+    Some(T8VtdbBlock::new(version, y420, codes, timings))
 }
 
 // ---------------------------------------------------------------------------
 // DisplayID Type X Video Timing Data Block (extended tag 0x2A)
 // ---------------------------------------------------------------------------
-
-/// A single timing entry from a T10VTDB block.
-///
-/// Type X timings use a CVT formula to derive the full signal, but only the
-/// display-facing parameters (resolution and refresh rate) are exposed here.
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct T10VtdbEntry {
-    /// Horizontal active pixels.
-    pub width: u16,
-    /// Vertical active lines.
-    pub height: u16,
-    /// Vertical refresh rate in Hz (1–1024).
-    ///
-    /// Values above 255 are only possible when the block uses 7- or 8-byte
-    /// descriptors (M ≥ 1 in the `rev` byte).
-    pub refresh_hz: u16,
-    /// When `true`, this timing also supports YCbCr 4:2:0 sampling (YCC420 flag).
-    pub y420: bool,
-}
-
-/// A decoded DisplayID Type X Video Timing Data Block (T10VTDB, extended tag `0x2A`).
-///
-/// Type X timings are CVT formula-based: each descriptor encodes the active
-/// resolution and refresh rate directly, with blanking derived by the display.
-/// A block may contain 1–4 descriptors (limited by the 30-byte CTA extended
-/// block payload cap).
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct T10VtdbBlock {
-    /// Decoded timing entries. Each entry corresponds to one descriptor in the block.
-    pub entries: Vec<T10VtdbEntry>,
-}
 
 /// Parse a T10VTDB payload (`block_data` starts after the extended tag byte).
 ///
@@ -980,17 +528,12 @@ pub(super) fn parse_t10vtdb(block_data: &[u8]) -> Option<T10VtdbBlock> {
             refresh_lsb + 1
         };
 
-        entries.push(T10VtdbEntry {
-            width,
-            height,
-            refresh_hz,
-            y420,
-        });
+        entries.push(T10VtdbEntry::new(width, height, refresh_hz, y420));
 
         i += sz;
     }
 
-    Some(T10VtdbBlock { entries })
+    Some(T10VtdbBlock::new(entries))
 }
 
 // ---------------------------------------------------------------------------
@@ -1017,191 +560,6 @@ pub(super) fn parse_hf_eeodb(block_data: &[u8]) -> Option<u8> {
 // ---------------------------------------------------------------------------
 // HDMI Forum Sink Capability Data Block (extended tag 0x79)
 // ---------------------------------------------------------------------------
-
-/// Maximum Fixed Rate Link (FRL) bandwidth supported by a HDMI 2.1 sink.
-///
-/// Source: HDMI 2.1a, table of `Max_FRL_Rate` values.
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HdmiForumFrl {
-    /// FRL not supported; TMDS only.
-    NotSupported,
-    /// Up to 3 Gbps/lane on 3 lanes (≈ 9 Gbps total).
-    Rate3Gbps3Lanes,
-    /// Up to 6 Gbps/lane on 3 lanes (≈ 18 Gbps).
-    Rate6Gbps3Lanes,
-    /// Up to 6 Gbps/lane on 3 lanes and 4 lanes (≈ 24 Gbps).
-    Rate6Gbps4Lanes,
-    /// Up to 8 Gbps/lane on 4 lanes (≈ 32 Gbps).
-    Rate8Gbps4Lanes,
-    /// Up to 10 Gbps/lane on 4 lanes (≈ 40 Gbps).
-    Rate10Gbps4Lanes,
-    /// Up to 12 Gbps/lane on 4 lanes (≈ 48 Gbps).
-    Rate12Gbps4Lanes,
-}
-
-impl HdmiForumFrl {
-    fn from_raw(raw: u8) -> Self {
-        match raw {
-            0 => Self::NotSupported,
-            1 => Self::Rate3Gbps3Lanes,
-            2 => Self::Rate6Gbps3Lanes,
-            3 => Self::Rate6Gbps4Lanes,
-            4 => Self::Rate8Gbps4Lanes,
-            5 => Self::Rate10Gbps4Lanes,
-            6 => Self::Rate12Gbps4Lanes,
-            _ => Self::NotSupported, // reserved values
-        }
-    }
-}
-
-/// Maximum number of horizontal DSC slices supported by a HDMI 2.1 sink.
-///
-/// Source: HDMI 2.1a `DSC_MaxSlices` field.
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HdmiDscMaxSlices {
-    /// DSC not supported.
-    NotSupported,
-    /// Up to 1 slice; ≤ 340 MHz pixel clock per slice.
-    Slices1,
-    /// Up to 2 slices; ≤ 340 MHz per slice.
-    Slices2,
-    /// Up to 4 slices; ≤ 340 MHz per slice.
-    Slices4,
-    /// Up to 8 slices; ≤ 340 MHz per slice.
-    Slices8At340Mhz,
-    /// Up to 8 slices; ≤ 400 MHz per slice.
-    Slices8At400Mhz,
-    /// Up to 12 slices; ≤ 400 MHz per slice.
-    Slices12,
-    /// Up to 16 slices; ≤ 400 MHz per slice.
-    Slices16,
-}
-
-impl HdmiDscMaxSlices {
-    fn from_raw(raw: u8) -> Self {
-        match raw {
-            0 => Self::NotSupported,
-            1 => Self::Slices1,
-            2 => Self::Slices2,
-            3 => Self::Slices4,
-            4 => Self::Slices8At340Mhz,
-            5 => Self::Slices8At400Mhz,
-            6 => Self::Slices12,
-            7 => Self::Slices16,
-            _ => Self::NotSupported, // reserved values
-        }
-    }
-}
-
-/// Display Stream Compression (DSC) capabilities from the HF-SCDB.
-///
-/// Present only when the block carries the optional DSC section (≥ 10 bytes
-/// of SCDS payload).
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HdmiForumDsc {
-    /// Supports VESA DSC 1.2a compressed video transport.
-    pub dsc_1p2: bool,
-    /// Supports DSC for YCbCr 4:2:0 pixel encoding (`DSC_Native_420`).
-    pub native_420: bool,
-    /// QMS TFR_max: highest QMS frame rate equals `vrr_max_hz` (otherwise 60 Hz).
-    pub qms_tfr_max: bool,
-    /// QMS TFR_min: lowest QMS frame rate equals `vrr_min_hz` (otherwise 24/1.001 Hz).
-    pub qms_tfr_min: bool,
-    /// Supports DSC at any valid 1/16th-bit bits-per-pixel value (`DSC_All_BPC`).
-    pub all_bpc: bool,
-    /// Supports 12 bpc DSC compressed video transport.
-    pub bpc12: bool,
-    /// Supports 10 bpc DSC compressed video transport.
-    pub bpc10: bool,
-    /// Maximum FRL rate for DSC transport.
-    pub max_frl_rate: HdmiForumFrl,
-    /// Maximum number of horizontal DSC slices.
-    pub max_slices: HdmiDscMaxSlices,
-    /// Maximum total bytes per line of chunks: `1024 × (1 + raw_field)`. `0` = not reported.
-    pub max_chunk_bytes: u32,
-}
-
-/// Decoded HDMI Forum Sink Capability Data Block (HF-SCDB, extended tag `0x79`).
-///
-/// Defined in HDMI 2.1a section 10.3.6. Structure reconstructed from the Linux
-/// kernel `drm_edid.c` and the edid-decode reference implementation.
-///
-/// The block contains two reserved bytes after the extended tag, followed by the
-/// HDMI Sink Capability Data Structure (SCDS). Optional extended fields (VRR
-/// range, DSC capabilities) are present only when the block is long enough.
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HdmiForumSinkCap {
-    /// SCDS version field; expected to be `1`.
-    pub version: u8,
-    /// Maximum TMDS character rate in MHz (`raw_byte × 5`). `0` means ≤ 340 MHz.
-    pub max_tmds_rate_mhz: u16,
-
-    // ---- SCDC and 3D flags (byte 2 of SCDS) ----
-    /// Sink contains a Status and Control Data Channel (SCDC).
-    pub scdc_present: bool,
-    /// SCDC read request capable (`RR_Capable`).
-    pub rr_capable: bool,
-    /// Supports cable-status indication via SCDC.
-    pub cable_status: bool,
-    /// Supports Color Content Bits Per Component Indication (`CCBPCI`).
-    pub ccbpci: bool,
-    /// Supports scrambling at TMDS rates ≤ 340 Mcsc (`LTE_340Mcsc_Scramble`).
-    pub lte_340mcsc_scramble: bool,
-    /// Supports 3D Independent View signaling (`Independent_View`).
-    pub independent_view_3d: bool,
-    /// Supports 3D Dual View signaling (`Dual_View`).
-    pub dual_view_3d: bool,
-    /// Supports 3D OSD Disparity signaling (`OSD_Disparity`).
-    pub osd_disparity_3d: bool,
-
-    // ---- FRL and Deep Color flags (byte 3 of SCDS) ----
-    /// Maximum Fixed Rate Link bandwidth.
-    pub max_frl_rate: HdmiForumFrl,
-    /// Supports UHD VIC indication in AVI InfoFrame (`UHD_VIC`).
-    pub uhd_vic: bool,
-    /// Supports 16 bpc (48-bit) Deep Color in YCbCr 4:2:0 (`DC_48bit_420`).
-    pub dc_48bit_420: bool,
-    /// Supports 12 bpc (36-bit) Deep Color in YCbCr 4:2:0 (`DC_36bit_420`).
-    pub dc_36bit_420: bool,
-    /// Supports 10 bpc (30-bit) Deep Color in YCbCr 4:2:0 (`DC_30bit_420`).
-    pub dc_30bit_420: bool,
-
-    // ---- Optional extended feature flags (byte 4 of SCDS; false if absent) ----
-    /// Supports FAPA end extended to the Vactive upper bound of 360 µs.
-    pub fapa_end_extended: bool,
-    /// Supports QMS VRR (Quality Media Synchronization Variable Refresh Rate).
-    pub qms: bool,
-    /// Has a limit on rate-of-change variations in `M_VRR` values (`M_Delta`).
-    pub m_delta: bool,
-    /// Supports Fast VActive (`FVA`).
-    pub fva: bool,
-    /// Supports Auto Low-Latency Mode (`ALLM`).
-    pub allm: bool,
-    /// FAPA starts on first horizontal blank after first active video pixel.
-    pub fapa_start_location: bool,
-    /// Supports negative `M_VRR` values (`Neg_MVRR`).
-    pub neg_mvrr: bool,
-
-    // ---- Optional VRR range (bytes 5–6 of SCDS; None if absent) ----
-    /// Minimum VRR frame rate in Hz. `Some(0)` means VRR is not supported.
-    /// `None` means this section was not present in the block.
-    pub vrr_min_hz: Option<u8>,
-    /// Maximum VRR frame rate in Hz (10-bit). `Some(0)` means VRR is not supported.
-    /// `None` means this section was not present in the block.
-    pub vrr_max_hz: Option<u16>,
-
-    // ---- Optional DSC capabilities (bytes 7–9 of SCDS; None if absent) ----
-    /// Display Stream Compression capabilities. `None` if the DSC section is absent.
-    pub dsc: Option<HdmiForumDsc>,
-}
 
 /// Parses an HDMI Forum Sink Capability Data Structure (SCDS) from a byte slice
 /// where `scds[0]` is the Version byte.
@@ -1293,21 +651,21 @@ pub(super) fn parse_hdmi_scds(scds: &[u8]) -> Option<HdmiForumSinkCap> {
             1024 * (1 + chunk_raw as u32)
         };
 
-        Some(HdmiForumDsc {
-            dsc_1p2: (dsc_flags >> 7) & 1 != 0,
-            native_420: (dsc_flags >> 6) & 1 != 0,
-            qms_tfr_max: (dsc_flags >> 5) & 1 != 0,
-            qms_tfr_min: (dsc_flags >> 4) & 1 != 0,
-            all_bpc: (dsc_flags >> 3) & 1 != 0,
-            bpc12: (dsc_flags >> 1) & 1 != 0,
-            bpc10: dsc_flags & 1 != 0,
-            max_frl_rate: HdmiForumFrl::from_raw((dsc_frl_slices >> 4) & 0x0F),
-            max_slices: HdmiDscMaxSlices::from_raw(dsc_frl_slices & 0x0F),
+        Some(HdmiForumDsc::new(
+            (dsc_flags >> 7) & 1 != 0,
+            (dsc_flags >> 6) & 1 != 0,
+            (dsc_flags >> 5) & 1 != 0,
+            (dsc_flags >> 4) & 1 != 0,
+            (dsc_flags >> 3) & 1 != 0,
+            (dsc_flags >> 1) & 1 != 0,
+            dsc_flags & 1 != 0,
+            HdmiForumFrl::from_raw((dsc_frl_slices >> 4) & 0x0F),
+            HdmiDscMaxSlices::from_raw(dsc_frl_slices & 0x0F),
             max_chunk_bytes,
-        })
+        ))
     });
 
-    Some(HdmiForumSinkCap {
+    Some(HdmiForumSinkCap::new(
         version,
         max_tmds_rate_mhz,
         scdc_present,
@@ -1333,7 +691,7 @@ pub(super) fn parse_hdmi_scds(scds: &[u8]) -> Option<HdmiForumSinkCap> {
         vrr_min_hz,
         vrr_max_hz,
         dsc,
-    })
+    ))
 }
 
 /// Parses an HF-SCDB payload where `block_data` starts after the extended tag byte.
@@ -1350,8 +708,15 @@ pub(super) fn parse_hf_scdb(block_data: &[u8]) -> Option<HdmiForumSinkCap> {
     parse_hdmi_scds(&block_data[2..])
 }
 
-/// IEEE OUI for the HDMI Forum: `0xC45DD8` (stored little-endian as `[0xD8, 0x5D, 0xC4]`).
-pub(super) const HF_VSDB_OUI: [u8; 3] = [0xD8, 0x5D, 0xC4];
+/// IEEE OUI for the HDMI Forum (`0xC45DD8`), in wire order (little-endian).
+pub(super) const HF_VSDB_OUI: [u8; 3] = {
+    let v = display_types::cea861::oui::HDMI_FORUM;
+    [
+        (v & 0xFF) as u8,
+        ((v >> 8) & 0xFF) as u8,
+        ((v >> 16) & 0xFF) as u8,
+    ]
+};
 
 /// Parses `block_data` (the full VSDB payload, starting with the 3-byte OUI)
 /// as an HDMI Forum VSDB (HF-VSDB, OUI `0xC45DD8`).
@@ -1374,87 +739,6 @@ pub(super) fn parse_hf_vsdb(block_data: &[u8]) -> Option<HdmiForumSinkCap> {
 // ---------------------------------------------------------------------------
 // VESA Display Device Data Block (extended tag 0x02)
 // ---------------------------------------------------------------------------
-
-/// Decoded VESA Display Device Data Block (extended tag `0x02`).
-///
-/// A fixed 30-byte payload describing the physical and electrical characteristics
-/// of the display, per the VESA Display Device Data Block (DDDB) Standard, Version 1.
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct VesaDisplayDeviceBlock {
-    /// Interface type code (bits 7:4). 0=Analog, 1=LVDS, 3=DVI-D, 6=HDMI-A, 9=DP, etc.
-    pub interface_type: u8,
-    /// Number of lanes/channels (bits 3:0). For analog interfaces this is a subtype code.
-    pub num_links: u8,
-    /// Interface standard version (bits 7:4 of byte 0x03).
-    pub interface_version: u8,
-    /// Interface standard release (bits 3:0 of byte 0x03).
-    pub interface_release: u8,
-    /// Content protection code (byte 0x04). 0=none, 1=HDCP, 2=DTCP, 3=DPCP.
-    pub content_protection: u8,
-    /// Minimum supported clock frequency per link in MHz (6-bit, range 0–63).
-    pub min_clock_mhz: u8,
-    /// Maximum supported clock frequency per link in MHz (10-bit, range 0–1023).
-    pub max_clock_mhz: u16,
-    /// Native horizontal pixel count, or `None` if the display has no fixed format.
-    pub native_width: Option<u16>,
-    /// Native vertical pixel count, or `None` if the display has no fixed format.
-    pub native_height: Option<u16>,
-    /// Aspect ratio raw byte. Physical AR = (raw / 100.0) + 1.0 (long-axis / short-axis).
-    pub aspect_ratio_raw: u8,
-    /// Default orientation: 0=landscape, 1=portrait, 2=not_fixed, 3=undefined.
-    pub default_orientation: u8,
-    /// Rotation capability: 0=none, 1=90°CW, 2=90°CCW, 3=both.
-    pub rotation_capability: u8,
-    /// Zero pixel (scan origin) location: 0=upper-left, 1=upper-right, 2=lower-left, 3=lower-right.
-    pub zero_pixel_location: u8,
-    /// Scan direction: 0=undefined, 1=long-axis-fast, 2=short-axis-fast, 3=reserved.
-    pub scan_direction: u8,
-    /// Subpixel layout code (byte 0x0D). 0=undefined, 1=RGB-V, 2=RGB-H, etc.
-    pub subpixel_layout: u8,
-    /// Horizontal pixel pitch in 0.01 mm increments (range 0.00–2.55 mm).
-    pub h_pitch_hundredths_mm: u8,
-    /// Vertical pixel pitch in 0.01 mm increments (range 0.00–2.55 mm).
-    pub v_pitch_hundredths_mm: u8,
-    /// Dithering type: 0=none, 1=spatial, 2=temporal, 3=spatial+temporal.
-    pub dithering: u8,
-    /// Display is direct-drive — no internal scaling/de-interlacing/FRC.
-    pub direct_drive: bool,
-    /// Video source should not apply overdrive for this display.
-    pub overdrive_not_recommended: bool,
-    /// Display can de-interlace interlaced input to progressive scan.
-    pub deinterlacing: bool,
-    /// Audio is supported on the video interface.
-    pub audio_on_video_interface: bool,
-    /// Separate audio inputs are provided independently of the video interface.
-    pub separate_audio_inputs: bool,
-    /// Audio received on the video interface automatically overrides other audio inputs.
-    pub audio_input_override: bool,
-    /// Signed audio delay in milliseconds (positive = audio after video, negative = before).
-    /// `None` means no delay information is provided (raw delay byte was 0x00).
-    pub audio_delay_ms: Option<i16>,
-    /// Frame-rate conversion capability: 0=none, 1=single-buffer, 2=double-buffer, 3=interpolation.
-    pub frame_rate_conversion: u8,
-    /// Maximum excursion (±FPS) from the nominal frame rate (6 bits, 0–63).
-    pub frame_rate_range: u8,
-    /// Native or nominal display frame rate in frames/second.
-    pub native_frame_rate: u8,
-    /// Color bit depth per primary on the video interface (1–16).
-    pub interface_color_depth: u8,
-    /// Color bit depth per primary at the display panel without temporal dithering (1–16).
-    pub display_color_depth: u8,
-    /// Raw bytes 0x16–0x1D: chromaticity data for up to three additional primaries.
-    pub additional_chromaticities: [u8; 8],
-    /// Response time in milliseconds (0 = < 1 ms, 127 = > 126 ms).
-    pub response_time_ms: u8,
-    /// `true` if the response time is white-to-black; `false` if black-to-white.
-    pub response_time_white_to_black: bool,
-    /// Percentage of active image outside the visible screen area, horizontally (0–15%).
-    pub h_overscan_pct: u8,
-    /// Percentage of active image outside the visible screen area, vertically (0–15%).
-    pub v_overscan_pct: u8,
-}
 
 pub(super) fn parse_vesa_display_device(block_data: &[u8]) -> Option<VesaDisplayDeviceBlock> {
     // Fixed 30-byte payload after the extended tag byte.
@@ -1536,7 +820,7 @@ pub(super) fn parse_vesa_display_device(block_data: &[u8]) -> Option<VesaDisplay
     let h_overscan_pct = (overscan >> 4) & 0x0F;
     let v_overscan_pct = overscan & 0x0F;
 
-    Some(VesaDisplayDeviceBlock {
+    Some(VesaDisplayDeviceBlock::new(
         interface_type,
         num_links,
         interface_version,
@@ -1572,28 +856,12 @@ pub(super) fn parse_vesa_display_device(block_data: &[u8]) -> Option<VesaDisplay
         response_time_white_to_black,
         h_overscan_pct,
         v_overscan_pct,
-    })
+    ))
 }
 
 // ---------------------------------------------------------------------------
 // VESA Video Timing Block Extension (extended tag 0x03)
 // ---------------------------------------------------------------------------
-
-/// Decoded VESA Video Timing Block Extension (extended tag `0x03`).
-///
-/// Carries additional video timing modes beyond what fits in the base EDID block.
-/// Each block may contain Detailed Timing Descriptors (DTBs), Coordinated Video
-/// Timings (CVTs), and Standard Timing (ST) entries, per the VESA VTB-EXT Standard,
-/// Release A.
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq)]
-pub struct VtbExtBlock {
-    /// VTB-EXT version byte (expected `0x01`).
-    pub version: u8,
-    /// All video modes decoded from this block (DTBs, CVTs, and STs combined).
-    pub timings: Vec<VideoMode>,
-}
 
 /// Decodes a single 18-byte DTD slice into a [`VideoMode`], without side effects.
 /// Returns `None` for non-timing descriptors (zero pixel clock) or invalid geometry.
@@ -1712,7 +980,7 @@ pub(super) fn parse_vtb_ext(block_data: &[u8]) -> Option<VtbExtBlock> {
         }
     }
 
-    Some(VtbExtBlock { version, timings })
+    Some(VtbExtBlock::new(version, timings))
 }
 
 #[cfg(test)]
