@@ -1,4 +1,4 @@
-use crate::model::capabilities::{ModeSink, StereoMode, VideoMode};
+use crate::model::capabilities::{ModeSink, VideoMode};
 
 /// Decodes one 3-byte Type III Short Video Timing descriptor and pushes a mode to `sink`.
 ///
@@ -42,20 +42,7 @@ pub(super) fn decode_type_iii_descriptor(d: &[u8; 3], sink: &mut dyn ModeSink) {
         return;
     }
 
-    sink.push_mode(VideoMode {
-        width: h_active,
-        height: v_active,
-        refresh_rate,
-        interlaced,
-        h_front_porch: 0,
-        h_sync_width: 0,
-        v_front_porch: 0,
-        v_sync_width: 0,
-        h_border: 0,
-        v_border: 0,
-        stereo: StereoMode::None,
-        sync: None,
-    });
+    sink.push_mode(VideoMode::new(h_active, v_active, refresh_rate, interlaced));
 }
 
 /// Decodes one 7-byte Type V Short Video Timing descriptor and pushes a mode to `sink`.
@@ -78,20 +65,7 @@ pub(super) fn decode_type_v_descriptor(d: &[u8; 7], sink: &mut dyn ModeSink) {
         return;
     }
 
-    sink.push_mode(VideoMode {
-        width: h_active,
-        height: v_active,
-        refresh_rate,
-        interlaced: false, // Type V supports only progressive (CVT-RB/RB2)
-        h_front_porch: 0,
-        h_sync_width: 0,
-        v_front_porch: 0,
-        v_sync_width: 0,
-        h_border: 0,
-        v_border: 0,
-        stereo: StereoMode::None,
-        sync: None,
-    });
+    sink.push_mode(VideoMode::new(h_active, v_active, refresh_rate, false)); // Type V: progressive only
 }
 
 #[cfg(test)]

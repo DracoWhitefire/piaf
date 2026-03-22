@@ -19,23 +19,19 @@ pub(crate) fn dmt_to_mode(id: u16) -> Option<VideoMode> {
         ($w:expr, $h:expr, $rr:expr, $i:expr,
          $hfp:expr, $hsw:expr, $vfp:expr, $vsw:expr,
          $hp:expr, $vp:expr) => {
-            VideoMode {
-                width: $w,
-                height: $h,
-                refresh_rate: $rr,
-                interlaced: $i,
-                h_front_porch: $hfp,
-                h_sync_width: $hsw,
-                v_front_porch: $vfp,
-                v_sync_width: $vsw,
-                h_border: 0,
-                v_border: 0,
-                stereo: StereoMode::None,
-                sync: Some(SyncDefinition::DigitalSeparate {
+            VideoMode::new($w, $h, $rr, $i).with_detailed_timing(
+                $hfp,
+                $hsw,
+                $vfp,
+                $vsw,
+                0,
+                0,
+                StereoMode::None,
+                Some(SyncDefinition::DigitalSeparate {
                     h_sync_positive: $hp,
                     v_sync_positive: $vp,
                 }),
-            }
+            )
         };
     }
 

@@ -227,13 +227,7 @@ pub(super) fn decode_descriptors_modes(base: &[u8; 128], sink: &mut dyn ModeSink
             ];
             for &(byte_off, mask, w, h, rate) in ET3 {
                 if descriptor[byte_off] & mask != 0 {
-                    sink.push_mode(VideoMode {
-                        width: w,
-                        height: h,
-                        refresh_rate: rate,
-                        interlaced: false,
-                        ..Default::default()
-                    });
+                    sink.push_mode(VideoMode::new(w, h, rate, false));
                 }
             }
         }
@@ -279,13 +273,7 @@ pub(super) fn decode_descriptors_modes(base: &[u8; 128], sink: &mut dyn ModeSink
                     (0x01, 60),
                 ] {
                     if b2 & mask != 0 {
-                        sink.push_mode(VideoMode {
-                            width: h_add,
-                            height: v_add,
-                            refresh_rate: rate,
-                            interlaced: false,
-                            ..Default::default()
-                        });
+                        sink.push_mode(VideoMode::new(h_add, v_add, rate, false));
                     }
                 }
             }
@@ -432,30 +420,22 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 1024,
-            height: 768,
-            refresh_rate: 85,
-            ..Default::default()
-        }));
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 1152,
-            height: 864,
-            refresh_rate: 75,
-            ..Default::default()
-        }));
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 1280,
-            height: 1024,
-            refresh_rate: 60,
-            ..Default::default()
-        }));
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 1600,
-            height: 1200,
-            refresh_rate: 60,
-            ..Default::default()
-        }));
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(1024, 768, 85, false))
+        );
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(1152, 864, 75, false))
+        );
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(1280, 1024, 60, false))
+        );
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(1600, 1200, 60, false))
+        );
         assert_eq!(caps.supported_modes.len(), 4);
     }
 
@@ -481,18 +461,14 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 1920,
-            height: 1080,
-            refresh_rate: 60,
-            ..Default::default()
-        }));
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 1280,
-            height: 720,
-            refresh_rate: 60,
-            ..Default::default()
-        }));
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(1920, 1080, 60, false))
+        );
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(1280, 720, 60, false))
+        );
     }
 
     #[test]
@@ -698,18 +674,14 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         BaseBlockHandler.process(&[&base], &mut caps, &mut Vec::new());
 
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 1920,
-            height: 1080,
-            refresh_rate: 60,
-            ..Default::default()
-        }));
-        assert!(caps.supported_modes.contains(&VideoMode {
-            width: 1280,
-            height: 720,
-            refresh_rate: 50,
-            ..Default::default()
-        }));
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(1920, 1080, 60, false))
+        );
+        assert!(
+            caps.supported_modes
+                .contains(&VideoMode::new(1280, 720, 50, false))
+        );
         // 60 Hz RB (0x01 bit) deduplicates against preferred 60 Hz
         assert_eq!(
             caps.supported_modes
