@@ -112,8 +112,13 @@ pub fn capabilities_from_edid<T: EdidSource>(
 
     #[cfg(not(any(feature = "alloc", feature = "std")))]
     {
+        struct NullSink;
+        impl ModeSink for NullSink {
+            fn push_mode(&mut self, _: VideoMode) {}
+            fn push_warning(&mut self, _: crate::model::diagnostics::EdidWarning) {}
+        }
         let _ = library;
-        base::decode_base_block(edid.base_block(), &mut caps);
+        base::decode_base_block(edid.base_block(), &mut caps, &mut NullSink);
     }
 
     caps
@@ -152,7 +157,7 @@ pub fn capabilities_from_edid_static<const N: usize, T: EdidSource>(
 
     #[cfg(not(any(feature = "alloc", feature = "std")))]
     {
-        base::decode_base_block(parsed.base_block(), &mut base_caps);
+        base::decode_base_block(parsed.base_block(), &mut base_caps, &mut caps);
     }
 
     // Step 2 — Copy all scalar fields from the temporary into the static output.
@@ -202,15 +207,7 @@ pub fn capabilities_from_edid_static<const N: usize, T: EdidSource>(
         base::decode_base_modes(parsed.base_block(), &mut caps);
     }
 
-    // Step 4 — Copy base-block warnings (bare no_std only; alloc warnings are Arc-boxed).
-    #[cfg(not(any(feature = "alloc", feature = "std")))]
-    {
-        for w in base_caps.warnings.iter().flatten().copied() {
-            caps.push_warning(w);
-        }
-    }
-
-    // Step 5 — Dispatch extension blocks to the static handler slice.
+    // Step 4 — Dispatch extension blocks to the static handler slice.
     //
     // In alloc/std builds, collect all blocks per handler first and call once with the
     // full slice, so multi-block formats (e.g. DisplayID) receive all their fragments

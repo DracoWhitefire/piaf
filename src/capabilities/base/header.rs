@@ -12,8 +12,14 @@ pub(crate) fn decode_manufacture_date(week: u8, year: u8) -> ManufactureDate {
     let y = year as u16 + 1990;
     match week {
         0xFF => ManufactureDate::ModelYear(y),
-        0x00 => ManufactureDate::Manufactured { week: None, year: y },
-        w => ManufactureDate::Manufactured { week: Some(w), year: y },
+        0x00 => ManufactureDate::Manufactured {
+            week: None,
+            year: y,
+        },
+        w => ManufactureDate::Manufactured {
+            week: Some(w),
+            year: y,
+        },
     }
 }
 
@@ -93,7 +99,10 @@ fn decode_analog_sync_level(bits: u8) -> AnalogSyncLevel {
 fn decode_screen_size(byte15: u8, byte16: u8) -> Option<ScreenSize> {
     match (byte15, byte16) {
         (0, 0) => None,
-        (w, h) if w != 0 && h != 0 => Some(ScreenSize::Physical { width_cm: w, height_cm: h }),
+        (w, h) if w != 0 && h != 0 => Some(ScreenSize::Physical {
+            width_cm: w,
+            height_cm: h,
+        }),
         (v, 0) => Some(ScreenSize::Landscape(v)),
         (0, v) => Some(ScreenSize::Portrait(v)),
         _ => unreachable!(),

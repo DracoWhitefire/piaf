@@ -41,7 +41,11 @@ fn decode_timing_formula(bytes: &[u8]) -> Option<TimingFormula> {
                 standard_blanking: bytes[15] & 0x08 != 0,
                 reduced_blanking: bytes[15] & 0x10 != 0,
                 scaling: CvtScaling::from_bits_truncate(bytes[16]),
-                preferred_v_rate: if bytes[17] != 0 { Some(bytes[17]) } else { None },
+                preferred_v_rate: if bytes[17] != 0 {
+                    Some(bytes[17])
+                } else {
+                    None
+                },
             }))
         }
         _ => None,

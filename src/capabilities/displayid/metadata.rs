@@ -458,12 +458,7 @@ pub(super) fn scan_display_device_data_block(payload: &[u8], caps: &mut DisplayC
 pub(super) fn decode_power_sequencing_block(payload: &[u8], caps: &mut DisplayCapabilities) {
     if payload.len() >= 6 {
         caps.power_sequencing = Some(PowerSequencing::new(
-            payload[0],
-            payload[1],
-            payload[2],
-            payload[3],
-            payload[4],
-            payload[5],
+            payload[0], payload[1], payload[2], payload[3], payload[4], payload[5],
         ));
     }
 }
@@ -748,7 +743,12 @@ pub(super) fn decode_tiled_topology_block(payload: &[u8], caps: &mut DisplayCapa
     let tile_height_px = u16::from_le_bytes([payload[5], payload[6]]);
 
     let bezel = if has_bezel_info && payload.len() >= 11 {
-        Some(TileBezelInfo::new(payload[7], payload[8], payload[9], payload[10]))
+        Some(TileBezelInfo::new(
+            payload[7],
+            payload[8],
+            payload[9],
+            payload[10],
+        ))
     } else {
         None
     };

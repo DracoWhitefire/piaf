@@ -34,9 +34,13 @@ pub(super) fn decode_base_modes(base: &[u8; 128], sink: &mut dyn ModeSink) {
 }
 
 #[cfg(not(any(feature = "alloc", feature = "std")))]
-pub(super) fn decode_base_block(base: &[u8; 128], caps: &mut DisplayCapabilities) {
+pub(super) fn decode_base_block(
+    base: &[u8; 128],
+    caps: &mut DisplayCapabilities,
+    warn: &mut dyn ModeSink,
+) {
     if !header::decode_header_fields(base, caps) {
-        caps.push_warning(EdidWarning::InvalidManufacturerId);
+        warn.push_warning(EdidWarning::InvalidManufacturerId);
     }
     descriptors::decode_descriptors_meta(base, caps);
 }
