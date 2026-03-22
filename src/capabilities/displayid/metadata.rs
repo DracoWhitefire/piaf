@@ -9,11 +9,9 @@ use crate::capabilities::base::header::{decode_color_bit_depth, decode_manufactu
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::color::ColorBitDepth;
-#[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::color::{Chromaticity, ChromaticityPoint};
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::manufacture::{ManufactureDate, ManufacturerId, MonitorString};
+use crate::model::manufacture::{ManufacturerId, MonitorString};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::panel::{
     BacklightType, DisplayIdInterface, DisplayIdStereoInterface, DisplayIdTiledTopology,

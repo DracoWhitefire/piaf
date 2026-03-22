@@ -195,9 +195,7 @@ mod tests {
     use super::decode_chromaticity;
     use crate::capabilities::base::BaseBlockHandler;
     use crate::model::capabilities::DisplayCapabilities;
-    use crate::model::color::{
-        AnalogColorType, Chromaticity, ColorBitDepth, DigitalColorEncoding, DisplayGamma,
-    };
+    use crate::model::color::{AnalogColorType, ColorBitDepth, DigitalColorEncoding, DisplayGamma};
     use crate::model::diagnostics::EdidWarning;
     use crate::model::edid::EdidVersion;
     use crate::model::extension::ExtensionHandler;
