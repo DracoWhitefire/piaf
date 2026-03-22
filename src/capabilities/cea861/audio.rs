@@ -1,7 +1,7 @@
+use crate::model::prelude::Vec;
 pub use display_types::cea861::audio::{
     AudioFormat, AudioFormatInfo, AudioSampleRates, ShortAudioDescriptor,
 };
-use crate::model::prelude::Vec;
 
 /// Parses an Audio Data Block payload into a list of [`ShortAudioDescriptor`]s.
 ///
@@ -48,7 +48,12 @@ pub(super) fn parse_audio_data_block(block_data: &[u8]) -> Vec<ShortAudioDescrip
             _ => AudioFormatInfo::Raw(b2),
         };
 
-        out.push(ShortAudioDescriptor::new(format, max_channels, sample_rates, format_info));
+        out.push(ShortAudioDescriptor::new(
+            format,
+            max_channels,
+            sample_rates,
+            format_info,
+        ));
         j += 3;
     }
     out
