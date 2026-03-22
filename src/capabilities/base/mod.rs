@@ -10,7 +10,7 @@ use crate::model::extension::ExtensionHandler;
 use crate::model::prelude::{Arc, Vec};
 
 mod descriptors;
-mod header;
+pub(crate) mod header;
 pub(crate) mod timings;
 
 /// Decodes the base block fields that are available in all build configurations,

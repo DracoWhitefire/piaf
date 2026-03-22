@@ -4,6 +4,8 @@ use super::{
     TAG_STEREO_DISPLAY_INTERFACE, TAG_TILED_TOPOLOGY, TAG_TRANSFER_CHARACTERISTICS,
     TAG_VIDEO_TIMING_RANGE, for_each_data_block,
 };
+
+use crate::capabilities::base::header::{decode_color_bit_depth, decode_manufacture_date};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -71,7 +73,7 @@ pub(super) fn decode_product_id_block(payload: &[u8], caps: &mut DisplayCapabili
 
     // Manufacture / model year.
     if payload.len() >= 10 {
-        caps.manufacture_date = Some(ManufactureDate::from_edid_bytes(payload[8], payload[9]));
+        caps.manufacture_date = Some(decode_manufacture_date(payload[8], payload[9]));
     }
 
     // Product name: bytes 10+ (ASCII, 0x0A-terminated, space-padded; max 13 bytes stored).
@@ -155,7 +157,7 @@ pub(super) fn decode_display_params_block(payload: &[u8], caps: &mut DisplayCapa
             16 => 6,
             _ => 0,
         };
-        caps.color_bit_depth = ColorBitDepth::from_edid_bits(edid_bits);
+        caps.color_bit_depth = decode_color_bit_depth(edid_bits);
     }
 }
 
@@ -414,7 +416,7 @@ pub(super) fn decode_display_device_data_block(payload: &[u8], caps: &mut Displa
             16 => 6,
             _ => 0,
         };
-        caps.color_bit_depth = ColorBitDepth::from_edid_bits(edid_bits);
+        caps.color_bit_depth = decode_color_bit_depth(edid_bits);
     }
 
     // Byte 12: pixel response time in ms (0 = not defined).
@@ -579,6 +581,7 @@ pub(super) fn decode_transfer_characteristics_block(
             TransferPointEncoding::Bits8 => (unpack8(r_data), unpack8(g_data), unpack8(b_data)),
             TransferPointEncoding::Bits10 => (unpack10(r_data), unpack10(g_data), unpack10(b_data)),
             TransferPointEncoding::Bits12 => (unpack12(r_data), unpack12(g_data), unpack12(b_data)),
+            _ => return,
         };
         TransferCurve::Rgb { red, green, blue }
     } else {
@@ -586,6 +589,7 @@ pub(super) fn decode_transfer_characteristics_block(
             TransferPointEncoding::Bits8 => unpack8(data),
             TransferPointEncoding::Bits10 => unpack10(data),
             TransferPointEncoding::Bits12 => unpack12(data),
+            _ => return,
         };
         TransferCurve::Luminance(points)
     };
