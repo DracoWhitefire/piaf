@@ -6,6 +6,7 @@ pub use display_types::cea861::speaker::{
     RoomConfigurationBlock, SpeakerAllocation, SpeakerAllocationFlags, SpeakerAllocationFlags2,
     SpeakerAllocationFlags3, SpeakerLocationEntry,
 };
+pub use display_types::cea861::vesa_transfer::{DtcPointEncoding, VesaTransferCharacteristic};
 pub use display_types::cea861::video_capability::{VideoCapability, VideoCapabilityFlags};
 
 /// Extended tag codes used in CEA Extended Tag Data Blocks (outer tag `0x07`).
@@ -142,35 +143,6 @@ pub(super) fn parse_hdr_static_metadata(block_data: &[u8]) -> Option<HdrStaticMe
 // VESA Display Transfer Characteristic Data Block (standard tag 0x05)
 // ---------------------------------------------------------------------------
 
-/// Point encoding precision for the VESA Display Transfer Characteristic Data Block.
-///
-/// Encoded in bits 7:6 of the first payload byte.
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DtcPointEncoding {
-    /// 8 bits per luminance point.
-    Bits8,
-    /// 10 bits per luminance point (packed, 5 bytes per 4 points).
-    Bits10,
-    /// 12 bits per luminance point (packed, 3 bytes per 2 points).
-    Bits12,
-}
-
-/// Decoded VESA Display Transfer Characteristic Data Block (standard tag `0x05`).
-///
-/// Encodes the display's luminance transfer function as a sequence of sample
-/// points at evenly-spaced input levels from 0 (black) to 1 (white).
-#[non_exhaustive]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, PartialEq)] // no Eq: contains f32
-pub struct VesaTransferCharacteristic {
-    /// Bit depth used to encode each luminance point.
-    pub encoding: DtcPointEncoding,
-    /// Luminance values, normalized to [0.0, 1.0].
-    pub points: Vec<f32>,
-}
-
 pub(super) fn parse_vesa_transfer_characteristic(
     block_data: &[u8],
 ) -> Option<VesaTransferCharacteristic> {
@@ -217,9 +189,11 @@ pub(super) fn parse_vesa_transfer_characteristic(
             }
             pts
         }
+        // Reserved encoding filtered out above; unreachable in practice.
+        _ => return None,
     };
 
-    Some(VesaTransferCharacteristic { encoding, points })
+    Some(VesaTransferCharacteristic::new(encoding, points))
 }
 
 pub(super) fn parse_speaker_allocation(block_data: &[u8]) -> Option<SpeakerAllocation> {
