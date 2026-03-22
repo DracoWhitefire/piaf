@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-03-22
+
+### Fixed
+
+- **`VideoMode` was not `#[non_exhaustive]`**: the 0.3.0 release claimed all output structs
+  were marked `#[non_exhaustive]`, but `VideoMode` was inadvertently omitted. This is now
+  corrected via `display-types 0.1.1`. External crates that were already following the
+  documented contract (using `..Default::default()` or the `::new` constructor rather than
+  exhaustive struct literals) are unaffected.
+
+### Changed
+
+- `display-types` dependency updated to `"0.1.1"`, which adds `#[non_exhaustive]` to
+  `VideoMode` and provides `VideoMode::new(width, height, refresh_rate, interlaced)` and
+  `VideoMode::with_detailed_timing(…)` constructors.
+
+### Internal
+
+- All `VideoMode` construction sites within piaf migrated from struct literal syntax to
+  `VideoMode::new` / `VideoMode::with_detailed_timing`, in line with the `#[non_exhaustive]`
+  contract.
+
 ## [0.3.0] - 2026-03-22
 
 ### Breaking changes
