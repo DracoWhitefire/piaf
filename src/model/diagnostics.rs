@@ -1,23 +1,5 @@
-/// A reference-counted, type-erased warning value.
-///
-/// Any type that implements [`core::error::Error`] + [`Send`] + [`Sync`] + `'static` can be
-/// wrapped in a `ParseWarning`. The built-in library variants use [`EdidWarning`], but
-/// custom handlers may push their own error types without wrapping them in `EdidWarning`.
-///
-/// Using [`Arc`][crate::model::prelude::Arc] (rather than `Box`) means `ParseWarning` is
-/// [`Clone`], which lets warnings be copied from [`crate::ParsedEdid`] into
-/// [`crate::DisplayCapabilities`] without consuming the parsed result.
-///
-/// To inspect a specific variant, use the inherent `downcast_ref` method available on
-/// `dyn core::error::Error + Send + Sync + 'static` in `std` builds:
-///
-/// ```text
-/// for w in caps.iter_warnings() {
-///     if let Some(ew) = (**w).downcast_ref::<EdidWarning>() { ... }
-/// }
-/// ```
 #[cfg(any(feature = "alloc", feature = "std"))]
-pub type ParseWarning = crate::model::prelude::Arc<dyn core::error::Error + Send + Sync + 'static>;
+pub use display_types::ParseWarning;
 
 /// A non-fatal condition encountered while parsing or processing an EDID block.
 ///
