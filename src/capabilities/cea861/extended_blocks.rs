@@ -435,7 +435,7 @@ pub(super) fn parse_t7vtdb(block_data: &[u8]) -> Option<T7VtdbBlock> {
 // DisplayID Type VIII Video Timing Data Block (extended tag 0x23)
 // ---------------------------------------------------------------------------
 
-use super::dmt_table::dmt_to_mode;
+use display_types::cea861::dmt_to_mode;
 
 /// Parse a T8VTDB payload (`block_data` starts after the extended tag byte).
 ///
