@@ -48,6 +48,7 @@ pub(super) fn decode_type_i_descriptor(d: &[u8; 20], sink: &mut dyn ModeSink) {
 
     sink.push_mode(
         VideoMode::new(h_active, v_active, refresh_rate, interlaced).with_detailed_timing(
+            pixel_clock_10khz as u32 * 10,
             h_front_porch,
             h_sync_width,
             v_front_porch,
@@ -119,6 +120,7 @@ pub(super) fn decode_type_ii_descriptor(d: &[u8; 11], sink: &mut dyn ModeSink) {
 
     sink.push_mode(
         VideoMode::new(h_active, v_active, refresh_rate, interlaced).with_detailed_timing(
+            (pixel_clock_10khz * 10) as u32,
             h_front_porch,
             h_sync_width,
             v_front_porch,
@@ -195,6 +197,7 @@ pub(super) fn decode_type_vi_descriptor(d: &[u8], sink: &mut dyn ModeSink) -> us
 
     sink.push_mode(
         VideoMode::new(h_active, v_active, refresh_rate, interlaced).with_detailed_timing(
+            pixel_clock_khz,
             h_fp,
             h_sync_width,
             v_fp,
