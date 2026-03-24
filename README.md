@@ -318,6 +318,7 @@ overlap with EDID base block fields, or in the `DisplayIdCapabilities` struct re
 
 Design and architecture notes live under [`doc/`](doc/):
 
+- [`doc/setup.md`](doc/setup.md) — build, test, and fuzzing setup
 - [`doc/architecture.md`](doc/architecture.md) — pipeline and layer overview
 - [`doc/model.md`](doc/model.md) — data model and type design
 - [`doc/extensibility.md`](doc/extensibility.md) — extension system guide
