@@ -154,17 +154,17 @@ than struct literal syntax:
 // Simple mode (established timings, standard timings, SVDs):
 let mode = VideoMode::new(1920, 1080, 60, false);
 
-// Full DTD mode with blanking-interval and sync fields:
+// Full DTD mode with pixel clock, blanking-interval, and sync fields:
 let mode = VideoMode::new(1920, 1080, 60, false)
-    .with_detailed_timing(88, 44, 4, 5, 0, 0, StereoMode::None,
+    .with_detailed_timing(148500, 88, 44, 4, 5, 0, 0, StereoMode::None,
                           Some(SyncDefinition::DigitalSeparate {
                               h_sync_positive: true,
                               v_sync_positive: true,
                           }));
 ```
 
-All other fields (`h_front_porch`, `h_sync_width`, etc.) default to `0` / `None` when not
-set via `with_detailed_timing`. This matches the sparse data available from non-DTD sources
+All other fields (`pixel_clock_khz`, `h_front_porch`, `h_sync_width`, etc.) default to
+`None` / `0` when not set via `with_detailed_timing`. This matches the sparse data available from non-DTD sources
 such as SVDs and standard timing entries.
 
 Modes and warnings beyond capacity are silently dropped — matching the existing 8-warning cap
