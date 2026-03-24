@@ -118,9 +118,10 @@ as `EdidWarning` values directly.
 compute derived results (preferred mode, bandwidth checks, HDR detection, DPI, mode
 filtering) do not belong on the struct.
 
-Helpers of this kind are acceptable in the library, but they live in separate modules as
-free functions that accept `&DisplayCapabilities` as input. This keeps the data model clean
-and avoids encoding policy or heuristics into what is fundamentally a decoded representation.
+Helpers of this kind belong in [`display-types`](https://crates.io/crates/display-types) as
+free functions that accept `&DisplayCapabilities` as input. Keeping them there makes them
+available to all consumers of the shared type library without depending on the parser, and
+avoids encoding policy or heuristics into what is fundamentally a decoded representation.
 
 ## Technical constraints
 
