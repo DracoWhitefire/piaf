@@ -158,6 +158,7 @@ fn build_dtd_mode(dtd: &[u8]) -> Result<Option<VideoMode>, EdidWarning> {
 
     Ok(Some(
         VideoMode::new(hactive, vactive, refresh_rate, interlaced).with_detailed_timing(
+            pixel_clock * 10,
             h_front_porch,
             h_sync_width,
             v_front_porch,
