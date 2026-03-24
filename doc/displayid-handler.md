@@ -202,6 +202,7 @@ pipelines. Each 20-byte descriptor maps to a `VideoMode` with full timing detail
 |---------------------------------|------------------------------------------------------|
 | `width`, `height`               | Horizontal/Vertical Active (exact pixel/line counts) |
 | `refresh_rate`                  | Derived: `pixel_clock_hz / (h_total × v_total)`      |
+| `pixel_clock_khz`               | Bytes 1–2 × 10 (10 kHz units converted to kHz)       |
 | `interlaced`                    | Byte 19 bit 0                                        |
 | `h_front_porch`, `h_sync_width` | Bytes 7–10                                           |
 | `v_front_porch`, `v_sync_width` | Bytes 15–18                                          |
@@ -216,6 +217,7 @@ pipelines. Each 11-byte descriptor maps to a `VideoMode`:
 |---------------------------------|-----------------------------------------------------------------------|
 | `width`, `height`               | Horizontal/Vertical Active (8-pixel and 1-line granules respectively) |
 | `refresh_rate`                  | Derived: `(raw_clock + 1) × 10 000 / (h_total × v_total)`             |
+| `pixel_clock_khz`               | Bytes 0–2 `(raw + 1) × 10` (10 kHz units converted to kHz)            |
 | `interlaced`                    | Byte 3 bit 4                                                          |
 | `h_front_porch`, `h_sync_width` | Byte 6 nibbles (8-pixel granule)                                      |
 | `v_front_porch`, `v_sync_width` | Byte 9 nibbles (1-line granule)                                       |
@@ -279,6 +281,43 @@ resolved via the CTA-861 VIC table with full timing detail; payload bytes beyond
 | `width`, `height`, `refresh_rate`, `interlaced`                  | CTA-861 VIC table entry                                    |
 | `h_front_porch`, `h_sync_width`, `v_front_porch`, `v_sync_width` | CTA-861 VIC table entry                                    |
 | `sync`                                                           | `DigitalSeparate`; polarities from CTA-861 VIC table entry |
+
+**Type V Short Video Timing blocks** (tag `0x11`) are decoded in both the dynamic and static
+pipelines. Each 7-byte descriptor encodes width, height, and refresh rate directly; no blanking
+detail or pixel clock is stored. Type V is always progressive.
+
+| `VideoMode` field     | Source                                                        |
+|-----------------------|---------------------------------------------------------------|
+| `width`               | Bytes 1–2 exact pixel count (LE uint16)                       |
+| `height`              | Bytes 3–4 exact line count (LE uint16)                        |
+| `refresh_rate`        | Byte 5 + 1 Hz (range 1–256, clamped to 255)                   |
+| `interlaced`          | Always `false` — Type V defines progressive-only timings      |
+| `pixel_clock_khz`     | Not populated — not encoded in the descriptor                 |
+| `h_front_porch`, `h_sync_width`, `v_front_porch`, `v_sync_width` | 0 (not encoded) |
+| `sync`                | `None` (not encoded)                                          |
+
+Descriptors with zero width or height are silently skipped.
+
+**Type VI Detailed Video Timing blocks** (tag `0x13`) are decoded in both the dynamic and static
+pipelines. Each descriptor is 14 or 17 bytes; the 17-byte form includes optional aspect/size
+bytes that are not currently decoded. Pixel clock is stored in 1 kHz steps (not 10 kHz like
+Types I and II), allowing higher precision up to ~4194 MHz.
+
+| `VideoMode` field               | Source                                                             |
+|---------------------------------|--------------------------------------------------------------------|
+| `width`                         | Bytes 3–4 bits 14:0 (15-bit, exact pixel count)                    |
+| `height`                        | Bytes 5–6 bits 14:0 (15-bit, exact line count)                     |
+| `refresh_rate`                  | Derived: `pixel_clock_hz / (h_total × v_total)`                    |
+| `pixel_clock_khz`               | Bytes 0–2 bits 21:0 (1 kHz steps, stored directly)                 |
+| `interlaced`                    | Byte 13 bit 7                                                      |
+| `h_front_porch`                 | Bytes 7–9 (H-fp, 12-bit packed across byte 8 and byte 9 bits 7:4)  |
+| `h_sync_width`                  | Byte 10 (8-bit)                                                    |
+| `v_front_porch`                 | Byte 12 (8-bit)                                                    |
+| `v_sync_width`                  | Byte 13 bits 3:0                                                   |
+| `sync`                          | `DigitalSeparate`; h_sync_positive = byte 3–4 bit 15, v_sync_positive = byte 5–6 bit 15 |
+
+Null descriptors (pixel clock = 0) advance the cursor without emitting a mode. The descriptor
+size (14 or 17) is determined by byte 2 bit 22.
 
 ## Warnings
 
