@@ -1,9 +1,8 @@
 # Static Extension Handler Pipeline
 
-The static pipeline is a zero-allocation alternative to the dynamic
-[`capabilities_from_edid`][crate::capabilities_from_edid] pipeline. It produces
-[`StaticDisplayCapabilities`][crate::StaticDisplayCapabilities] — a fixed-capacity output type
-— and works at all build tiers, including bare `no_std` without an allocator.
+The static pipeline is a zero-allocation alternative to the dynamic `capabilities_from_edid`
+pipeline. It produces `StaticDisplayCapabilities` — a fixed-capacity output type — and works
+at all build tiers, including bare `no_std` without an allocator.
 
 ## Motivation
 
@@ -27,8 +26,8 @@ for mode in caps.iter_modes() {
 ```
 
 `STANDARD_HANDLERS` is a `&[&dyn StaticExtensionHandler]` covering CEA-861 and DisplayID. It also implements
-[`KnownExtensions`][crate::KnownExtensions], so it can be passed directly to `parse_edid` — no
-separate `ExtensionTagRegistry` needed.
+`KnownExtensions`, so it can be passed directly to `parse_edid` — no separate
+`ExtensionTagRegistry` needed.
 
 ## Public API
 
@@ -84,8 +83,8 @@ pub trait StaticExtensionHandler: Sync {
 ```
 
 `tag()` makes each handler self-describing. A `&[&dyn StaticExtensionHandler]` slice implements
-[`KnownExtensions`][crate::KnownExtensions] via the same method, so the same slice serves both
-as a handler list and an extension tag filter for `parse_edid`.
+`KnownExtensions` via the same method, so the same slice serves both as a handler list and
+an extension tag filter for `parse_edid`.
 
 ### `StaticContext`
 
