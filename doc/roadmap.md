@@ -20,13 +20,6 @@ share types without depending on the parser.
 
 ## Planned
 
-### Derived-value helpers
-
-Helpers for computed results (preferred mode selection, bandwidth checks, DPI, HDR and VRR
-detection, mode filtering) belong in a separate module as free functions that accept
-`&DisplayCapabilities`. They should not be methods on `DisplayCapabilities` itself, which
-is a decoded data representation rather than a decision layer.
-
 ### Consistency validation
 
 Helpers to detect internally inconsistent EDIDs: modes whose pixel clock exceeds the
