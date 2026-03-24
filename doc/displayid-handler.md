@@ -286,15 +286,15 @@ resolved via the CTA-861 VIC table with full timing detail; payload bytes beyond
 pipelines. Each 7-byte descriptor encodes width, height, and refresh rate directly; no blanking
 detail or pixel clock is stored. Type V is always progressive.
 
-| `VideoMode` field     | Source                                                        |
-|-----------------------|---------------------------------------------------------------|
-| `width`               | Bytes 1–2 exact pixel count (LE uint16)                       |
-| `height`              | Bytes 3–4 exact line count (LE uint16)                        |
-| `refresh_rate`        | Byte 5 + 1 Hz (range 1–256, clamped to 255)                   |
-| `interlaced`          | Always `false` — Type V defines progressive-only timings      |
-| `pixel_clock_khz`     | Not populated — not encoded in the descriptor                 |
-| `h_front_porch`, `h_sync_width`, `v_front_porch`, `v_sync_width` | 0 (not encoded) |
-| `sync`                | `None` (not encoded)                                          |
+| `VideoMode` field                                                | Source                                                   |
+|------------------------------------------------------------------|----------------------------------------------------------|
+| `width`                                                          | Bytes 1–2 exact pixel count (LE uint16)                  |
+| `height`                                                         | Bytes 3–4 exact line count (LE uint16)                   |
+| `refresh_rate`                                                   | Byte 5 + 1 Hz (range 1–256, clamped to 255)              |
+| `interlaced`                                                     | Always `false` — Type V defines progressive-only timings |
+| `pixel_clock_khz`                                                | Not populated — not encoded in the descriptor            |
+| `h_front_porch`, `h_sync_width`, `v_front_porch`, `v_sync_width` | 0 (not encoded)                                          |
+| `sync`                                                           | `None` (not encoded)                                     |
 
 Descriptors with zero width or height are silently skipped.
 
