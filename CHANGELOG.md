@@ -28,6 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Updated `display-types` dependency from `0.1.3` to `0.2.0`.
 
+### Internal
+
+- **Coverage ratchet**: CI now measures line coverage across the `std` and `std + serde`
+  feature sets using `cargo-llvm-cov`. The baseline is stored in `.coverage-baseline`
+  (currently 93.83%); CI fails if coverage drops more than 0.1% below it. On pushes to
+  `main` or `develop`, coverage improvements are committed automatically via a
+  `ci/coverage-ratchet` PR.
+
 ## [0.3.2] - 2026-03-22
 
 ### Changed
