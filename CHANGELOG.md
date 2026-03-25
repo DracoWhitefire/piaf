@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-03-25
+
+### Breaking changes
+
+- **`VideoMode::with_detailed_timing` new first parameter**: `display-types` 0.2.0 adds
+  `pixel_clock_khz: u32` as the first argument. Any caller that constructs a `VideoMode` via
+  `with_detailed_timing` must insert the pixel clock value (in kHz) before the existing
+  porch/sync arguments.
+
+### Added
+
+- **Pixel clock now populated for detailed-timing modes**: `VideoMode::pixel_clock_khz` is now
+  set for modes decoded from Detailed Timing Descriptors. Previously it was only set for
+  VIC-keyed and DMT-keyed modes. Affected sources:
+  - EDID 18-byte Detailed Timing Descriptor — pixel clock read in 10 kHz units and stored as kHz
+  - DisplayID Type I Short Descriptor Video Timings — same 10 kHz → kHz conversion
+  - DisplayID Type II Detailed Video Timing — same 10 kHz → kHz conversion
+  - DisplayID Type VI Detailed Video Timing — pixel clock already in kHz, stored directly
+
+### Changed
+
+- Updated `display-types` dependency from `0.1.3` to `0.2.0`.
+
+### Internal
+
+- **Coverage ratchet**: CI now measures line coverage across the `std` and `std + serde`
+  feature sets using `cargo-llvm-cov`. The baseline is stored in `.coverage-baseline`
+  (currently 93.83%); CI fails if coverage drops more than 0.1% below it. On pushes to
+  `main` or `develop`, coverage improvements are committed automatically via a
+  `ci/coverage-ratchet` PR.
+
 ## [0.3.2] - 2026-03-22
 
 ### Changed

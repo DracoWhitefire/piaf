@@ -44,37 +44,12 @@ impl ExtensionHandler for MyHandler {
 
 ### `StaticExtensionHandler` (static, all tiers)
 
-`StaticExtensionHandler` is the no-alloc counterpart. Handlers are `'static` references in
-a slice rather than boxed trait objects. Output goes to a `StaticContext` rather than
-`DisplayCapabilities` directly — this means mode extraction only; rich metadata requires
-`ExtensionHandler`.
+`StaticExtensionHandler` is the no-alloc counterpart for bare `no_std` builds. It uses
+`'static` references in a slice rather than boxed trait objects, and produces mode output
+only — rich metadata requires `ExtensionHandler`.
 
-```rust
-struct MyHandler;
-
-impl StaticExtensionHandler for MyHandler {
-    fn tag(&self) -> u8 { 0xAB }
-    fn process(&self, blocks: &[&[u8; 128]], ctx: &mut StaticContext<'_>) {
-        // blocks contains all extension blocks with this handler's tag, in stream order.
-        // Push modes via ctx.push_mode(...) and warnings via ctx.push_warning(...).
-    }
-}
-
-static MY_HANDLER: MyHandler = MyHandler;
-```
-
-Pass a slice of static references to `capabilities_from_edid_static`:
-
-```rust
-static HANDLERS: &[&dyn StaticExtensionHandler] = &[piaf::CEA861_HANDLER, &MY_HANDLER];
-
-let caps: StaticDisplayCapabilities<64> =
-    capabilities_from_edid_static(&parsed, HANDLERS);
-```
-
-Because `tag()` makes each handler self-describing, the same slice can be passed directly to
-`parse_edid` as a `KnownExtensions` implementation — no separate `ExtensionTagRegistry`
-needed.
+See [`doc/static-pipeline.md`](static-pipeline.md) for the full API reference, custom
+handler examples, and sizing notes.
 
 ### Registering a base block handler (dynamic pipeline)
 
@@ -169,20 +144,6 @@ ctx.push_warning(EdidWarning::MalformedDataBlock);
 ## `no_std` support
 
 `ExtensionHandler` and `ExtensionLibrary` require `alloc` or `std`. `StaticExtensionHandler`
-and `capabilities_from_edid_static` are available unconditionally.
+and `capabilities_from_edid_static` are available unconditionally at all build tiers.
 
-In bare `no_std` (no `alloc`), `parse_edid` returns a `ParsedEdidRef<'_>` that borrows
-extension blocks directly from the input slice — no allocator needed. Static handlers receive
-extension block calls normally; `capabilities_from_edid_static` processes both base-block and
-extension-block data at all build tiers.
-
-For tag-only registration without handlers (e.g., to suppress `UnknownExtension` warnings),
-`ExtensionTagRegistry` is available at all tiers and holds up to 16 tags in a fixed-size
-array. A `&[&dyn StaticExtensionHandler]` slice also implements `KnownExtensions` and is
-generally the better choice when you already have handlers registered.
-
-```rust
-// Either works for parse_edid:
-let parsed = parse_edid(&bytes, &registry)?;
-let parsed = parse_edid(&bytes, piaf::STANDARD_HANDLERS)?;
-```
+See [`doc/static-pipeline.md`](static-pipeline.md) for full details on the no-alloc pipeline.

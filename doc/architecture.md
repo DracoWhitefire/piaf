@@ -2,6 +2,43 @@
 
 PIAF is organized as a small library with clear internal boundaries between byte-level parsing and higher-level capability modeling.
 
+## Scope
+
+PIAF reads and interprets EDID data as an input to display capability discovery.
+
+The library covers:
+
+- parsing and validation of raw byte slices — header verification, checksum, and block structure,
+- full decoding of the EDID base block into typed fields,
+- extension block dispatch via a pluggable handler system,
+- full CEA-861 extension decoding covering all major data block types,
+- full DisplayID 1.x extension decoding covering all 20 defined block types,
+- conversion into a stable `DisplayCapabilities` consumer model,
+- structured diagnostics: hard errors for structurally invalid input; warnings for malformed, unknown, or suspicious content.
+
+The following are out of scope:
+
+- a full HDMI implementation,
+- packet generation or serialization,
+- driver development,
+- electrical or PHY-level signaling,
+- vendor-specific behavior beyond safe parsing,
+- broad platform integration.
+
+### Decoding philosophy
+
+PIAF decodes everything a specification defines. No field is omitted because it appears
+obscure or unlikely to be needed. Consumers decide which fields matter for their use case;
+the library makes no judgement about importance.
+
+`Option` fields communicate *presence or absence* — whether the source data contained a
+value — not whether that value is considered significant. A field that is `None` was absent
+or undecodable in the source; a field that is `Some` reflects what the display reported,
+regardless of whether any particular consumer cares about it.
+
+This principle applies to new block types as they are implemented: once a block's wire
+format is specified, all of its defined fields are decoded into the model.
+
 ## Core pipeline
 
 Two capability pipelines operate on any `EdidSource` — either `ParsedEdidRef<'_>` (zero-copy,
@@ -118,9 +155,10 @@ as `EdidWarning` values directly.
 compute derived results (preferred mode, bandwidth checks, HDR detection, DPI, mode
 filtering) do not belong on the struct.
 
-Helpers of this kind are acceptable in the library, but they live in separate modules as
-free functions that accept `&DisplayCapabilities` as input. This keeps the data model clean
-and avoids encoding policy or heuristics into what is fundamentally a decoded representation.
+Helpers of this kind belong in [`display-types`](https://crates.io/crates/display-types) as
+free functions that accept `&DisplayCapabilities` as input. Keeping them there makes them
+available to all consumers of the shared type library without depending on the parser, and
+avoids encoding policy or heuristics into what is fundamentally a decoded representation.
 
 ## Technical constraints
 
@@ -128,38 +166,3 @@ and avoids encoding policy or heuristics into what is fundamentally a decoded re
 - **Zero-copy**: `parse_edid` returns `ParsedEdidRef<'_>`, which borrows the base block and all extension blocks directly from the input slice. No block data is copied unless `parse_edid_owned` is called explicitly.
 - **Dead-code warnings in bare `no_std` builds**: Without `alloc` or `std`, the handler layer is absent and the `pub(crate)` decode functions on model types (e.g. `ManufactureDate::from_edid_bytes`) appear unused. These functions are intentionally left available — a consumer with no handler pipeline can still call them directly. A blanket `#![cfg_attr(not(any(feature = "alloc", feature = "std")), allow(dead_code, unused_imports))]` in `lib.rs` suppresses the noise without removing the items.
 
-### Fixed-capacity types for `no_std` field availability
-
-When a field has a fixed maximum size, represent it with a fixed-capacity type rather than
-a heap-allocated one. This makes the field available in all build configurations, including
-bare `no_std` without `alloc`.
-
-The preferred approach for a bounded string is a newtype over a fixed-size byte array with
-a `Display` impl:
-
-```rust
-pub struct ManufacturerId(pub [u8; 3]);
-
-impl ManufacturerId {
-    pub fn as_str(&self) -> &str {
-        core::str::from_utf8(&self.0).unwrap_or("???")
-    }
-}
-
-impl core::fmt::Display for ManufacturerId {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-```
-
-This gives consumers the same ergonomics as a `String` field — `format!("{}", id)`,
-`id.as_str()`, `id.to_string()` — without requiring heap allocation.
-
-Fields with a small fixed bound (like `white_points`, which the EDID `0xFB` descriptor
-limits to two entries) use `[Option<T>; N]` directly.
-
-Fields that are genuinely variable in length (display name strings, warnings) remain
-`#[cfg(any(feature = "alloc", feature = "std"))]` gated in `DisplayCapabilities`. Mode
-lists are the exception: `StaticDisplayCapabilities<N>` provides a fixed-capacity
-`[Option<VideoMode>; N]` that is available at all build tiers.

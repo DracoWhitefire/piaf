@@ -154,17 +154,17 @@ than struct literal syntax:
 // Simple mode (established timings, standard timings, SVDs):
 let mode = VideoMode::new(1920, 1080, 60, false);
 
-// Full DTD mode with blanking-interval and sync fields:
+// Full DTD mode with pixel clock, blanking-interval, and sync fields:
 let mode = VideoMode::new(1920, 1080, 60, false)
-    .with_detailed_timing(88, 44, 4, 5, 0, 0, StereoMode::None,
+    .with_detailed_timing(148500, 88, 44, 4, 5, 0, 0, StereoMode::None,
                           Some(SyncDefinition::DigitalSeparate {
                               h_sync_positive: true,
                               v_sync_positive: true,
                           }));
 ```
 
-All other fields (`h_front_porch`, `h_sync_width`, etc.) default to `0` / `None` when not
-set via `with_detailed_timing`. This matches the sparse data available from non-DTD sources
+All other fields (`pixel_clock_khz`, `h_front_porch`, `h_sync_width`, etc.) default to
+`None` / `0` when not set via `with_detailed_timing`. This matches the sparse data available from non-DTD sources
 such as SVDs and standard timing entries.
 
 Modes and warnings beyond capacity are silently dropped — matching the existing 8-warning cap
@@ -186,6 +186,45 @@ A parser-oriented structure and a consumer-oriented structure serve different pu
 - stability across parser improvements.
 
 Trying to use one structure for both usually produces an API that is awkward for everyone.
+
+## Fixed-capacity fields
+
+When a field has a fixed maximum size defined by the spec, it is represented with a
+fixed-capacity type rather than a heap-allocated one. This makes the field available in
+all build configurations, including bare `no_std` without `alloc`.
+
+The preferred approach for a bounded string is a newtype over a fixed-size byte array with
+a `Display` impl:
+
+```rust
+pub struct ManufacturerId(pub [u8; 3]);
+
+impl ManufacturerId {
+    pub fn as_str(&self) -> &str {
+        core::str::from_utf8(&self.0).unwrap_or("???")
+    }
+}
+
+impl core::fmt::Display for ManufacturerId {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+```
+
+This gives consumers the same ergonomics as a `String` field — `format!("{}", id)`,
+`id.as_str()`, `id.to_string()` — without requiring heap allocation.
+
+Fields with a small fixed bound (like `white_points`, which the EDID `0xFB` descriptor
+limits to two entries) use `[Option<T>; N]` directly.
+
+Fields that are genuinely variable in length (display name strings, warnings) remain
+`#[cfg(any(feature = "alloc", feature = "std"))]` gated in `DisplayCapabilities`. Mode
+lists are the exception: `StaticDisplayCapabilities<N>` provides a fixed-capacity
+`[Option<VideoMode>; N]` available at all build tiers.
+
+New fields should follow the fixed-capacity pattern where the bound is derivable from
+the spec.
 
 ## Error and warning model
 

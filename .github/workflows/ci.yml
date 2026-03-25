@@ -52,3 +52,71 @@ jobs:
 
       - name: Build (no_std)
         run: cargo build --no-default-features
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-coverage-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-coverage-
+
+      - name: Measure coverage
+        run: |
+          cargo llvm-cov clean --workspace
+          cargo llvm-cov --no-report
+          cargo llvm-cov --no-report --features serde
+          LINES=$(cargo llvm-cov report --json --summary-only \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(round(d['data'][0]['totals']['lines']['percent'], 2))")
+          echo "COVERAGE=${LINES}" >> "$GITHUB_ENV"
+
+      - name: Check coverage
+        run: |
+          BASELINE=$(cat .coverage-baseline)
+          echo "Coverage: ${COVERAGE}%  Baseline: ${BASELINE}%"
+          python3 -c "import sys; sys.exit(0 if float('${COVERAGE}') >= float('${BASELINE}') - 0.1 else 1)" \
+            || { echo "Coverage dropped below baseline"; exit 1; }
+
+      - name: Update baseline if improved
+        if: github.event_name == 'push'
+        run: |
+          BASELINE=$(cat .coverage-baseline)
+          if awk "BEGIN { exit !(${COVERAGE} > ${BASELINE}) }"; then
+            printf '%.2f\n' "${COVERAGE}" > .coverage-baseline
+            echo "Baseline updated: ${BASELINE} -> ${COVERAGE}"
+          else
+            echo "No update needed (${COVERAGE} <= ${BASELINE})"
+          fi
+
+      - name: Open PR if baseline changed
+        if: github.event_name == 'push'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ci/coverage-ratchet
+          commit-message: "ci: ratchet coverage baseline to ${{ env.COVERAGE }}%"
+          title: "ci: ratchet coverage baseline to ${{ env.COVERAGE }}%"
+          body: |
+            Coverage improved to `${{ env.COVERAGE }}%`. Updated `.coverage-baseline`.
+
+            *Opened automatically by the coverage CI job.*
+          add-paths: .coverage-baseline

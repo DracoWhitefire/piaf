@@ -53,16 +53,18 @@ flowchart LR
 
 ## Why PIAF
 
-**Deep CEA-861 coverage.** Most EDID libraries decode the base block and stop.
-PIAF decodes 20+ CEA-861 data block types, including HDR static and dynamic metadata,
-HDMI 1.x and HDMI Forum VSDBs, colorimetry, speaker allocation, video timing blocks,
-and the HDMI Forum Sink Capability block. If the information is in the EDID, PIAF
-exposes it as typed fields rather than raw bytes.
+**Complete extension coverage.** Most EDID libraries decode the base block and stop.
+PIAF decodes 20+ CEA-861 data block types — HDR static and dynamic metadata, HDMI 1.x
+and HDMI Forum VSDBs, colorimetry, speaker allocation, video timing blocks, and the HDMI
+Forum Sink Capability block — and all 20 defined DisplayID 1.x block types, covering
+panel identity, color characteristics, device data, power sequencing, transfer
+characteristics, and every defined timing format. If the information is in the EDID,
+PIAF exposes it as typed fields rather than raw bytes.
 
 **Pluggable handlers.** The extension handler system lets you register your own handler
-for any extension block tag — override the built-in CEA-861 handler, add support for
-a proprietary block, or attach typed custom data to `DisplayCapabilities` for downstream
-consumers. Base block parsing is pluggable too.
+for any extension block tag — override either built-in handler (CEA-861 or DisplayID),
+add support for a proprietary block, or attach typed custom data to `DisplayCapabilities`
+for downstream consumers. Base block parsing is pluggable too.
 
 **Honest diagnostics.** PIAF distinguishes between hard parse errors (invalid header,
 checksum failure, truncated input) and non-fatal warnings (unknown extension block,
@@ -314,14 +316,28 @@ overlap with EDID base block fields, or in the `DisplayIdCapabilities` struct re
 
 ## Documentation
 
-Design and architecture notes live under [`doc/`](doc/):
+Extended documentation lives under [`doc/`](doc/).
 
-- [`doc/architecture.md`](doc/architecture.md) — pipeline and layer overview
-- [`doc/model.md`](doc/model.md) — data model and type design
-- [`doc/extensibility.md`](doc/extensibility.md) — extension system guide
-- [`doc/static-pipeline.md`](doc/static-pipeline.md) — static pipeline design and API reference
-- [`doc/scope.md`](doc/scope.md) — scope and evolution strategy
-- [`doc/testing.md`](doc/testing.md) — testing strategy and fuzzing
+**Understanding the library**
+
+- [`doc/architecture.md`](doc/architecture.md) — scope, pipeline structure, layers, and design principles
+- [`doc/model.md`](doc/model.md) — data types, field conventions, and the error/warning model
+
+**Using the extension system**
+
+- [`doc/extensibility.md`](doc/extensibility.md) — registering handlers, storing custom data, and emitting warnings
+- [`doc/static-pipeline.md`](doc/static-pipeline.md) — static (no-alloc) pipeline API reference and custom handler examples
+- [`doc/displayid-handler.md`](doc/displayid-handler.md) — DisplayID handler field mapping and timing block details
+
+**Wire format reference**
+
 - [`doc/cea861-vsdb.md`](doc/cea861-vsdb.md) — VSDB wire formats (HDMI 1.x and HDMI Forum)
 - [`doc/cea861-extended-tags.md`](doc/cea861-extended-tags.md) — extended tag block wire formats
+- [`doc/displayid-block-tags.md`](doc/displayid-block-tags.md) — DisplayID 1.x block tag assignments and wire formats
+- [`doc/displayid-explained.md`](doc/displayid-explained.md) — DisplayID standard overview
+
+**Contributing**
+
+- [`doc/setup.md`](doc/setup.md) — build, test, and fuzzing setup
+- [`doc/testing.md`](doc/testing.md) — testing strategy, fixture corpus, and CI
 - [`doc/roadmap.md`](doc/roadmap.md) — planned features and future work
