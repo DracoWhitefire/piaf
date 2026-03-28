@@ -1,5 +1,5 @@
 use crate::model::capabilities::{
-    DisplayCapabilities, ModeSink, StereoMode, SyncDefinition, VideoMode,
+    DisplayCapabilities, ModeSink, ModeSource, StereoMode, SyncDefinition, VideoMode,
 };
 use crate::model::diagnostics::EdidWarning;
 
@@ -180,14 +180,14 @@ fn build_dtd_mode(dtd: &[u8]) -> Result<Option<VideoMode>, EdidWarning> {
 ///
 /// This is `pub(crate)` so that the CEA-861 handler can reuse it for DTDs in extension blocks.
 #[cfg(any(feature = "alloc", feature = "std"))]
-pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities) {
+pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities, dtd_index: u8) {
     let mode = match build_dtd_mode(dtd) {
         Err(w) => {
             caps.push_warning(w);
             return;
         }
         Ok(None) => return,
-        Ok(Some(m)) => m,
+        Ok(Some(m)) => m.with_source(ModeSource::DtdIndex(dtd_index)),
     };
 
     // Physical image area in mm: 12-bit H from byte 12 + upper nibble of byte 14,
@@ -221,11 +221,11 @@ pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities) {
 ///
 /// This is `pub(crate)` so that the CEA-861 handler can use it for DTDs in extension blocks
 /// in no-alloc builds.
-pub(crate) fn decode_dtd_slot_into_sink(dtd: &[u8], sink: &mut dyn ModeSink) {
+pub(crate) fn decode_dtd_slot_into_sink(dtd: &[u8], sink: &mut dyn ModeSink, dtd_index: u8) {
     match build_dtd_mode(dtd) {
         Err(w) => sink.push_warning(w),
         Ok(None) => {}
-        Ok(Some(mode)) => sink.push_mode(mode),
+        Ok(Some(mode)) => sink.push_mode(mode.with_source(ModeSource::DtdIndex(dtd_index))),
     }
 }
 
@@ -235,9 +235,9 @@ pub(crate) fn decode_dtd_slot_into_sink(dtd: &[u8], sink: &mut dyn ModeSink) {
 // decode_dtd_slot directly to preserve preferred_image_size_mm and upgrade-in-place semantics.
 #[allow(dead_code)]
 pub(super) fn decode_detailed_timings(base: &[u8; 128], sink: &mut dyn ModeSink) {
-    for i in 0..4 {
-        let offset = 0x36 + (i * 18);
-        decode_dtd_slot_into_sink(&base[offset..offset + 18], sink);
+    for i in 0..4u8 {
+        let offset = 0x36 + (i as usize * 18);
+        decode_dtd_slot_into_sink(&base[offset..offset + 18], sink, i);
     }
 }
 

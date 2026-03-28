@@ -359,9 +359,11 @@ impl ExtensionHandler for Cea861Handler {
             // When dtd_offset == 0 there are no DTDs (the spec says no timing data present).
             if (4..=110).contains(&dtd_offset) {
                 let mut offset = dtd_offset;
+                let mut dtd_index: u8 = 0;
                 while offset + 18 <= 127 {
-                    decode_dtd_slot(&ext[offset..offset + 18], caps);
+                    decode_dtd_slot(&ext[offset..offset + 18], caps, dtd_index);
                     offset += 18;
+                    dtd_index = dtd_index.saturating_add(1);
                 }
             }
         } // end for ext in blocks
@@ -482,9 +484,11 @@ pub(crate) fn cea861_process_into_sink(ext: &[u8; 128], sink: &mut dyn ModeSink)
     // Parse Detailed Timing Descriptors.
     if (4..=110).contains(&dtd_offset) {
         let mut offset = dtd_offset;
+        let mut dtd_index: u8 = 0;
         while offset + 18 <= 127 {
-            decode_dtd_slot_into_sink(&ext[offset..offset + 18], sink);
+            decode_dtd_slot_into_sink(&ext[offset..offset + 18], sink, dtd_index);
             offset += 18;
+            dtd_index = dtd_index.saturating_add(1);
         }
     }
 }

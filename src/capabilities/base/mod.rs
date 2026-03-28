@@ -78,9 +78,9 @@ impl ExtensionHandler for BaseBlockHandler {
         timings::decode_standard_timings(base, caps);
         // Use decode_dtd_slot (not decode_detailed_timings) to preserve
         // preferred_image_size_mm population and upgrade-in-place semantics.
-        for i in 0..4 {
-            let offset = 0x36 + (i * 18);
-            timings::decode_dtd_slot(&base[offset..offset + 18], caps);
+        for i in 0..4u8 {
+            let offset = 0x36 + (i as usize * 18);
+            timings::decode_dtd_slot(&base[offset..offset + 18], caps, i);
         }
     }
 }

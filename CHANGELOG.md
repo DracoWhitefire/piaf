@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `refresh_rate` argument of `VideoMode::new` from `u8` to `u16`. Callers passing a `u8` literal
   will need an explicit `as u16` cast or a `u16` value.
 
+### Added
+
+- **`ModeSource` now populated for DTDs**: `VideoMode::source` is set to
+  `ModeSource::DtdIndex(n)` (zero-based) for all Detailed Timing Descriptors decoded from
+  the EDID base block and CEA-861 extension blocks. VIC- and DMT-keyed modes already had their
+  source set automatically by `display-types`; this fills in the remaining gap.
+
 ### Changed
 
 - Updated `display-types` dependency from `0.2.0` to `0.3.0`.
