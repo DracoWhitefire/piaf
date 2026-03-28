@@ -40,7 +40,7 @@ pub(super) fn decode_type_i_descriptor(d: &[u8; 20], sink: &mut dyn ModeSink) {
     }
 
     let pixel_clock_hz = pixel_clock_10khz as u64 * 10_000;
-    let refresh_rate = (pixel_clock_hz / total_pixels)as u16;
+    let refresh_rate = (pixel_clock_hz / total_pixels) as u16;
 
     let interlaced = (flags & 0x01) != 0;
     let h_sync_positive = (flags & 0x08) != 0;
@@ -116,7 +116,7 @@ pub(super) fn decode_type_ii_descriptor(d: &[u8; 11], sink: &mut dyn ModeSink) {
     }
 
     let pixel_clock_hz = pixel_clock_10khz * 10_000;
-    let refresh_rate = (pixel_clock_hz / (h_total * v_total))as u16;
+    let refresh_rate = (pixel_clock_hz / (h_total * v_total)) as u16;
 
     sink.push_mode(
         VideoMode::new(h_active, v_active, refresh_rate, interlaced).with_detailed_timing(
@@ -193,7 +193,7 @@ pub(super) fn decode_type_vi_descriptor(d: &[u8], sink: &mut dyn ModeSink) -> us
     }
 
     let pixel_clock_hz = pixel_clock_khz as u64 * 1000;
-    let refresh_rate = (pixel_clock_hz / (h_total * v_total))as u16;
+    let refresh_rate = (pixel_clock_hz / (h_total * v_total)) as u16;
 
     sink.push_mode(
         VideoMode::new(h_active, v_active, refresh_rate, interlaced).with_detailed_timing(
