@@ -32,7 +32,7 @@ pub(super) fn decode_type_iv_block(payload: &[u8], code_type: u8, sink: &mut dyn
 /// - 3: 3840×2160@24 Hz
 /// - 4: 4096×2160@24 Hz
 fn hdmi_vic_to_mode(code: u8) -> Option<VideoMode> {
-    let (w, h, r): (u16, u16, u8) = match code {
+    let (w, h, r): (u16, u16, u16) = match code {
         1 => (3840, 2160, 30),
         2 => (3840, 2160, 25),
         3 => (3840, 2160, 24),

@@ -11,7 +11,7 @@ pub(super) fn decode_established_timings(base: &[u8; 128], sink: &mut dyn ModeSi
     // (byte offset, bit mask, width, height, refresh_rate)
     // Note: 1024x768@87 is interlaced in the EDID spec; stored as-is since VideoMode
     // has no interlace field.
-    const TIMINGS: &[(usize, u8, u16, u16, u8)] = &[
+    const TIMINGS: &[(usize, u8, u16, u16, u16)] = &[
         (0x23, 0x80, 720, 400, 70),
         (0x23, 0x40, 720, 400, 88),
         (0x23, 0x20, 640, 480, 60),
@@ -52,7 +52,7 @@ pub(super) fn decode_standard_timing_entry(b1: u8, b2: u8) -> Option<VideoMode> 
         0x02 => (w * 4) / 5,   // 5:4
         _ => (w * 9) / 16,     // 16:9
     };
-    Some(VideoMode::new(w, h, (b2 & 0x3F) + 60, false))
+    Some(VideoMode::new(w, h, (b2 & 0x3F) as u16 + 60, false))
 }
 
 /// Decodes the eight standard timing descriptors (offsets 0x26–0x35, 2 bytes each).
@@ -97,7 +97,7 @@ fn build_dtd_mode(dtd: &[u8]) -> Result<Option<VideoMode>, EdidWarning> {
     }
     let Some(refresh_rate) = pixel_clock
         .checked_mul(10_000)
-        .and_then(|scaled| u8::try_from(scaled / total_pixels).ok())
+        .and_then(|scaled| u16::try_from(scaled / total_pixels).ok())
     else {
         return Err(EdidWarning::DtdPixelClockOverflow);
     };

@@ -305,23 +305,21 @@ impl ExtensionHandler for Cea861Handler {
                             Some(EXT_TAG_T10VTDB) => {
                                 if let Some(t10) = parse_t10vtdb(&block_data[1..]) {
                                     for entry in &t10.entries {
-                                        if let Ok(refresh_rate) = u8::try_from(entry.refresh_hz) {
-                                            let mode = VideoMode::new(
-                                                entry.width,
-                                                entry.height,
-                                                refresh_rate,
-                                                false,
-                                            );
-                                            let already_present =
-                                                caps.supported_modes.iter().any(|m| {
-                                                    m.width == mode.width
-                                                        && m.height == mode.height
-                                                        && m.refresh_rate == mode.refresh_rate
-                                                        && m.interlaced == mode.interlaced
-                                                });
-                                            if !already_present {
-                                                caps.supported_modes.push(mode);
-                                            }
+                                        let mode = VideoMode::new(
+                                            entry.width,
+                                            entry.height,
+                                            entry.refresh_hz,
+                                            false,
+                                        );
+                                        let already_present =
+                                            caps.supported_modes.iter().any(|m| {
+                                                m.width == mode.width
+                                                    && m.height == mode.height
+                                                    && m.refresh_rate == mode.refresh_rate
+                                                    && m.interlaced == mode.interlaced
+                                            });
+                                        if !already_present {
+                                            caps.supported_modes.push(mode);
                                         }
                                     }
                                     cea_caps.t10_vtdb.push(t10);
@@ -464,14 +462,12 @@ pub(crate) fn cea861_process_into_sink(ext: &[u8; 128], sink: &mut dyn ModeSink)
                     Some(EXT_TAG_T10VTDB) => {
                         if let Some(t10) = parse_t10vtdb(&block_data[1..]) {
                             for entry in &t10.entries {
-                                if let Ok(refresh_rate) = u8::try_from(entry.refresh_hz) {
-                                    sink.push_mode(VideoMode::new(
-                                        entry.width,
-                                        entry.height,
-                                        refresh_rate,
-                                        false,
-                                    ));
-                                }
+                                sink.push_mode(VideoMode::new(
+                                    entry.width,
+                                    entry.height,
+                                    entry.refresh_hz,
+                                    false,
+                                ));
                             }
                         }
                     }

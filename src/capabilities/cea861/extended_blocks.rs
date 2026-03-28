@@ -424,7 +424,7 @@ pub(super) fn parse_t7vtdb(block_data: &[u8]) -> Option<T7VtdbBlock> {
     let h_total = hactive as u64 + hblank as u64;
     let v_total = vactive as u64 + vblank as u64;
     let refresh_hz = (pixel_clock_khz as u64 * 1000) / (h_total * v_total);
-    let refresh_rate = u8::try_from(refresh_hz).ok()?;
+    let refresh_rate = u16::try_from(refresh_hz).ok()?;
 
     let mode = VideoMode::new(hactive, vactive, refresh_rate, interlaced);
 
@@ -882,7 +882,7 @@ fn decode_dtd_to_mode(dtd: &[u8]) -> Option<VideoMode> {
     }
     let total = (hactive + hblank) as u32 * (vactive + vblank) as u32;
     let rate = (pixel_clock * 10_000) / total;
-    let refresh_rate = u8::try_from(rate).ok()?;
+    let refresh_rate = u16::try_from(rate).ok()?;
     Some(VideoMode::new(
         hactive,
         vactive,
@@ -944,7 +944,7 @@ pub(super) fn parse_vtb_ext(block_data: &[u8]) -> Option<VtbExtBlock> {
             ((h / 8) * 8) as u16
         };
         for (mask, rate) in [
-            (0x10u8, 50u8),
+            (0x10u8, 50u16),
             (0x08, 60),
             (0x04, 75),
             (0x02, 85),
@@ -974,7 +974,7 @@ pub(super) fn parse_vtb_ext(block_data: &[u8]) -> Option<VtbExtBlock> {
             0x02 => (width * 4) / 5,   // 5:4
             _ => (width * 9) / 16,     // 16:9
         };
-        let mode = VideoMode::new(width, height, (b2 & 0x3F) + 60, false);
+        let mode = VideoMode::new(width, height, (b2 & 0x3F) as u16 + 60, false);
         if !timings.contains(&mode) {
             timings.push(mode);
         }

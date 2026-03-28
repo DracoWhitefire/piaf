@@ -18,7 +18,7 @@ pub(super) fn decode_type_iii_descriptor(d: &[u8; 3], sink: &mut dyn ModeSink) {
     let aspect_code = d[0] & 0x0F;
     let h_active = ((d[1] as u16) + 1) * 8;
     let interlaced = (d[2] & 0x80) != 0;
-    let refresh_rate = (d[2] & 0x7F) + 1;
+    let refresh_rate = (d[2] & 0x7F) as u16 + 1;
 
     // Compute v_active from the aspect ratio (width:height → v = h × height / width).
     // Aspect code 8 = undefined; codes 9–15 = reserved; both are skipped.
@@ -52,14 +52,14 @@ pub(super) fn decode_type_iii_descriptor(d: &[u8; 3], sink: &mut dyn ModeSink) {
 ///   bits 6:5 = stereo; bit 7 = preferred
 /// - Bytes 1–2: Horizontal active in pixels (exact, little-endian uint16)
 /// - Bytes 3–4: Vertical active in lines (exact, little-endian uint16)
-/// - Byte 5:    Vertical refresh rate — `byte + 1` Hz (range 1–256 Hz; clamped to 255)
+/// - Byte 5:    Vertical refresh rate — `byte + 1` Hz (range 1–256 Hz)
 /// - Byte 6:    Reserved
 ///
 /// Descriptors with zero width or height are silently skipped.
 pub(super) fn decode_type_v_descriptor(d: &[u8; 7], sink: &mut dyn ModeSink) {
     let h_active = u16::from_le_bytes([d[1], d[2]]);
     let v_active = u16::from_le_bytes([d[3], d[4]]);
-    let refresh_rate = ((d[5] as u16) + 1).min(255) as u8;
+    let refresh_rate = (d[5] as u16) + 1;
 
     if h_active == 0 || v_active == 0 {
         return;
@@ -194,13 +194,13 @@ mod tests {
     }
 
     #[test]
-    fn test_type_v_refresh_raw_255_clamped_to_255() {
-        // refresh_raw = 255 → raw + 1 = 256, clamped to 255
+    fn test_type_v_refresh_raw_255_yields_256hz() {
+        // refresh_raw = 255 → raw + 1 = 256 Hz (exact per spec; no longer clamped)
         let d = make_type_v_descriptor(3840, 2160, 255);
         let mut caps = DisplayCapabilities::default();
         decode_type_v_descriptor(&d, &mut caps);
         assert_eq!(caps.supported_modes.len(), 1);
-        assert_eq!(caps.supported_modes[0].refresh_rate, 255);
+        assert_eq!(caps.supported_modes[0].refresh_rate, 256);
     }
 
     #[test]
