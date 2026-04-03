@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Updated `display-types` dependency from `0.2.0` to `0.3.0`.
 
+### Internal
+
+- Fixed coverage ratchet CI: added `LC_NUMERIC=C` to the baseline `printf` to prevent
+  locale-dependent decimal separators from corrupting `.coverage-baseline` on non-C locales.
+
 ## [0.4.0] - 2026-03-25
 
 ### Breaking changes
