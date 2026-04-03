@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Updated `display-types` dependency from `0.2.0` to `0.3.0`.
+- Updated `display-types` dependency from `0.2.0` to `0.3.1`.
 
 ### Internal
 
