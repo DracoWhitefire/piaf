@@ -101,8 +101,7 @@ jobs:
         run: |
           BASELINE=$(cat .coverage-baseline)
           if awk "BEGIN { exit !(${COVERAGE} > ${BASELINE}) }"; then
-            LC_NUMERIC=C printf '%.2f
-' "${COVERAGE}" > .coverage-baseline
+            LC_NUMERIC=C printf '%.2f\n' "${COVERAGE}" > .coverage-baseline
             echo "Baseline updated: ${BASELINE} -> ${COVERAGE}"
           else
             echo "No update needed (${COVERAGE} <= ${BASELINE})"
