@@ -43,6 +43,12 @@ New tag constants in `tag.rs`: `V2_PRODUCT_ID = 0x20` through `V2_CONTAINER_ID =
 
 All new types are `no_std`-compatible scalar structs. All existing code compiles without change.
 
+**Not covered by this prerequisite**: accurate fractional refresh rates. `VideoMode::refresh_rate`
+is `u16`, which cannot represent 23.976, 29.97, or 59.94 Hz. This affects `T7VtdbBlock`,
+`T10VtdbEntry`, and any mode derived from a Type VII descriptor. Fixing it requires a
+breaking change to `display-types` (separate semver bump) and must be coordinated before
+the AVI InfoFrame layer is built — VIC selection is sensitive to the distinction.
+
 ---
 
 ## Phases
@@ -60,6 +66,16 @@ All new types are `no_std`-compatible scalar structs. All existing code compiles
 - **0x22 Type VII**: `decode_type_vii_descriptor` in `timing/detailed.rs`. Pixel clock is
   3-byte LE in **kHz** (not 10 kHz steps). H/V sync polarity encoded as bit 15 of the
   front-porch fields. Update CEA-861 ext-0x22 handler to call this shared function.
+  **Fractional refresh rate caveat**: the exact rate is derivable as
+  `pixel_clock_hz / (h_total × v_total)`, but `VideoMode::refresh_rate` is `u16` and
+  cannot represent 23.976, 29.97, 59.94 Hz — they truncate to 23, 29, 59. The same
+  truncation affects `T7VtdbBlock` (which wraps `VideoMode`) and `T10VtdbEntry::refresh_hz`.
+  This matters downstream: the AVI InfoFrame layer selects VICs by refresh rate, and
+  fractional-rate modes use distinct VICs (e.g. VIC 96 vs VIC 97 for 3840×2160@24 vs
+  @23.976). A `display-types` type change — e.g. millihertz as `u32`, or a rational — is
+  required before Type VII modes can be surfaced accurately. Until then, decoded modes with
+  fractional rates will carry truncated values and the shared decoder must document this
+  limitation clearly.
 - **0x23 Type VIII**: `decode_type_viii_block(payload, revision)` in `timing/coded.rs`.
   Revision byte bit 3 = two-byte code flag; bits 7:6 = code type (DMT/VIC/HDMI VIC).
   Reuses existing DMT and VIC lookup tables.
