@@ -99,7 +99,7 @@ fn for_each_data_block(payload: &[u8], mut f: impl FnMut(u8, u8, &[u8])) {
 /// - `section_byte_count`: byte 2, count of data block bytes in this fragment
 /// - `product_type`: bits 2:0 of byte 3 (display product primary use case)
 /// - `extension_count`: bits 7:3 of byte 3 (number of continuation blocks after the first)
-fn parse_section_header(block: &[u8; 128]) -> (u8, u8, u8, u8) {
+const fn parse_section_header(block: &[u8; 128]) -> (u8, u8, u8, u8) {
     let version = block[1];
     let section_byte_count = block[2];
     let packed = block[3];
