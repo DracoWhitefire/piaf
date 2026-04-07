@@ -120,7 +120,7 @@ pub(super) fn parse_colorimetry(block_data: &[u8]) -> Option<ColorimetryBlock> {
 
 /// Decodes the `50 × 2^(raw/32)` luminance encoding used in the HDR block.
 fn decode_luminance(raw: u8) -> f32 {
-    50.0 * 2f32.powf(raw as f32 / 32.0)
+    50.0 * (raw as f32 / 32.0).exp2()
 }
 
 pub(super) fn parse_hdr_static_metadata(block_data: &[u8]) -> Option<HdrStaticMetadata> {
