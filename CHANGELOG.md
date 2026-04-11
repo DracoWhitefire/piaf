@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **SLSA Build Level 2 provenance** — release artifacts are attested via
+  `actions/attest-build-provenance` and verified with
+  `gh attestation verify <file> --repo DracoWhitefire/piaf`.
 - **`ModeSource` now populated for DTDs**: `VideoMode::source` is set to
   `ModeSource::DtdIndex(n)` (zero-based) for all Detailed Timing Descriptors decoded from
   the EDID base block and CEA-861 extension blocks. VIC- and DMT-keyed modes already had their

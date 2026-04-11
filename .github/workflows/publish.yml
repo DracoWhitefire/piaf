@@ -36,6 +36,10 @@ jobs:
     needs: check-branch
     if: needs.check-branch.outputs.on_main == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write      # OIDC token for SLSA provenance signing
+      attestations: write  # write signed provenance to GitHub's attestation store
+      contents: write      # create GitHub release
     steps:
       - uses: actions/checkout@v4
 
@@ -75,7 +79,62 @@ jobs:
       - name: Build (no_std)
         run: cargo build --locked --no-default-features
 
-      - name: Publish
-        run: cargo publish
+      # Materialise the .crate package before signing; cargo publish would
+      # do this internally, but we need the file path for the attestation.
+      - name: Package crate
+        run: cargo package
+
+      # Sign the .crate with SLSA Build Level 2 provenance.  The attestation
+      # is stored in GitHub's attestation API and is verifiable offline with:
+      #   gh attestation verify <file> --repo ${{ github.repository }}
+      - name: Attest crate provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: target/package/*.crate
+
+      - name: Publish to crates.io
+        run: |
+          NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name')
+          VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://crates.io/api/v1/crates/$NAME/$VERSION")
+          if [ "$STATUS" = "200" ]; then
+            echo "$NAME $VERSION is already on crates.io — skipping (first release or manual publish)."
+            exit 0
+          fi
+          cargo publish --no-verify  # quality gates already ran above
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      # Attach the signed .crate to a GitHub release so users can download
+      # and verify it independently of crates.io.
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          VER="${TAG#v}"
+          NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name')
+          CRATE_FILE=$(ls target/package/*.crate)
+          CRATE_BASENAME=$(basename "$CRATE_FILE")
+
+          cat > /tmp/release-notes.md <<NOTES
+          ## Provenance verification
+
+          The \`.crate\` package below was built and attested with
+          [SLSA Build Level 2](https://slsa.dev) provenance during this
+          GitHub Actions run.  Verify with the
+          [GitHub CLI](https://cli.github.com/):
+
+          \`\`\`sh
+          gh attestation verify ${CRATE_BASENAME} --repo ${{ github.repository }}
+          \`\`\`
+
+          The same package is published to
+          [crates.io/crates/${NAME}/${VER}](https://crates.io/crates/${NAME}/${VER}).
+          NOTES
+
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file /tmp/release-notes.md \
+            "$CRATE_FILE"
