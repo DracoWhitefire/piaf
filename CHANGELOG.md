@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ModeSource::DtdIndex(n)` (zero-based) for all Detailed Timing Descriptors decoded from
   the EDID base block and CEA-861 extension blocks. VIC- and DMT-keyed modes already had their
   source set automatically by `display-types`; this fills in the remaining gap.
+- **Dependency audit pipeline** - dependencies get checked on cargo manifest changes.
 
 ### Changed
 
