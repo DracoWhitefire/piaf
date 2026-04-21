@@ -1,5 +1,5 @@
 use crate::model::capabilities::{
-    DisplayCapabilities, ModeSink, StereoMode, SyncDefinition, VideoMode,
+    DisplayCapabilities, ModeSink, ModeSource, StereoMode, SyncDefinition, VideoMode,
 };
 use crate::model::diagnostics::EdidWarning;
 
@@ -11,7 +11,7 @@ pub(super) fn decode_established_timings(base: &[u8; 128], sink: &mut dyn ModeSi
     // (byte offset, bit mask, width, height, refresh_rate)
     // Note: 1024x768@87 is interlaced in the EDID spec; stored as-is since VideoMode
     // has no interlace field.
-    const TIMINGS: &[(usize, u8, u16, u16, u8)] = &[
+    const TIMINGS: &[(usize, u8, u16, u16, u16)] = &[
         (0x23, 0x80, 720, 400, 70),
         (0x23, 0x40, 720, 400, 88),
         (0x23, 0x20, 640, 480, 60),
@@ -52,7 +52,7 @@ pub(super) fn decode_standard_timing_entry(b1: u8, b2: u8) -> Option<VideoMode> 
         0x02 => (w * 4) / 5,   // 5:4
         _ => (w * 9) / 16,     // 16:9
     };
-    Some(VideoMode::new(w, h, (b2 & 0x3F) + 60, false))
+    Some(VideoMode::new(w, h, (b2 & 0x3F) as u16 + 60, false))
 }
 
 /// Decodes the eight standard timing descriptors (offsets 0x26–0x35, 2 bytes each).
@@ -97,7 +97,7 @@ fn build_dtd_mode(dtd: &[u8]) -> Result<Option<VideoMode>, EdidWarning> {
     }
     let Some(refresh_rate) = pixel_clock
         .checked_mul(10_000)
-        .and_then(|scaled| u8::try_from(scaled / total_pixels).ok())
+        .and_then(|scaled| u16::try_from(scaled / total_pixels).ok())
     else {
         return Err(EdidWarning::DtdPixelClockOverflow);
     };
@@ -180,14 +180,14 @@ fn build_dtd_mode(dtd: &[u8]) -> Result<Option<VideoMode>, EdidWarning> {
 ///
 /// This is `pub(crate)` so that the CEA-861 handler can reuse it for DTDs in extension blocks.
 #[cfg(any(feature = "alloc", feature = "std"))]
-pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities) {
+pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities, dtd_index: u8) {
     let mode = match build_dtd_mode(dtd) {
         Err(w) => {
             caps.push_warning(w);
             return;
         }
         Ok(None) => return,
-        Ok(Some(m)) => m,
+        Ok(Some(m)) => m.with_source(ModeSource::DtdIndex(dtd_index)),
     };
 
     // Physical image area in mm: 12-bit H from byte 12 + upper nibble of byte 14,
@@ -221,11 +221,11 @@ pub(crate) fn decode_dtd_slot(dtd: &[u8], caps: &mut DisplayCapabilities) {
 ///
 /// This is `pub(crate)` so that the CEA-861 handler can use it for DTDs in extension blocks
 /// in no-alloc builds.
-pub(crate) fn decode_dtd_slot_into_sink(dtd: &[u8], sink: &mut dyn ModeSink) {
+pub(crate) fn decode_dtd_slot_into_sink(dtd: &[u8], sink: &mut dyn ModeSink, dtd_index: u8) {
     match build_dtd_mode(dtd) {
         Err(w) => sink.push_warning(w),
         Ok(None) => {}
-        Ok(Some(mode)) => sink.push_mode(mode),
+        Ok(Some(mode)) => sink.push_mode(mode.with_source(ModeSource::DtdIndex(dtd_index))),
     }
 }
 
@@ -235,9 +235,9 @@ pub(crate) fn decode_dtd_slot_into_sink(dtd: &[u8], sink: &mut dyn ModeSink) {
 // decode_dtd_slot directly to preserve preferred_image_size_mm and upgrade-in-place semantics.
 #[allow(dead_code)]
 pub(super) fn decode_detailed_timings(base: &[u8; 128], sink: &mut dyn ModeSink) {
-    for i in 0..4 {
-        let offset = 0x36 + (i * 18);
-        decode_dtd_slot_into_sink(&base[offset..offset + 18], sink);
+    for i in 0..4u8 {
+        let offset = 0x36 + (i as usize * 18);
+        decode_dtd_slot_into_sink(&base[offset..offset + 18], sink, i);
     }
 }
 

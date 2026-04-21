@@ -173,7 +173,7 @@ pub(super) fn decode_descriptors_modes(base: &[u8; 128], sink: &mut dyn ModeSink
         // Established Timings III Descriptor: tag 0xF7
         // Byte 5 must be revision 0x0A. Bytes 6-11 are a 44-bit timing bitmap.
         if descriptor[0..5] == [0x00, 0x00, 0x00, 0xF7, 0x00] && descriptor[5] == 0x0A {
-            const ET3: &[(usize, u8, u16, u16, u8)] = &[
+            const ET3: &[(usize, u8, u16, u16, u16)] = &[
                 // Byte 6
                 (6, 0x80, 640, 350, 85),
                 (6, 0x40, 640, 400, 85),
@@ -266,7 +266,7 @@ pub(super) fn decode_descriptors_modes(base: &[u8; 128], sink: &mut dyn ModeSink
                 // Rate bits 4-0: 50Hz std, 60Hz std, 75Hz std, 85Hz std, 60Hz RB
                 // 60Hz RB deduplicates against 60Hz std since VideoMode has no RB flag.
                 for (mask, rate) in [
-                    (0x10u8, 50u8),
+                    (0x10u8, 50u16),
                     (0x08, 60),
                     (0x04, 75),
                     (0x02, 85),

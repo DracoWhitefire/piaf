@@ -2,7 +2,7 @@ use crate::model::diagnostics::EdidWarning;
 use crate::model::manufacture::{ManufacturerId, MonitorString};
 
 pub use display_types::{DisplayCapabilities, ExtensionData};
-pub use display_types::{StereoMode, SyncDefinition, VideoMode};
+pub use display_types::{ModeSource, StereoMode, SyncDefinition, VideoMode};
 
 /// Sink for mode and warning writes from extension handlers.
 ///

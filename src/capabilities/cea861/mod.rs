@@ -305,23 +305,21 @@ impl ExtensionHandler for Cea861Handler {
                             Some(EXT_TAG_T10VTDB) => {
                                 if let Some(t10) = parse_t10vtdb(&block_data[1..]) {
                                     for entry in &t10.entries {
-                                        if let Ok(refresh_rate) = u8::try_from(entry.refresh_hz) {
-                                            let mode = VideoMode::new(
-                                                entry.width,
-                                                entry.height,
-                                                refresh_rate,
-                                                false,
-                                            );
-                                            let already_present =
-                                                caps.supported_modes.iter().any(|m| {
-                                                    m.width == mode.width
-                                                        && m.height == mode.height
-                                                        && m.refresh_rate == mode.refresh_rate
-                                                        && m.interlaced == mode.interlaced
-                                                });
-                                            if !already_present {
-                                                caps.supported_modes.push(mode);
-                                            }
+                                        let mode = VideoMode::new(
+                                            entry.width,
+                                            entry.height,
+                                            entry.refresh_hz,
+                                            false,
+                                        );
+                                        let already_present =
+                                            caps.supported_modes.iter().any(|m| {
+                                                m.width == mode.width
+                                                    && m.height == mode.height
+                                                    && m.refresh_rate == mode.refresh_rate
+                                                    && m.interlaced == mode.interlaced
+                                            });
+                                        if !already_present {
+                                            caps.supported_modes.push(mode);
                                         }
                                     }
                                     cea_caps.t10_vtdb.push(t10);
@@ -361,9 +359,11 @@ impl ExtensionHandler for Cea861Handler {
             // When dtd_offset == 0 there are no DTDs (the spec says no timing data present).
             if (4..=110).contains(&dtd_offset) {
                 let mut offset = dtd_offset;
+                let mut dtd_index: u8 = 0;
                 while offset + 18 <= 127 {
-                    decode_dtd_slot(&ext[offset..offset + 18], caps);
+                    decode_dtd_slot(&ext[offset..offset + 18], caps, dtd_index);
                     offset += 18;
+                    dtd_index = dtd_index.saturating_add(1);
                 }
             }
         } // end for ext in blocks
@@ -464,14 +464,12 @@ pub(crate) fn cea861_process_into_sink(ext: &[u8; 128], sink: &mut dyn ModeSink)
                     Some(EXT_TAG_T10VTDB) => {
                         if let Some(t10) = parse_t10vtdb(&block_data[1..]) {
                             for entry in &t10.entries {
-                                if let Ok(refresh_rate) = u8::try_from(entry.refresh_hz) {
-                                    sink.push_mode(VideoMode::new(
-                                        entry.width,
-                                        entry.height,
-                                        refresh_rate,
-                                        false,
-                                    ));
-                                }
+                                sink.push_mode(VideoMode::new(
+                                    entry.width,
+                                    entry.height,
+                                    entry.refresh_hz,
+                                    false,
+                                ));
                             }
                         }
                     }
@@ -486,9 +484,11 @@ pub(crate) fn cea861_process_into_sink(ext: &[u8; 128], sink: &mut dyn ModeSink)
     // Parse Detailed Timing Descriptors.
     if (4..=110).contains(&dtd_offset) {
         let mut offset = dtd_offset;
+        let mut dtd_index: u8 = 0;
         while offset + 18 <= 127 {
-            decode_dtd_slot_into_sink(&ext[offset..offset + 18], sink);
+            decode_dtd_slot_into_sink(&ext[offset..offset + 18], sink, dtd_index);
             offset += 18;
+            dtd_index = dtd_index.saturating_add(1);
         }
     }
 }

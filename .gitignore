@@ -3,9 +3,6 @@
 **/*.rs.bk
 *.pdb
 
-# Cargo lock file (ignored for libraries, kept for binaries)
-Cargo.lock
-
 # IDE - IntelliJ IDEA
 .idea/
 

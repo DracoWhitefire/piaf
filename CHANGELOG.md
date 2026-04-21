@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking changes
 
+- **`VideoMode::new` refresh rate parameter is now `u16`**: `display-types` 0.3.0 widens the
+  `refresh_rate` argument of `VideoMode::new` from `u8` to `u16`. Callers passing a `u8` literal
+  will need an explicit `as u16` cast or a `u16` value.
+
+### Added
+
+- **SLSA Build Level 2 provenance** — release artifacts are attested via
+  `actions/attest-build-provenance` and verified with
+  `gh attestation verify <file> --repo DracoWhitefire/piaf`.
+- **`ModeSource` now populated for DTDs**: `VideoMode::source` is set to
+  `ModeSource::DtdIndex(n)` (zero-based) for all Detailed Timing Descriptors decoded from
+  the EDID base block and CEA-861 extension blocks. VIC- and DMT-keyed modes already had their
+  source set automatically by `display-types`; this fills in the remaining gap.
+- **Dependency audit pipeline** - dependencies get checked on cargo manifest changes.
+
+### Changed
+
+- Updated `display-types` dependency from `0.2.0` to `0.3.1`.
+
+### Internal
+
+- Fixed coverage ratchet CI: added `LC_NUMERIC=C` to the baseline `printf` to prevent
+  locale-dependent decimal separators from corrupting `.coverage-baseline` on non-C locales.
+
+## [0.4.0] - 2026-03-25
+
+### Breaking changes
+
 - **`VideoMode::with_detailed_timing` new first parameter**: `display-types` 0.2.0 adds
   `pixel_clock_khz: u32` as the first argument. Any caller that constructs a `VideoMode` via
   `with_detailed_timing` must insert the pixel clock value (in kHz) before the existing
