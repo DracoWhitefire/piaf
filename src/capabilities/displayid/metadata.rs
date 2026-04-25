@@ -2,7 +2,8 @@ use super::{
     DISPLAYID_V2, TAG_ASCII_STRING, TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_DEVICE_DATA,
     TAG_DISPLAY_INTERFACE, TAG_DISPLAY_PARAMS, TAG_POWER_SEQUENCING, TAG_PRODUCT_ID,
     TAG_SERIAL_NUMBER, TAG_STEREO_DISPLAY_INTERFACE, TAG_TILED_TOPOLOGY,
-    TAG_TRANSFER_CHARACTERISTICS, TAG_V2_PRODUCT_ID, TAG_VIDEO_TIMING_RANGE, for_each_data_block,
+    TAG_TRANSFER_CHARACTERISTICS, TAG_V2_DISPLAY_PARAMS, TAG_V2_PRODUCT_ID, TAG_VIDEO_TIMING_RANGE,
+    for_each_data_block,
 };
 
 use crate::capabilities::base::{decode_color_bit_depth, decode_manufacture_date};
@@ -29,6 +30,11 @@ use crate::model::transfer::{
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 use display_types::DisplayIdCapabilities;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use display_types::displayid::{
+    Chromaticity12, ChromaticityPoint12, DisplayParamsV2, DisplayTechnology as V2DisplayTechnology,
+    ScanOrientation,
+};
 
 /// Decodes a Product Identification Block payload into `caps`.
 ///
@@ -175,6 +181,180 @@ const fn decode_v2_manufacture_date(week: u8, year: u8) -> ManufactureDate {
             year: y,
         },
     }
+}
+
+/// Converts an IEEE 754-2008 binary16 (half-precision) value to `f32`.
+///
+/// Returns `None` when `raw == 0x8000` (negative zero), which the DisplayID 2.x
+/// spec uses to mark a luminance field as "not used", or when the value decodes
+/// to `NaN` / infinity (out-of-range for cd/m² readings).
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn decode_luminance_f16(raw: u16) -> Option<f32> {
+    if raw == 0x8000 {
+        return None;
+    }
+    let sign = u32::from((raw >> 15) & 0x1);
+    let exp = u32::from((raw >> 10) & 0x1F);
+    let mant = u32::from(raw & 0x3FF);
+
+    let bits: u32 = if exp == 0 && mant == 0 {
+        sign << 31
+    } else if exp == 31 {
+        // ±inf / NaN — not meaningful luminance.
+        return None;
+    } else if exp == 0 {
+        // Subnormal: renormalise into f32 normal range.
+        let mut m = mant;
+        let mut e: i32 = -14;
+        while (m & 0x400) == 0 {
+            m <<= 1;
+            e -= 1;
+        }
+        m &= 0x3FF;
+        let f32_exp = (e + 127) as u32;
+        (sign << 31) | (f32_exp << 23) | (m << 13)
+    } else {
+        let f32_exp = exp + 127 - 15;
+        (sign << 31) | (f32_exp << 23) | (mant << 13)
+    };
+
+    Some(f32::from_bits(bits))
+}
+
+/// Maps the 3-bit DisplayID 2.x color depth field (block 0x21 byte 27, bits 2:0) to bpc.
+///
+/// Returns `None` for the "undefined" code (`0`) and for values reserved by the spec
+/// (`6`, `7`). The 2.x encoding skips 14 bpc (which 1.x supports), so `5` decodes to 16.
+#[cfg(any(feature = "alloc", feature = "std"))]
+const fn decode_v2_color_bit_depth(field: u8) -> Option<u8> {
+    match field & 0x07 {
+        1 => Some(6),
+        2 => Some(8),
+        3 => Some(10),
+        4 => Some(12),
+        5 => Some(16),
+        _ => None,
+    }
+}
+
+/// Decodes a DisplayID 2.x Display Parameters Block payload (tag `0x21`).
+///
+/// Payload layout (DisplayID 2.x §4.2, fixed 29 bytes):
+/// - Bytes  0–1: Horizontal image size (LE uint16; precision per revision bit 7)
+/// - Bytes  2–3: Vertical image size (LE uint16)
+/// - Bytes  4–5: Horizontal native pixel count (LE uint16; `0` = undefined)
+/// - Bytes  6–7: Vertical native pixel count (LE uint16; `0` = undefined)
+/// - Byte   8:   Feature support flags
+///   - bits 2:0  Scan orientation
+///   - bit  3    Luminance information: `0` = guaranteed minima, `1` = source guidance
+///   - bit  6    Color space coordinates: `0` = CIE 1931 (x,y), `1` = CIE 1976 (u',v')
+///   - bit  7    Audio output: `0` = integrated speakers, `1` = external jack
+/// - Bytes  9–11: Primary 1 (red) chromaticity, 12-bit packed
+/// - Bytes 12–14: Primary 2 (green) chromaticity
+/// - Bytes 15–17: Primary 3 (blue) chromaticity
+/// - Bytes 18–20: White point chromaticity
+/// - Bytes 21–22: Max luminance, full coverage (IEEE 754 binary16; `0x8000` = unused)
+/// - Bytes 23–24: Max luminance, 10% coverage (binary16)
+/// - Bytes 25–26: Min luminance (binary16)
+/// - Byte  27:    Color depth (bits 2:0) and display technology (bits 6:4)
+/// - Byte  28:    Gamma EOTF, stored as `(γ − 1) × 100`; `0xFF` = unspecified
+///
+/// Image size precision is signalled by bit 7 of the data-block revision byte:
+/// `0` = 0.1 mm units (default), `1` = 1 mm units. Sizes are normalised to whole
+/// millimetres before being written to `caps.preferred_image_size_mm`.
+///
+/// Chromaticity, luminance, gamma, color depth, display technology, scan orientation,
+/// audio routing, and the CIE-coordinate variant are stored on
+/// `did.display_params_v2`. Native pixel count and image size are mirrored onto
+/// `caps.native_pixels` and `caps.preferred_image_size_mm` respectively, alongside
+/// `caps.color_bit_depth` (when defined). Short payloads are silently ignored.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_v2_display_params_block(
+    payload: &[u8],
+    revision: u8,
+    caps: &mut DisplayCapabilities,
+    did: &mut DisplayIdCapabilities,
+) {
+    if payload.len() < 29 {
+        return;
+    }
+
+    let size_in_whole_mm = (revision >> 7) & 0x01 != 0;
+    let h_size = u16::from_le_bytes([payload[0], payload[1]]);
+    let v_size = u16::from_le_bytes([payload[2], payload[3]]);
+    if h_size != 0 && v_size != 0 {
+        let mm = if size_in_whole_mm {
+            (h_size, v_size)
+        } else {
+            // 0.1 mm units — convert to whole mm to match the field's documented unit.
+            (h_size / 10, v_size / 10)
+        };
+        caps.preferred_image_size_mm = Some(mm);
+    }
+
+    let h_px = u16::from_le_bytes([payload[4], payload[5]]);
+    let v_px = u16::from_le_bytes([payload[6], payload[7]]);
+    if h_px != 0 && v_px != 0 {
+        caps.native_pixels = Some((h_px, v_px));
+    }
+
+    let flags = payload[8];
+    let scan_orientation = ScanOrientation::from_bits(flags);
+    let luminance_guidance = (flags >> 3) & 0x01 != 0;
+    let color_space_cie1976 = (flags >> 6) & 0x01 != 0;
+    let audio_external = (flags >> 7) & 0x01 != 0;
+
+    let read_chromaticity_point = |offset: usize| ChromaticityPoint12 {
+        x_raw: u16::from(payload[offset]) | ((u16::from(payload[offset + 1]) & 0x0F) << 8),
+        y_raw: ((u16::from(payload[offset + 1]) >> 4) & 0x0F)
+            | (u16::from(payload[offset + 2]) << 4),
+    };
+    let chromaticity = Chromaticity12 {
+        primary1: read_chromaticity_point(9),
+        primary2: read_chromaticity_point(12),
+        primary3: read_chromaticity_point(15),
+        white: read_chromaticity_point(18),
+    };
+
+    let max_luminance_full = decode_luminance_f16(u16::from_le_bytes([payload[21], payload[22]]));
+    let max_luminance_10pct = decode_luminance_f16(u16::from_le_bytes([payload[23], payload[24]]));
+    let min_luminance = decode_luminance_f16(u16::from_le_bytes([payload[25], payload[26]]));
+
+    let depth_tech_byte = payload[27];
+    let color_bit_depth = decode_v2_color_bit_depth(depth_tech_byte & 0x07);
+    let display_technology = V2DisplayTechnology::from_byte((depth_tech_byte >> 4) & 0x07);
+
+    let gamma_byte = payload[28];
+    let gamma = if gamma_byte == 0xFF {
+        None
+    } else {
+        Some(f32::from(gamma_byte) / 100.0 + 1.0)
+    };
+
+    if let Some(bpc) = color_bit_depth {
+        caps.color_bit_depth = match bpc {
+            6 => Some(crate::model::color::ColorBitDepth::Depth6),
+            8 => Some(crate::model::color::ColorBitDepth::Depth8),
+            10 => Some(crate::model::color::ColorBitDepth::Depth10),
+            12 => Some(crate::model::color::ColorBitDepth::Depth12),
+            16 => Some(crate::model::color::ColorBitDepth::Depth16),
+            _ => None,
+        };
+    }
+
+    let mut params = DisplayParamsV2::default();
+    params.chromaticity = chromaticity;
+    params.color_space_cie1976 = color_space_cie1976;
+    params.max_luminance_full = max_luminance_full;
+    params.max_luminance_10pct = max_luminance_10pct;
+    params.min_luminance = min_luminance;
+    params.luminance_guidance = luminance_guidance;
+    params.color_bit_depth = color_bit_depth;
+    params.display_technology = display_technology;
+    params.gamma = gamma;
+    params.scan_orientation = scan_orientation;
+    params.audio_external = audio_external;
+    did.display_params_v2 = Some(params);
 }
 
 /// Decodes a Display Parameters Block payload into `caps`.
@@ -879,11 +1059,17 @@ pub(super) fn scan_all_metadata_blocks(
 ) {
     if version == DISPLAYID_V2 {
         let mut found_v2_product_id = false;
-        for_each_data_block(payload, |tag, _revision, block_payload| {
-            if tag == TAG_V2_PRODUCT_ID && !found_v2_product_id {
+        let mut found_v2_display_params = false;
+        for_each_data_block(payload, |tag, revision, block_payload| match tag {
+            TAG_V2_PRODUCT_ID if !found_v2_product_id => {
                 found_v2_product_id = true;
                 decode_v2_product_id_block(block_payload, caps, did);
             }
+            TAG_V2_DISPLAY_PARAMS if !found_v2_display_params => {
+                found_v2_display_params = true;
+                decode_v2_display_params_block(block_payload, revision, caps, did);
+            }
+            _ => {}
         });
         return;
     }
@@ -1267,6 +1453,429 @@ mod tests {
         scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps_v2, &mut did_v2);
         assert_eq!(did_v2.manufacturer_oui, Some([0x00, 0x1A, 0x7E]));
         assert_eq!(caps_v2.product_code, Some(0xAAAA));
+    }
+
+    // -----------------------------------------------------------------------
+    // V2 Display Parameters Block (tag 0x21)
+    // -----------------------------------------------------------------------
+
+    /// Encodes a 12-bit (x_raw, y_raw) chromaticity pair into the 24-bit packed layout
+    /// used by DisplayID 2.x block 0x21 primaries / white point.
+    fn pack_chromaticity12(x: u16, y: u16) -> [u8; 3] {
+        let x = x & 0x0FFF;
+        let y = y & 0x0FFF;
+        [
+            (x & 0xFF) as u8,
+            (((x >> 8) & 0x0F) | ((y & 0x0F) << 4)) as u8,
+            ((y >> 4) & 0xFF) as u8,
+        ]
+    }
+
+    /// Encodes an `f32` luminance value (cd/m²) into IEEE 754 binary16 little-endian.
+    /// Limited to positive normals — this is enough for the cd/m² values used in tests.
+    fn encode_luminance_f16(v: f32) -> [u8; 2] {
+        let bits = v.to_bits();
+        let sign = (bits >> 31) & 0x1;
+        let exp_f32 = ((bits >> 23) & 0xFF) as i32;
+        let mant_f32 = bits & 0x7F_FFFF;
+        let exp_f16 = exp_f32 - 127 + 15;
+        assert!(
+            (1..=30).contains(&exp_f16),
+            "encode_luminance_f16 only supports normal binary16 values"
+        );
+        let mant_f16 = (mant_f32 >> 13) & 0x3FF;
+        let raw = ((sign as u16) << 15) | ((exp_f16 as u16) << 10) | (mant_f16 as u16);
+        raw.to_le_bytes()
+    }
+
+    fn make_v2_display_params_payload(
+        h_size: u16,
+        v_size: u16,
+        h_pixels: u16,
+        v_pixels: u16,
+        flags: u8,
+        chromaticity: (u16, u16, u16, u16, u16, u16, u16, u16), // r, g, b, w (x,y) interleaved
+        max_lum_full: u16,                                      // raw f16 LE bits
+        max_lum_10pct: u16,
+        min_lum: u16,
+        depth_tech_byte: u8,
+        gamma_byte: u8,
+    ) -> [u8; 29] {
+        let mut p = [0u8; 29];
+        p[0..2].copy_from_slice(&h_size.to_le_bytes());
+        p[2..4].copy_from_slice(&v_size.to_le_bytes());
+        p[4..6].copy_from_slice(&h_pixels.to_le_bytes());
+        p[6..8].copy_from_slice(&v_pixels.to_le_bytes());
+        p[8] = flags;
+        p[9..12].copy_from_slice(&pack_chromaticity12(chromaticity.0, chromaticity.1));
+        p[12..15].copy_from_slice(&pack_chromaticity12(chromaticity.2, chromaticity.3));
+        p[15..18].copy_from_slice(&pack_chromaticity12(chromaticity.4, chromaticity.5));
+        p[18..21].copy_from_slice(&pack_chromaticity12(chromaticity.6, chromaticity.7));
+        p[21..23].copy_from_slice(&max_lum_full.to_le_bytes());
+        p[23..25].copy_from_slice(&max_lum_10pct.to_le_bytes());
+        p[25..27].copy_from_slice(&min_lum.to_le_bytes());
+        p[27] = depth_tech_byte;
+        p[28] = gamma_byte;
+        p
+    }
+
+    #[test]
+    fn test_v2_display_params_image_size_tenths() {
+        // Revision bit 7 = 0: 0.1 mm units. 5970×3360 → 597×336 mm.
+        let p = make_v2_display_params_payload(
+            5970,
+            3360,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x00, &mut caps, &mut did);
+        assert_eq!(caps.preferred_image_size_mm, Some((597, 336)));
+    }
+
+    #[test]
+    fn test_v2_display_params_image_size_whole_mm() {
+        // Revision bit 7 = 1: 1 mm units. 597×336 → 597×336 mm.
+        let p = make_v2_display_params_payload(
+            597,
+            336,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        assert_eq!(caps.preferred_image_size_mm, Some((597, 336)));
+    }
+
+    #[test]
+    fn test_v2_display_params_zero_size_not_stored() {
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        assert_eq!(caps.preferred_image_size_mm, None);
+    }
+
+    #[test]
+    fn test_v2_display_params_native_pixels() {
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            3840,
+            2160,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        assert_eq!(caps.native_pixels, Some((3840, 2160)));
+    }
+
+    #[test]
+    fn test_v2_display_params_chromaticity_round_trip() {
+        // sRGB primaries (12-bit raw values, each ≈ original × 4096).
+        let r = (2867, 1474); // (0.700, 0.360)
+        let g = (1228, 2867); // (0.300, 0.700)
+        let b = (614, 245); // (0.150, 0.060)
+        let w = (1294, 1347); // (0.316, 0.329)
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (r.0, r.1, g.0, g.1, b.0, b.1, w.0, w.1),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        let chrom = did.display_params_v2.as_ref().unwrap().chromaticity;
+        assert_eq!((chrom.primary1.x_raw, chrom.primary1.y_raw), r);
+        assert_eq!((chrom.primary2.x_raw, chrom.primary2.y_raw), g);
+        assert_eq!((chrom.primary3.x_raw, chrom.primary3.y_raw), b);
+        assert_eq!((chrom.white.x_raw, chrom.white.y_raw), w);
+    }
+
+    #[test]
+    fn test_v2_display_params_luminance_decoded() {
+        let max_full = encode_luminance_f16(1000.0);
+        let max_10pct = encode_luminance_f16(1500.0);
+        let min = encode_luminance_f16(0.05);
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            u16::from_le_bytes(max_full),
+            u16::from_le_bytes(max_10pct),
+            u16::from_le_bytes(min),
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        let params = did.display_params_v2.as_ref().unwrap();
+        assert!((params.max_luminance_full.unwrap() - 1000.0).abs() < 1.0);
+        assert!((params.max_luminance_10pct.unwrap() - 1500.0).abs() < 1.0);
+        assert!((params.min_luminance.unwrap() - 0.05).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_v2_display_params_negative_zero_luminance_is_unused() {
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000, // -0 = unused
+            0x8000,
+            0x8000,
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        let params = did.display_params_v2.as_ref().unwrap();
+        assert_eq!(params.max_luminance_full, None);
+        assert_eq!(params.max_luminance_10pct, None);
+        assert_eq!(params.min_luminance, None);
+    }
+
+    #[test]
+    fn test_v2_display_params_color_depth_decoded() {
+        // Bits 2:0 = 3 → 10 bpc.
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x03,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        let params = did.display_params_v2.as_ref().unwrap();
+        assert_eq!(params.color_bit_depth, Some(10));
+        assert_eq!(caps.color_bit_depth, Some(ColorBitDepth::Depth10));
+    }
+
+    #[test]
+    fn test_v2_display_params_color_depth_5_decodes_to_16() {
+        // Bits 2:0 = 5 → 16 bpc (DisplayID 2.x has no 14 bpc encoding).
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x05,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        assert_eq!(
+            did.display_params_v2.as_ref().unwrap().color_bit_depth,
+            Some(16)
+        );
+        assert_eq!(caps.color_bit_depth, Some(ColorBitDepth::Depth16));
+    }
+
+    #[test]
+    fn test_v2_display_params_display_technology_decoded() {
+        // Bits 6:4 = 2 → AMOLED.
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x20,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        assert_eq!(
+            did.display_params_v2.as_ref().unwrap().display_technology,
+            V2DisplayTechnology::Amoled
+        );
+    }
+
+    #[test]
+    fn test_v2_display_params_gamma_decoded() {
+        // gamma_byte = 120 → (120/100) + 1 = 2.20.
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x00,
+            120,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        let g = did.display_params_v2.as_ref().unwrap().gamma.unwrap();
+        assert!((g - 2.20).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_v2_display_params_gamma_unspecified() {
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        assert_eq!(did.display_params_v2.as_ref().unwrap().gamma, None);
+    }
+
+    #[test]
+    fn test_v2_display_params_feature_flags_decoded() {
+        // bit 3 = luminance guidance, bit 6 = CIE 1976, bit 7 = external audio,
+        // bits 2:0 = 0b101 = LeftRightBottomTop scan.
+        let flags = 0b1100_1101;
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            flags,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        let params = did.display_params_v2.as_ref().unwrap();
+        assert!(params.luminance_guidance);
+        assert!(params.color_space_cie1976);
+        assert!(params.audio_external);
+        assert_eq!(params.scan_orientation, ScanOrientation::LeftRightBottomTop);
+    }
+
+    #[test]
+    fn test_v2_display_params_short_payload_skipped() {
+        let short = [0u8; 28];
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&short, 0x80, &mut caps, &mut did);
+        assert!(did.display_params_v2.is_none());
+    }
+
+    #[test]
+    fn test_v2_display_params_dispatched_only_for_v2_section() {
+        let body = make_v2_display_params_payload(
+            597,
+            336,
+            3840,
+            2160,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x03,
+            0xFF,
+        );
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_V2_DISPLAY_PARAMS); // tag
+        block_payload.push(0x80); // revision (image-size precision = 1 mm)
+        block_payload.push(body.len() as u8); // length
+        block_payload.extend_from_slice(&body);
+
+        // V1 section: should not decode V2 0x21.
+        let mut caps_v1 = DisplayCapabilities::default();
+        let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
+        scan_all_metadata_blocks(&block_payload, 0x13, &mut caps_v1, &mut did_v1);
+        assert!(did_v1.display_params_v2.is_none());
+
+        // V2 section: decoder runs.
+        let mut caps_v2 = DisplayCapabilities::default();
+        let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps_v2, &mut did_v2);
+        assert!(did_v2.display_params_v2.is_some());
+        assert_eq!(caps_v2.preferred_image_size_mm, Some((597, 336)));
+        assert_eq!(caps_v2.native_pixels, Some((3840, 2160)));
     }
 
     // -----------------------------------------------------------------------
