@@ -4,7 +4,8 @@ use super::{
     TAG_SERIAL_NUMBER, TAG_STEREO_DISPLAY_INTERFACE, TAG_TILED_TOPOLOGY,
     TAG_TRANSFER_CHARACTERISTICS, TAG_V2_CONTAINER_ID, TAG_V2_DISPLAY_PARAMS,
     TAG_V2_DYNAMIC_TIMING_RANGE, TAG_V2_INTERFACE_FEATURES, TAG_V2_PRODUCT_ID,
-    TAG_V2_STEREO_INTERFACE, TAG_V2_TILED_TOPOLOGY, TAG_VIDEO_TIMING_RANGE, for_each_data_block,
+    TAG_V2_STEREO_INTERFACE, TAG_V2_TILED_TOPOLOGY, TAG_V2_VENDOR_SPECIFIC, TAG_VIDEO_TIMING_RANGE,
+    for_each_data_block,
 };
 
 use crate::capabilities::base::{decode_color_bit_depth, decode_manufacture_date};
@@ -33,9 +34,10 @@ use crate::model::transfer::{
 use display_types::DisplayIdCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use display_types::displayid::{
-    Chromaticity12, ChromaticityPoint12, DisplayIdStereoInterfaceV2, DisplayInterfaceFeatures,
-    DisplayParamsV2, DisplayTechnology as V2DisplayTechnology, DualInterfaceMirroring,
-    DynamicTimingRange, ScanOrientation, StereoEye, StereoTimingScopeV2, StereoViewingMethodV2,
+    Chromaticity12, ChromaticityPoint12, DisplayIdStereoInterfaceV2, DisplayIdVendorSpecific,
+    DisplayInterfaceFeatures, DisplayParamsV2, DisplayTechnology as V2DisplayTechnology,
+    DualInterfaceMirroring, DynamicTimingRange, ScanOrientation, StereoEye, StereoTimingScopeV2,
+    StereoViewingMethodV2,
 };
 
 /// Decodes a Product Identification Block payload into `caps`.
@@ -594,6 +596,26 @@ pub(super) fn decode_v2_container_id_block(payload: &[u8], did: &mut DisplayIdCa
     let mut uuid = [0u8; 16];
     uuid.copy_from_slice(&payload[..16]);
     did.container_id = Some(uuid);
+}
+
+/// Decodes a DisplayID 2.x Vendor-Specific Block payload (tag `0x7E`).
+///
+/// Payload layout (DisplayID 2.x §4.10, minimum 3 bytes):
+/// - Bytes 0–2: 3-byte IEEE OUI identifying the vendor (high-order byte first).
+/// - Bytes 3+:  Opaque vendor-defined data; semantics are not interpreted here.
+///
+/// The decoded record is appended to `did.vendor_specific`. Multiple 0x7E blocks
+/// are allowed in a single section — each is recorded in payload order. Payloads
+/// shorter than 3 bytes (no complete OUI) are skipped.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_v2_vendor_specific_block(payload: &[u8], did: &mut DisplayIdCapabilities) {
+    if payload.len() < 3 {
+        return;
+    }
+    let mut record = DisplayIdVendorSpecific::default();
+    record.oui = [payload[0], payload[1], payload[2]];
+    record.data = payload[3..].to_vec();
+    did.vendor_specific.push(record);
 }
 
 /// Decodes a Display Parameters Block payload into `caps`.
@@ -1332,6 +1354,9 @@ pub(super) fn scan_all_metadata_blocks(
             TAG_V2_CONTAINER_ID if !found_v2_container_id => {
                 found_v2_container_id = true;
                 decode_v2_container_id_block(block_payload, did);
+            }
+            TAG_V2_VENDOR_SPECIFIC => {
+                decode_v2_vendor_specific_block(block_payload, did);
             }
             _ => {}
         });
@@ -3776,6 +3801,100 @@ mod tests {
         let mut did = DisplayIdCapabilities::new(0x20, 0);
         scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did);
         assert_eq!(did.container_id, Some(SAMPLE_UUID));
+    }
+
+    // -----------------------------------------------------------------------
+    // V2 Vendor-Specific Block (tag 0x7E)
+    // -----------------------------------------------------------------------
+
+    const DOLBY_OUI: [u8; 3] = [0x00, 0xD0, 0x46];
+    const MICROSOFT_OUI: [u8; 3] = [0xCA, 0x12, 0x5C];
+
+    #[test]
+    fn test_v2_vendor_specific_basic() {
+        let mut payload = DOLBY_OUI.to_vec();
+        payload.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_vendor_specific_block(&payload, &mut did);
+        assert_eq!(did.vendor_specific.len(), 1);
+        assert_eq!(did.vendor_specific[0].oui, DOLBY_OUI);
+        assert_eq!(
+            did.vendor_specific[0].data.as_slice(),
+            &[0xDE, 0xAD, 0xBE, 0xEF]
+        );
+    }
+
+    #[test]
+    fn test_v2_vendor_specific_oui_only_no_data() {
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_vendor_specific_block(&DOLBY_OUI, &mut did);
+        assert_eq!(did.vendor_specific.len(), 1);
+        assert_eq!(did.vendor_specific[0].oui, DOLBY_OUI);
+        assert!(did.vendor_specific[0].data.is_empty());
+    }
+
+    #[test]
+    fn test_v2_vendor_specific_short_payload_skipped() {
+        let short = [0x00, 0xD0]; // 2 bytes, no full OUI
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_vendor_specific_block(&short, &mut did);
+        assert!(did.vendor_specific.is_empty());
+    }
+
+    #[test]
+    fn test_v2_vendor_specific_dispatched_only_for_v2_section() {
+        let body = {
+            let mut v = DOLBY_OUI.to_vec();
+            v.extend_from_slice(&[0x01, 0x02]);
+            v
+        };
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_V2_VENDOR_SPECIFIC);
+        block_payload.push(0x00);
+        block_payload.push(body.len() as u8);
+        block_payload.extend_from_slice(&body);
+
+        // V1 section: 0x7E is not a 1.x tag — must not decode.
+        let mut caps_v1 = DisplayCapabilities::default();
+        let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
+        scan_all_metadata_blocks(&block_payload, 0x13, &mut caps_v1, &mut did_v1);
+        assert!(did_v1.vendor_specific.is_empty());
+
+        // V2 section: decoder runs.
+        let mut caps_v2 = DisplayCapabilities::default();
+        let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps_v2, &mut did_v2);
+        assert_eq!(did_v2.vendor_specific.len(), 1);
+        assert_eq!(did_v2.vendor_specific[0].oui, DOLBY_OUI);
+    }
+
+    #[test]
+    fn test_v2_vendor_specific_collects_multiple_in_payload_order() {
+        let first = {
+            let mut v = DOLBY_OUI.to_vec();
+            v.push(0x11);
+            v
+        };
+        let second = {
+            let mut v = MICROSOFT_OUI.to_vec();
+            v.extend_from_slice(&[0x22, 0x33]);
+            v
+        };
+        let mut payload = Vec::new();
+        for body in [&first, &second] {
+            payload.push(TAG_V2_VENDOR_SPECIFIC);
+            payload.push(0x00);
+            payload.push(body.len() as u8);
+            payload.extend_from_slice(body);
+        }
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did);
+        assert_eq!(did.vendor_specific.len(), 2);
+        assert_eq!(did.vendor_specific[0].oui, DOLBY_OUI);
+        assert_eq!(did.vendor_specific[0].data.as_slice(), &[0x11]);
+        assert_eq!(did.vendor_specific[1].oui, MICROSOFT_OUI);
+        assert_eq!(did.vendor_specific[1].data.as_slice(), &[0x22, 0x33]);
     }
 
     // -----------------------------------------------------------------------
