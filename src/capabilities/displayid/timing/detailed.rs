@@ -140,6 +140,85 @@ pub(super) fn decode_type_ii_descriptor(d: &[u8; 11], sink: &mut dyn ModeSink) {
     );
 }
 
+/// Decodes one 20-byte Type VII Detailed Timing descriptor body and returns the mode.
+///
+/// `d` is the bare descriptor — the 2-byte CTA wrapper that prefixes a T7VTDB
+/// (`Block_Rev` / `T7Y420` / `T7HSP` / `T7VSP`) is **not** included; callers operating on
+/// a CTA T7VTDB must pass `&block_data[2..22]`.
+///
+/// Descriptor layout (DisplayID 2.x §4.5.7, "Video Timing Mode Type 7"):
+/// - Bytes 0–2:   Pixel clock in kHz (24-bit little-endian)
+/// - Byte  3:     `3D_Support[7:6] | reserved[5] | T7IL[4] | T7_Aspect_Ratio[3:0]`
+/// - Bytes 4–5:   H Active in pixels (16-bit LE)
+/// - Bytes 6–7:   H Blank  in pixels (16-bit LE)
+/// - Bytes 8–9:   H Front Porch, bits 14:0 (16-bit LE); bit 15 = HSync polarity (1 = positive)
+/// - Bytes 10–11: H Sync Width in pixels (16-bit LE)
+/// - Bytes 12–13: V Active in lines  (16-bit LE)
+/// - Bytes 14–15: V Blank  in lines  (16-bit LE)
+/// - Bytes 16–17: V Front Porch, bits 14:0 (16-bit LE); bit 15 = VSync polarity (1 = positive)
+/// - Bytes 18–19: V Sync Width in lines (16-bit LE)
+///
+/// Returns `None` for null descriptors (pixel clock = 0), zero-sized active/blank fields,
+/// or geometry whose reduced refresh rate doesn't fit in [`RefreshRate`].
+pub(crate) fn decode_type_vii_descriptor_to_mode(d: &[u8; 20]) -> Option<VideoMode> {
+    let pixel_clock_khz = (d[0] as u32) | ((d[1] as u32) << 8) | ((d[2] as u32) << 16);
+    if pixel_clock_khz == 0 {
+        return None;
+    }
+
+    let interlaced = (d[3] >> 4) & 1 != 0;
+
+    let h_active = u16::from_le_bytes([d[4], d[5]]);
+    let h_blank = u16::from_le_bytes([d[6], d[7]]);
+    let h_fp_word = u16::from_le_bytes([d[8], d[9]]);
+    let h_front_porch = h_fp_word & 0x7FFF;
+    let h_sync_positive = (h_fp_word >> 15) != 0;
+    let h_sync_width = u16::from_le_bytes([d[10], d[11]]);
+
+    let v_active = u16::from_le_bytes([d[12], d[13]]);
+    let v_blank = u16::from_le_bytes([d[14], d[15]]);
+    let v_fp_word = u16::from_le_bytes([d[16], d[17]]);
+    let v_front_porch = v_fp_word & 0x7FFF;
+    let v_sync_positive = (v_fp_word >> 15) != 0;
+    let v_sync_width = u16::from_le_bytes([d[18], d[19]]);
+
+    if h_active == 0 || v_active == 0 || h_blank == 0 || v_blank == 0 {
+        return None;
+    }
+
+    let h_total = h_active as u64 + h_blank as u64;
+    let v_total = v_active as u64 + v_blank as u64;
+    let pixel_clock_hz = pixel_clock_khz as u64 * 1000;
+    let refresh_rate = RefreshRate::from_ratio(pixel_clock_hz, h_total * v_total)?;
+
+    Some(
+        VideoMode::new(h_active, v_active, refresh_rate, interlaced).with_detailed_timing(
+            pixel_clock_khz,
+            h_front_porch,
+            h_sync_width,
+            v_front_porch,
+            v_sync_width,
+            0,
+            0,
+            StereoMode::None,
+            Some(SyncDefinition::DigitalSeparate {
+                v_sync_positive,
+                h_sync_positive,
+            }),
+        ),
+    )
+}
+
+/// Decodes one Type VII descriptor and pushes the resulting mode to `sink`.
+///
+/// Thin wrapper around [`decode_type_vii_descriptor_to_mode`]; null/degenerate
+/// descriptors are silently dropped.
+pub(super) fn decode_type_vii_descriptor(d: &[u8; 20], sink: &mut dyn ModeSink) {
+    if let Some(mode) = decode_type_vii_descriptor_to_mode(d) {
+        sink.push_mode(mode);
+    }
+}
+
 /// Decodes one Type VI Video Timing descriptor from `d` and pushes a mode to `sink`.
 ///
 /// Descriptor layout (DisplayID 1.x §4.7):
@@ -505,6 +584,132 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         let consumed = decode_type_vi_descriptor(&d, &mut caps);
         assert_eq!(consumed, 0);
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // Type VII Detailed Timing (DisplayID 2.x tag 0x22)
+    // -----------------------------------------------------------------------
+
+    /// Build a 20-byte Type VII descriptor body (no CTA wrapper bytes).
+    #[allow(clippy::too_many_arguments)]
+    fn make_type_vii_descriptor(
+        pixel_clock_khz: u32,
+        h_active: u16,
+        h_blank: u16,
+        h_fp: u16,
+        h_sync_positive: bool,
+        h_sw: u16,
+        v_active: u16,
+        v_blank: u16,
+        v_fp: u16,
+        v_sync_positive: bool,
+        v_sw: u16,
+        interlaced: bool,
+    ) -> [u8; 20] {
+        let mut d = [0u8; 20];
+        d[0] = (pixel_clock_khz & 0xFF) as u8;
+        d[1] = ((pixel_clock_khz >> 8) & 0xFF) as u8;
+        d[2] = ((pixel_clock_khz >> 16) & 0xFF) as u8;
+        d[3] = (interlaced as u8) << 4;
+        d[4..6].copy_from_slice(&h_active.to_le_bytes());
+        d[6..8].copy_from_slice(&h_blank.to_le_bytes());
+        let h_fp_word = (h_fp & 0x7FFF) | ((h_sync_positive as u16) << 15);
+        d[8..10].copy_from_slice(&h_fp_word.to_le_bytes());
+        d[10..12].copy_from_slice(&h_sw.to_le_bytes());
+        d[12..14].copy_from_slice(&v_active.to_le_bytes());
+        d[14..16].copy_from_slice(&v_blank.to_le_bytes());
+        let v_fp_word = (v_fp & 0x7FFF) | ((v_sync_positive as u16) << 15);
+        d[16..18].copy_from_slice(&v_fp_word.to_le_bytes());
+        d[18..20].copy_from_slice(&v_sw.to_le_bytes());
+        d
+    }
+
+    #[test]
+    fn test_type_vii_1080p60_decoded() {
+        // 1920×1080@60: pc=148_500 kHz, h_total=2200, v_total=1125 → exact 60 Hz.
+        let d = make_type_vii_descriptor(
+            148_500, 1920, 280, 88, true, 44, 1080, 45, 4, true, 5, false,
+        );
+        let mut caps = DisplayCapabilities::default();
+        decode_type_vii_descriptor(&d, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        let mode = &caps.supported_modes[0];
+        assert_eq!(mode.width, 1920);
+        assert_eq!(mode.height, 1080);
+        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+        assert!(!mode.interlaced);
+        assert_eq!(mode.h_front_porch, 88);
+        assert_eq!(mode.h_sync_width, 44);
+        assert_eq!(mode.v_front_porch, 4);
+        assert_eq!(mode.v_sync_width, 5);
+        assert_eq!(
+            mode.sync,
+            Some(SyncDefinition::DigitalSeparate {
+                h_sync_positive: true,
+                v_sync_positive: true,
+            })
+        );
+    }
+
+    #[test]
+    fn test_type_vii_rational_rate_preserved() {
+        // The kHz-precision pixel clock can't represent 60_000/1001 exactly, but the
+        // decoder must preserve whatever rational ratio falls out of the inputs.
+        // Synthesize an exact case: pc = 120_120 kHz, h_total = 1001, v_total = 2
+        // → 120_120_000 / 2002 = 60_000 Hz exact.
+        let d = make_type_vii_descriptor(120_120, 1000, 1, 0, false, 0, 1, 1, 0, false, 0, false);
+        let mut caps = DisplayCapabilities::default();
+        decode_type_vii_descriptor(&d, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(
+            caps.supported_modes[0].refresh_rate,
+            RefreshRate::integral(60_000)
+        );
+    }
+
+    #[test]
+    fn test_type_vii_polarity_negative() {
+        let d = make_type_vii_descriptor(
+            148_500, 1920, 280, 88, false, 44, 1080, 45, 4, false, 5, false,
+        );
+        let mut caps = DisplayCapabilities::default();
+        decode_type_vii_descriptor(&d, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(
+            caps.supported_modes[0].sync,
+            Some(SyncDefinition::DigitalSeparate {
+                h_sync_positive: false,
+                v_sync_positive: false,
+            })
+        );
+    }
+
+    #[test]
+    fn test_type_vii_interlaced_flag() {
+        let d =
+            make_type_vii_descriptor(148_500, 1920, 280, 88, true, 44, 1080, 45, 4, true, 5, true);
+        let mut caps = DisplayCapabilities::default();
+        decode_type_vii_descriptor(&d, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert!(caps.supported_modes[0].interlaced);
+    }
+
+    #[test]
+    fn test_type_vii_null_descriptor_skipped() {
+        let d = [0u8; 20];
+        let mut caps = DisplayCapabilities::default();
+        decode_type_vii_descriptor(&d, &mut caps);
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_type_vii_zero_active_skipped() {
+        // Pixel clock non-zero but h_active = 0 → degenerate, skipped.
+        let d =
+            make_type_vii_descriptor(148_500, 0, 280, 88, true, 44, 1080, 45, 4, true, 5, false);
+        let mut caps = DisplayCapabilities::default();
+        decode_type_vii_descriptor(&d, &mut caps);
         assert!(caps.supported_modes.is_empty());
     }
 }

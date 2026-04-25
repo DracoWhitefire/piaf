@@ -4,13 +4,18 @@ mod short;
 
 use super::{
     DISPLAYID_V2, TAG_CTA_VIDEO_TIMING, TAG_TYPE_I_TIMING, TAG_TYPE_II_TIMING, TAG_TYPE_III_TIMING,
-    TAG_TYPE_IV_TIMING, TAG_TYPE_V_TIMING, TAG_TYPE_VI_TIMING, TAG_VESA_VIDEO_TIMING,
-    for_each_data_block,
+    TAG_TYPE_IV_TIMING, TAG_TYPE_V_TIMING, TAG_TYPE_VI_TIMING, TAG_V2_TYPE_VII_TIMING,
+    TAG_VESA_VIDEO_TIMING, for_each_data_block,
 };
 use crate::model::capabilities::ModeSink;
 use coded::{decode_cta_video_timing_block, decode_type_iv_block, decode_vesa_video_timing_block};
-use detailed::{decode_type_i_descriptor, decode_type_ii_descriptor, decode_type_vi_descriptor};
+use detailed::{
+    decode_type_i_descriptor, decode_type_ii_descriptor, decode_type_vi_descriptor,
+    decode_type_vii_descriptor,
+};
 use short::{decode_type_iii_descriptor, decode_type_v_descriptor};
+
+pub(crate) use detailed::decode_type_vii_descriptor_to_mode;
 
 /// Iterates DisplayID data blocks within a fragment's payload region and pushes
 /// decoded modes to `sink`.
@@ -25,6 +30,16 @@ pub(super) fn process_data_blocks(payload: &[u8], version: u8, sink: &mut dyn Mo
     let is_v2 = version == DISPLAYID_V2;
     for_each_data_block(payload, |tag, revision, block_payload| {
         if is_v2 {
+            if tag == TAG_V2_TYPE_VII_TIMING {
+                let mut i = 0;
+                while i + 20 <= block_payload.len() {
+                    let descriptor: &[u8; 20] = block_payload[i..i + 20]
+                        .try_into()
+                        .expect("slice length guaranteed by loop condition");
+                    decode_type_vii_descriptor(descriptor, sink);
+                    i += 20;
+                }
+            }
             return;
         }
         if tag == TAG_TYPE_I_TIMING {
@@ -305,6 +320,107 @@ mod tests {
         let mut caps = StaticDisplayCapabilities::<16>::default();
         let mut ctx = StaticContext::new(&mut caps);
         process_data_blocks(&payload, 0x10, &mut ctx);
+        assert_eq!(caps.num_modes, 1);
+        let mode = caps.supported_modes[0].as_ref().unwrap();
+        assert_eq!(mode.width, 1920);
+        assert_eq!(mode.height, 1080);
+        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+    }
+
+    fn make_type_vii_descriptor_1080p60() -> [u8; 20] {
+        // 1920×1080@60: pc=148_500 kHz, h_total=2200, v_total=1125 → exact 60 Hz.
+        let mut d = [0u8; 20];
+        let pc: u32 = 148_500;
+        d[0] = (pc & 0xFF) as u8;
+        d[1] = ((pc >> 8) & 0xFF) as u8;
+        d[2] = ((pc >> 16) & 0xFF) as u8;
+        d[3] = 0x00;
+        d[4..6].copy_from_slice(&1920u16.to_le_bytes());
+        d[6..8].copy_from_slice(&280u16.to_le_bytes());
+        d[8..10].copy_from_slice(&88u16.to_le_bytes());
+        d[10..12].copy_from_slice(&44u16.to_le_bytes());
+        d[12..14].copy_from_slice(&1080u16.to_le_bytes());
+        d[14..16].copy_from_slice(&45u16.to_le_bytes());
+        d[16..18].copy_from_slice(&4u16.to_le_bytes());
+        d[18..20].copy_from_slice(&5u16.to_le_bytes());
+        d
+    }
+
+    #[test]
+    fn test_type_vii_v2_dispatch() {
+        let descriptor = make_type_vii_descriptor_1080p60();
+        let mut payload = vec![TAG_V2_TYPE_VII_TIMING, 0x00, 20];
+        payload.extend_from_slice(&descriptor);
+        let mut caps = DisplayCapabilities::default();
+        process_data_blocks(&payload, DISPLAYID_V2, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        let mode = &caps.supported_modes[0];
+        assert_eq!(mode.width, 1920);
+        assert_eq!(mode.height, 1080);
+        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+    }
+
+    #[test]
+    fn test_type_vii_v2_block_with_two_descriptors() {
+        let desc_1080p60 = make_type_vii_descriptor_1080p60();
+        // Second descriptor: 1280×720@60, pc=74_250 kHz, h_total=1650, v_total=750.
+        let mut desc_720p60 = [0u8; 20];
+        let pc: u32 = 74_250;
+        desc_720p60[0] = (pc & 0xFF) as u8;
+        desc_720p60[1] = ((pc >> 8) & 0xFF) as u8;
+        desc_720p60[2] = ((pc >> 16) & 0xFF) as u8;
+        desc_720p60[4..6].copy_from_slice(&1280u16.to_le_bytes());
+        desc_720p60[6..8].copy_from_slice(&370u16.to_le_bytes());
+        desc_720p60[12..14].copy_from_slice(&720u16.to_le_bytes());
+        desc_720p60[14..16].copy_from_slice(&30u16.to_le_bytes());
+        let mut payload = vec![TAG_V2_TYPE_VII_TIMING, 0x00, 40];
+        payload.extend_from_slice(&desc_1080p60);
+        payload.extend_from_slice(&desc_720p60);
+        let mut caps = DisplayCapabilities::default();
+        process_data_blocks(&payload, DISPLAYID_V2, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 2);
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 1920 && m.height == 1080)
+        );
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 1280 && m.height == 720)
+        );
+    }
+
+    #[test]
+    fn test_type_vii_not_decoded_on_v1_section() {
+        // Same payload, V1 version byte → tag 0x22 isn't in the V1 dispatch arm and is dropped.
+        let descriptor = make_type_vii_descriptor_1080p60();
+        let mut payload = vec![TAG_V2_TYPE_VII_TIMING, 0x00, 20];
+        payload.extend_from_slice(&descriptor);
+        let mut caps = DisplayCapabilities::default();
+        process_data_blocks(&payload, 0x10, &mut caps);
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_v2_section_does_not_decode_v1_timing() {
+        // Type I block tag with version 0x20 → V2 dispatch ignores V1 tags.
+        let desc = make_type_i_descriptor(14850, 1920, 280, 88, 44, 1080, 45, 4, 5, 0x00);
+        let mut payload = vec![TAG_TYPE_I_TIMING, 0x00, 20];
+        payload.extend_from_slice(&desc);
+        let mut caps = DisplayCapabilities::default();
+        process_data_blocks(&payload, DISPLAYID_V2, &mut caps);
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_type_vii_v2_static_pipeline() {
+        let descriptor = make_type_vii_descriptor_1080p60();
+        let mut payload = vec![TAG_V2_TYPE_VII_TIMING, 0x00, 20];
+        payload.extend_from_slice(&descriptor);
+        let mut caps = StaticDisplayCapabilities::<16>::default();
+        let mut ctx = StaticContext::new(&mut caps);
+        process_data_blocks(&payload, DISPLAYID_V2, &mut ctx);
         assert_eq!(caps.num_modes, 1);
         let mode = caps.supported_modes[0].as_ref().unwrap();
         assert_eq!(mode.width, 1920);

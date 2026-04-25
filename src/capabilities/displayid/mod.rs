@@ -15,6 +15,7 @@ use crate::model::prelude::{Arc, Vec};
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 use metadata::scan_all_metadata_blocks;
+pub(crate) use timing::decode_type_vii_descriptor_to_mode;
 use timing::process_data_blocks;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -57,6 +58,7 @@ const TAG_STEREO_DISPLAY_INTERFACE: u8 = tag::STEREO_DISPLAY_INTERFACE;
 const TAG_TYPE_V_TIMING: u8 = tag::TYPE_V_TIMING;
 const TAG_TILED_TOPOLOGY: u8 = tag::TILED_TOPOLOGY;
 const TAG_TYPE_VI_TIMING: u8 = tag::TYPE_VI_TIMING;
+const TAG_V2_TYPE_VII_TIMING: u8 = tag::V2_TYPE_VII_TIMING;
 
 /// Calls `f(tag, revision, block_payload)` for each well-formed data block in `payload`.
 ///
@@ -281,7 +283,9 @@ const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
 /// disjoint from 1.x and dispatched via a separate `(is_v2, tag)` arm. Empty until
 /// Phase 2 of the 2.x rollout adds the first 2.x decoder.
 #[cfg(test)]
-const IMPLEMENTED_V2_BLOCK_TAGS: &[u8] = &[];
+const IMPLEMENTED_V2_BLOCK_TAGS: &[u8] = &[
+    TAG_V2_TYPE_VII_TIMING, // 0x22
+];
 
 /// DisplayID 2.x block tags that are defined by the specification but not yet
 /// decoded, plus tag ranges reserved or unassigned in the 2.x tag space.
@@ -291,7 +295,8 @@ const IMPLEMENTED_V2_BLOCK_TAGS: &[u8] = &[];
 #[cfg(test)]
 const DEFERRED_OR_RESERVED_V2_TAG_RANGES: &[(u8, u8)] = &[
     (0x00, 0x1F), // Outside the DisplayID 2.x tag space (covers 1.x range)
-    (0x20, 0x29), // Defined 2.x data blocks (Product ID through ContainerID), not yet decoded
+    (0x20, 0x21), // Product ID, Display Parameters (deferred)
+    (0x23, 0x29), // Type VIII through ContainerID (deferred)
     (0x2A, 0x7D), // Reserved in DisplayID 2.x
     (0x7E, 0x7E), // Vendor-Specific (deferred)
     (0x7F, 0x80), // Reserved in DisplayID 2.x

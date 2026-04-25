@@ -1,4 +1,5 @@
-use crate::model::capabilities::{RefreshRate, VideoMode};
+use crate::capabilities::displayid::decode_type_vii_descriptor_to_mode;
+use crate::model::capabilities::VideoMode;
 use crate::model::prelude::Vec;
 pub use display_types::cea861::colorimetry::{ColorimetryBlock, ColorimetryFlags};
 pub use display_types::cea861::hdmi_forum::{
@@ -381,22 +382,20 @@ pub(super) fn parse_vendor_specific_block(block_data: &[u8]) -> Option<VendorSpe
 // ---------------------------------------------------------------------------
 
 /// Parse a T7VTDB payload (`block_data` starts after the extended tag byte, at the descriptor
-/// header). Returns `None` for payloads shorter than 22 bytes, zero pixel clock, or geometry
-/// that would produce a refresh rate outside the range of `u8`.
+/// header). Returns `None` for payloads shorter than 22 bytes, null/degenerate descriptors,
+/// or geometry whose reduced refresh rate doesn't fit in `RefreshRate`.
+///
+/// The CTA wrapper occupies the first two bytes; the 20-byte body that follows is decoded
+/// by the shared DisplayID 2.x Type VII descriptor decoder.
+///
+/// CTA wrapper layout:
+/// - `[0]`: `T7_M[7:5] | DSC_PT[4] | reserved[3] | Block_Rev[2:0]`
+/// - `[1]`: `F37[7]=0 | T7Y420[6] | T7HSP[5] | T7VSP[4] | reserved[3:0]`
+///
+/// `T7HSP` / `T7VSP` mirror the polarity bits already encoded in the descriptor body
+/// (bit 15 of the H/V Front Porch fields) and are not read here — the descriptor is the
+/// authoritative source.
 pub(super) fn parse_t7vtdb(block_data: &[u8]) -> Option<T7VtdbBlock> {
-    // Layout (offsets after the ext tag byte, i.e. starting at the descriptor header):
-    //   [0]      T7_M[7:5] | DSC_PT[4] | reserved[3] | Block_Rev[2:0]
-    //   [1]      F37[7]=0  | T7Y420[6] | T7HSP[5] | T7VSP[4] | reserved[3:0]
-    //   [2..4]   Pixel clock in kHz (24-bit LE)
-    //   [5]      3D_Support[7:6] | reserved[5] | T7IL[4] | T7_Aspect_Ratio[3:0]
-    //   [6..7]   H Active (16-bit LE)
-    //   [8..9]   H Blank  (16-bit LE)
-    //   [10..11] H Offset / Front Porch (15-bit: low byte + high byte bits[6:0])
-    //   [12..13] H Sync Width (16-bit LE)
-    //   [14..15] V Active (16-bit LE)
-    //   [16..17] V Blank  (16-bit LE)
-    //   [18..19] V Offset / Front Porch (15-bit)
-    //   [20..21] V Sync Width (16-bit LE)
     if block_data.len() < 22 {
         return None;
     }
@@ -404,29 +403,10 @@ pub(super) fn parse_t7vtdb(block_data: &[u8]) -> Option<T7VtdbBlock> {
     let version = block_data[0] & 0x07;
     let y420 = (block_data[1] >> 6) & 1 != 0;
 
-    let pixel_clock_khz =
-        (block_data[2] as u32) | ((block_data[3] as u32) << 8) | ((block_data[4] as u32) << 16);
-    if pixel_clock_khz == 0 {
-        return None;
-    }
-
-    let interlaced = (block_data[5] >> 4) & 1 != 0;
-
-    let hactive = u16::from_le_bytes([block_data[6], block_data[7]]);
-    let hblank = u16::from_le_bytes([block_data[8], block_data[9]]);
-    let vactive = u16::from_le_bytes([block_data[14], block_data[15]]);
-    let vblank = u16::from_le_bytes([block_data[16], block_data[17]]);
-
-    if hactive == 0 || vactive == 0 || hblank == 0 || vblank == 0 {
-        return None;
-    }
-
-    let h_total = hactive as u64 + hblank as u64;
-    let v_total = vactive as u64 + vblank as u64;
-    let pixel_clock_hz = pixel_clock_khz as u64 * 1000;
-    let refresh_rate = RefreshRate::from_ratio(pixel_clock_hz, h_total * v_total)?;
-
-    let mode = VideoMode::new(hactive, vactive, refresh_rate, interlaced);
+    let descriptor: &[u8; 20] = block_data[2..22]
+        .try_into()
+        .expect("slice length checked above");
+    let mode = decode_type_vii_descriptor_to_mode(descriptor)?;
 
     Some(T7VtdbBlock::new(version, mode, y420))
 }
