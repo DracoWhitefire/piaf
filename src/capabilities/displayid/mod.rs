@@ -185,8 +185,8 @@ impl ExtensionHandler for DisplayIdHandler {
                 warnings.push(Arc::new(w));
             }
             let payload = fragment_payload(block);
-            process_data_blocks(payload, caps);
-            scan_all_metadata_blocks(payload, caps);
+            process_data_blocks(payload, version, caps);
+            scan_all_metadata_blocks(payload, version, caps);
         }
     }
 }
@@ -228,7 +228,7 @@ impl StaticExtensionHandler for DisplayIdHandler {
             if let Some(w) = check_displayid_section(block) {
                 ctx.push_warning(w);
             }
-            process_data_blocks(fragment_payload(block), ctx);
+            process_data_blocks(fragment_payload(block), version, ctx);
         }
     }
 }
@@ -273,6 +273,30 @@ const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
     (0x14, 0x7E), // Reserved for future use in DisplayID 1.x
     (0x7F, 0x7F), // Vendor-specific
     (0x80, 0xFF), // Undefined (outside the DisplayID 1.x tag space)
+];
+
+/// DisplayID 2.x data block tags decoded by this handler.
+///
+/// Tracked separately from [`IMPLEMENTED_BLOCK_TAGS`] because the 2.x tag space is
+/// disjoint from 1.x and dispatched via a separate `(is_v2, tag)` arm. Empty until
+/// Phase 2 of the 2.x rollout adds the first 2.x decoder.
+#[cfg(test)]
+const IMPLEMENTED_V2_BLOCK_TAGS: &[u8] = &[];
+
+/// DisplayID 2.x block tags that are defined by the specification but not yet
+/// decoded, plus tag ranges reserved or unassigned in the 2.x tag space.
+///
+/// Each entry is an inclusive `(first, last)` range. When a new 2.x block type is
+/// implemented, remove its tag from here and add it to [`IMPLEMENTED_V2_BLOCK_TAGS`].
+#[cfg(test)]
+const DEFERRED_OR_RESERVED_V2_TAG_RANGES: &[(u8, u8)] = &[
+    (0x00, 0x1F), // Outside the DisplayID 2.x tag space (covers 1.x range)
+    (0x20, 0x29), // Defined 2.x data blocks (Product ID through ContainerID), not yet decoded
+    (0x2A, 0x7D), // Reserved in DisplayID 2.x
+    (0x7E, 0x7E), // Vendor-Specific (deferred)
+    (0x7F, 0x80), // Reserved in DisplayID 2.x
+    (0x81, 0x81), // CTA DisplayID (deferred)
+    (0x82, 0xFF), // Reserved in DisplayID 2.x
 ];
 
 /// Pre-built static reference to the built-in DisplayID handler.
@@ -573,6 +597,38 @@ mod tests {
                 !in_deferred,
                 "DisplayID block tag 0x{:02X} appears in both IMPLEMENTED_BLOCK_TAGS \
                  and DEFERRED_OR_RESERVED_TAG_RANGES",
+                tag
+            );
+        }
+    }
+
+    #[test]
+    fn test_all_v2_block_tags_accounted_for() {
+        for tag in 0u16..=255 {
+            let tag = tag as u8;
+            let implemented = IMPLEMENTED_V2_BLOCK_TAGS.contains(&tag);
+            let deferred_or_reserved = DEFERRED_OR_RESERVED_V2_TAG_RANGES
+                .iter()
+                .any(|&(lo, hi)| tag >= lo && tag <= hi);
+            assert!(
+                implemented || deferred_or_reserved,
+                "DisplayID 2.x block tag 0x{:02X} is unaccounted for: \
+                 add it to IMPLEMENTED_V2_BLOCK_TAGS or DEFERRED_OR_RESERVED_V2_TAG_RANGES",
+                tag
+            );
+        }
+    }
+
+    #[test]
+    fn test_v2_implemented_and_deferred_are_disjoint() {
+        for &tag in IMPLEMENTED_V2_BLOCK_TAGS {
+            let in_deferred = DEFERRED_OR_RESERVED_V2_TAG_RANGES
+                .iter()
+                .any(|&(lo, hi)| tag >= lo && tag <= hi);
+            assert!(
+                !in_deferred,
+                "DisplayID 2.x block tag 0x{:02X} appears in both IMPLEMENTED_V2_BLOCK_TAGS \
+                 and DEFERRED_OR_RESERVED_V2_TAG_RANGES",
                 tag
             );
         }

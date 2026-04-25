@@ -1,8 +1,8 @@
 use super::{
-    TAG_ASCII_STRING, TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_DEVICE_DATA, TAG_DISPLAY_INTERFACE,
-    TAG_DISPLAY_PARAMS, TAG_POWER_SEQUENCING, TAG_PRODUCT_ID, TAG_SERIAL_NUMBER,
-    TAG_STEREO_DISPLAY_INTERFACE, TAG_TILED_TOPOLOGY, TAG_TRANSFER_CHARACTERISTICS,
-    TAG_VIDEO_TIMING_RANGE, for_each_data_block,
+    DISPLAYID_V2, TAG_ASCII_STRING, TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_DEVICE_DATA,
+    TAG_DISPLAY_INTERFACE, TAG_DISPLAY_PARAMS, TAG_POWER_SEQUENCING, TAG_PRODUCT_ID,
+    TAG_SERIAL_NUMBER, TAG_STEREO_DISPLAY_INTERFACE, TAG_TILED_TOPOLOGY,
+    TAG_TRANSFER_CHARACTERISTICS, TAG_VIDEO_TIMING_RANGE, for_each_data_block,
 };
 
 use crate::capabilities::base::{decode_color_bit_depth, decode_manufacture_date};
@@ -785,7 +785,7 @@ pub(super) fn scan_tiled_topology_block(payload: &[u8], caps: &mut DisplayCapabi
     });
 }
 
-/// Scans all DisplayID 1.x metadata blocks in a single pass.
+/// Scans all DisplayID metadata blocks in a single pass.
 ///
 /// Calls [`for_each_data_block`] once over `payload` and dispatches every
 /// recognised metadata tag to the appropriate `decode_*` function. Single-
@@ -794,8 +794,19 @@ pub(super) fn scan_tiled_topology_block(payload: &[u8], caps: &mut DisplayCapabi
 ///
 /// This replaces the individual `scan_*` calls in the alloc pipeline and
 /// reduces the number of passes over the payload from one-per-tag to one.
+///
+/// `version` is the DisplayID version byte from the section header. V1 metadata
+/// decoders run only when `version` falls in the 1.x range; V2 sections do not yet
+/// decode any metadata blocks.
 #[cfg(any(feature = "alloc", feature = "std"))]
-pub(super) fn scan_all_metadata_blocks(payload: &[u8], caps: &mut DisplayCapabilities) {
+pub(super) fn scan_all_metadata_blocks(
+    payload: &[u8],
+    version: u8,
+    caps: &mut DisplayCapabilities,
+) {
+    if version == DISPLAYID_V2 {
+        return;
+    }
     let mut found_product_id = false;
     let mut found_display_params = false;
     let mut found_color_characteristics = false;
