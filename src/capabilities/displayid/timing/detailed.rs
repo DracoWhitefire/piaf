@@ -1,4 +1,4 @@
-use crate::model::capabilities::{ModeSink, StereoMode, SyncDefinition, VideoMode};
+use crate::model::capabilities::{ModeSink, RefreshRate, StereoMode, SyncDefinition, VideoMode};
 
 /// Decodes one 20-byte Type I Video Timing descriptor and pushes a mode to `sink`.
 ///
@@ -40,7 +40,9 @@ pub(super) fn decode_type_i_descriptor(d: &[u8; 20], sink: &mut dyn ModeSink) {
     }
 
     let pixel_clock_hz = pixel_clock_10khz as u64 * 10_000;
-    let refresh_rate = (pixel_clock_hz / total_pixels) as u16;
+    let Some(refresh_rate) = RefreshRate::from_ratio(pixel_clock_hz, total_pixels) else {
+        return; // ratio doesn't fit in u32 after reduction
+    };
 
     let interlaced = (flags & 0x01) != 0;
     let h_sync_positive = (flags & 0x08) != 0;
@@ -116,7 +118,9 @@ pub(super) fn decode_type_ii_descriptor(d: &[u8; 11], sink: &mut dyn ModeSink) {
     }
 
     let pixel_clock_hz = pixel_clock_10khz * 10_000;
-    let refresh_rate = (pixel_clock_hz / (h_total * v_total)) as u16;
+    let Some(refresh_rate) = RefreshRate::from_ratio(pixel_clock_hz, h_total * v_total) else {
+        return;
+    };
 
     sink.push_mode(
         VideoMode::new(h_active, v_active, refresh_rate, interlaced).with_detailed_timing(
@@ -193,7 +197,9 @@ pub(super) fn decode_type_vi_descriptor(d: &[u8], sink: &mut dyn ModeSink) -> us
     }
 
     let pixel_clock_hz = pixel_clock_khz as u64 * 1000;
-    let refresh_rate = (pixel_clock_hz / (h_total * v_total)) as u16;
+    let Some(refresh_rate) = RefreshRate::from_ratio(pixel_clock_hz, h_total * v_total) else {
+        return descriptor_size;
+    };
 
     sink.push_mode(
         VideoMode::new(h_active, v_active, refresh_rate, interlaced).with_detailed_timing(
@@ -318,8 +324,10 @@ mod tests {
 
     #[test]
     fn test_type_ii_timing_decoded() {
-        // 1920×1080@60 Hz via Type II encoding.
-        let d = make_type_ii_descriptor(15153, 239, 34, 10, 5, 1079, 0x43, 0x0C);
+        // 1920×1080@60 Hz via Type II encoding. The Type II vertical encoding constrains
+        // v_blank = 16·v_fp + v_sw − 16 (back porch is implicit). Byte 9 = 0x2C → v_fp=3,
+        // v_sw=13, v_blank=45, v_total=1125; pc=14850×10kHz → exact 60 Hz.
+        let d = make_type_ii_descriptor(14849, 239, 34, 10, 5, 1079, 0x2C, 0x0C);
         let mut caps = DisplayCapabilities::default();
         decode_type_ii_descriptor(&d, &mut caps);
         assert_eq!(caps.supported_modes.len(), 1);
@@ -329,8 +337,8 @@ mod tests {
         assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
         assert_eq!(mode.h_front_porch, 88);
         assert_eq!(mode.h_sync_width, 48);
-        assert_eq!(mode.v_front_porch, 5);
-        assert_eq!(mode.v_sync_width, 4);
+        assert_eq!(mode.v_front_porch, 3);
+        assert_eq!(mode.v_sync_width, 13);
         assert!(!mode.interlaced);
         assert_eq!(
             mode.sync,
@@ -344,7 +352,7 @@ mod tests {
     #[test]
     fn test_type_ii_interlaced_flag() {
         // flags byte 3 bit 4 = interlaced
-        let d = make_type_ii_descriptor(15153, 239, 34, 10, 5, 1079, 0x43, 0x10);
+        let d = make_type_ii_descriptor(14849, 239, 34, 10, 5, 1079, 0x2C, 0x10);
         let mut caps = DisplayCapabilities::default();
         decode_type_ii_descriptor(&d, &mut caps);
         assert_eq!(caps.supported_modes.len(), 1);
@@ -356,7 +364,7 @@ mod tests {
         // Two descriptors decoded in sequence.
         // 2560×1440@60: ha_raw=(2560-8)/8=319, hb_raw=(440-8)/8=54 → h_total=3000
         // va_raw=1440-1=1439=0x59F, v_blank_byte=0x31→v_blank=50 → v_total=1490
-        let desc1 = make_type_ii_descriptor(15153, 239, 34, 10, 5, 1079, 0x43, 0x0C);
+        let desc1 = make_type_ii_descriptor(14849, 239, 34, 10, 5, 1079, 0x2C, 0x0C);
         let desc2 = make_type_ii_descriptor(26819, 319, 54, 10, 4, 1439, 0x31, 0x0C);
         let mut caps = DisplayCapabilities::default();
         decode_type_ii_descriptor(&desc1, &mut caps);

@@ -215,18 +215,19 @@ mod tests {
 
     #[test]
     fn test_type_ii_static_pipeline() {
-        // ha_raw=239→h=1920, va_raw=1079→v=1080, pixel_clock raw=15153→actual=15154×10kHz
+        // ha_raw=239→h=1920, va_raw=1079→v=1080, pixel_clock raw=14849→actual=14850×10kHz
+        // byte 9 = 0x2C → v_blank=45, v_total=1125 → 148_500_000 / (2200 × 1125) = 60 Hz exact.
         let mut payload = vec![TAG_TYPE_II_TIMING, 0x00, 11];
         let mut d = [0u8; 11];
-        d[0] = 15153u32 as u8;
-        d[1] = (15153u32 >> 8) as u8;
+        d[0] = 14849u32 as u8;
+        d[1] = (14849u32 >> 8) as u8;
         d[3] = 0x0C; // H+, V+ sync
         d[4] = (239u16 & 0xFF) as u8;
         d[5] = (((239u16 >> 8) & 0x01) as u8) | ((34u8 & 0x7F) << 1);
         d[6] = ((10u8 & 0x0F) << 4) | (5u8 & 0x0F);
         d[7] = (1079u16 & 0xFF) as u8;
         d[8] = ((1079u16 >> 8) & 0x0F) as u8;
-        d[9] = 0x43;
+        d[9] = 0x2C;
         payload.extend_from_slice(&d);
         let mut caps = StaticDisplayCapabilities::<16>::default();
         let mut ctx = StaticContext::new(&mut caps);
