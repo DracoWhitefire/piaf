@@ -5,10 +5,13 @@ mod short;
 use super::{
     DISPLAYID_V2, TAG_CTA_VIDEO_TIMING, TAG_TYPE_I_TIMING, TAG_TYPE_II_TIMING, TAG_TYPE_III_TIMING,
     TAG_TYPE_IV_TIMING, TAG_TYPE_V_TIMING, TAG_TYPE_VI_TIMING, TAG_V2_TYPE_IX_TIMING,
-    TAG_V2_TYPE_VII_TIMING, TAG_VESA_VIDEO_TIMING, for_each_data_block,
+    TAG_V2_TYPE_VII_TIMING, TAG_V2_TYPE_VIII_TIMING, TAG_VESA_VIDEO_TIMING, for_each_data_block,
 };
 use crate::model::capabilities::ModeSink;
-use coded::{decode_cta_video_timing_block, decode_type_iv_block, decode_vesa_video_timing_block};
+use coded::{
+    decode_cta_video_timing_block, decode_type_iv_block, decode_type_viii_block,
+    decode_vesa_video_timing_block,
+};
 use detailed::{
     decode_type_i_descriptor, decode_type_ii_descriptor, decode_type_vi_descriptor,
     decode_type_vii_descriptor,
@@ -30,6 +33,10 @@ pub(super) fn process_data_blocks(payload: &[u8], version: u8, sink: &mut dyn Mo
     let is_v2 = version == DISPLAYID_V2;
     for_each_data_block(payload, |tag, revision, block_payload| {
         if is_v2 {
+            if tag == TAG_V2_TYPE_VIII_TIMING {
+                decode_type_viii_block(block_payload, revision, sink);
+                return;
+            }
             if tag == TAG_V2_TYPE_VII_TIMING {
                 let mut i = 0;
                 while i + 20 <= block_payload.len() {
@@ -420,6 +427,47 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         process_data_blocks(&payload, DISPLAYID_V2, &mut caps);
         assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_type_viii_v2_dispatch_dmt() {
+        // revision: code_type=DMT(0), TCS=0; payload [0x52] → 1920×1080@60.
+        let payload = vec![TAG_V2_TYPE_VIII_TIMING, 0x00, 1, 0x52];
+        let mut caps = DisplayCapabilities::default();
+        process_data_blocks(&payload, DISPLAYID_V2, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 1920);
+        assert_eq!(caps.supported_modes[0].height, 1080);
+    }
+
+    #[test]
+    fn test_type_viii_v2_dispatch_two_byte_dmt() {
+        // revision: code_type=DMT(0), TCS=1 (bit 3); payload [0x52, 0x00].
+        let payload = vec![TAG_V2_TYPE_VIII_TIMING, 0x08, 2, 0x52, 0x00];
+        let mut caps = DisplayCapabilities::default();
+        process_data_blocks(&payload, DISPLAYID_V2, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 1920);
+    }
+
+    #[test]
+    fn test_type_viii_not_decoded_on_v1_section() {
+        let payload = vec![TAG_V2_TYPE_VIII_TIMING, 0x00, 1, 0x52];
+        let mut caps = DisplayCapabilities::default();
+        process_data_blocks(&payload, 0x10, &mut caps);
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_type_viii_v2_static_pipeline() {
+        let payload = vec![TAG_V2_TYPE_VIII_TIMING, 0x40, 1, 0x01]; // VIC 1 = 640×480@60
+        let mut caps = StaticDisplayCapabilities::<16>::default();
+        let mut ctx = StaticContext::new(&mut caps);
+        process_data_blocks(&payload, DISPLAYID_V2, &mut ctx);
+        assert_eq!(caps.num_modes, 1);
+        let mode = caps.supported_modes[0].as_ref().unwrap();
+        assert_eq!(mode.width, 640);
+        assert_eq!(mode.height, 480);
     }
 
     #[test]
