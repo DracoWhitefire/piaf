@@ -63,6 +63,7 @@ const TAG_V2_DISPLAY_PARAMS: u8 = tag::V2_DISPLAY_PARAMS;
 const TAG_V2_TYPE_VII_TIMING: u8 = tag::V2_TYPE_VII_TIMING;
 const TAG_V2_TYPE_VIII_TIMING: u8 = tag::V2_TYPE_VIII_TIMING;
 const TAG_V2_TYPE_IX_TIMING: u8 = tag::V2_TYPE_IX_TIMING;
+const TAG_V2_DYNAMIC_TIMING_RANGE: u8 = tag::V2_DYNAMIC_TIMING_RANGE;
 
 /// Calls `f(tag, revision, block_payload)` for each well-formed data block in `payload`.
 ///
@@ -292,11 +293,12 @@ const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
 /// Phase 2 of the 2.x rollout adds the first 2.x decoder.
 #[cfg(test)]
 const IMPLEMENTED_V2_BLOCK_TAGS: &[u8] = &[
-    TAG_V2_PRODUCT_ID,       // 0x20
-    TAG_V2_DISPLAY_PARAMS,   // 0x21
-    TAG_V2_TYPE_VII_TIMING,  // 0x22
-    TAG_V2_TYPE_VIII_TIMING, // 0x23
-    TAG_V2_TYPE_IX_TIMING,   // 0x24
+    TAG_V2_PRODUCT_ID,           // 0x20
+    TAG_V2_DISPLAY_PARAMS,       // 0x21
+    TAG_V2_TYPE_VII_TIMING,      // 0x22
+    TAG_V2_TYPE_VIII_TIMING,     // 0x23
+    TAG_V2_TYPE_IX_TIMING,       // 0x24
+    TAG_V2_DYNAMIC_TIMING_RANGE, // 0x25
 ];
 
 /// DisplayID 2.x block tags that are defined by the specification but not yet
@@ -307,7 +309,7 @@ const IMPLEMENTED_V2_BLOCK_TAGS: &[u8] = &[
 #[cfg(test)]
 const DEFERRED_OR_RESERVED_V2_TAG_RANGES: &[(u8, u8)] = &[
     (0x00, 0x1F), // Outside the DisplayID 2.x tag space (covers 1.x range)
-    (0x25, 0x29), // Dynamic Range through ContainerID (deferred)
+    (0x26, 0x29), // Display Interface Features through ContainerID (deferred)
     (0x2A, 0x7D), // Reserved in DisplayID 2.x
     (0x7E, 0x7E), // Vendor-Specific (deferred)
     (0x7F, 0x80), // Reserved in DisplayID 2.x

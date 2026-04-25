@@ -2,8 +2,8 @@ use super::{
     DISPLAYID_V2, TAG_ASCII_STRING, TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_DEVICE_DATA,
     TAG_DISPLAY_INTERFACE, TAG_DISPLAY_PARAMS, TAG_POWER_SEQUENCING, TAG_PRODUCT_ID,
     TAG_SERIAL_NUMBER, TAG_STEREO_DISPLAY_INTERFACE, TAG_TILED_TOPOLOGY,
-    TAG_TRANSFER_CHARACTERISTICS, TAG_V2_DISPLAY_PARAMS, TAG_V2_PRODUCT_ID, TAG_VIDEO_TIMING_RANGE,
-    for_each_data_block,
+    TAG_TRANSFER_CHARACTERISTICS, TAG_V2_DISPLAY_PARAMS, TAG_V2_DYNAMIC_TIMING_RANGE,
+    TAG_V2_PRODUCT_ID, TAG_VIDEO_TIMING_RANGE, for_each_data_block,
 };
 
 use crate::capabilities::base::{decode_color_bit_depth, decode_manufacture_date};
@@ -33,7 +33,7 @@ use display_types::DisplayIdCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use display_types::displayid::{
     Chromaticity12, ChromaticityPoint12, DisplayParamsV2, DisplayTechnology as V2DisplayTechnology,
-    ScanOrientation,
+    DynamicTimingRange, ScanOrientation,
 };
 
 /// Decodes a Product Identification Block payload into `caps`.
@@ -355,6 +355,72 @@ pub(super) fn decode_v2_display_params_block(
     params.scan_orientation = scan_orientation;
     params.audio_external = audio_external;
     did.display_params_v2 = Some(params);
+}
+
+/// Decodes a DisplayID 2.x Dynamic Video Timing Range Limits Block payload (tag `0x25`).
+///
+/// Payload layout (DisplayID 2.x §4.3, fixed 9 bytes):
+/// - Bytes 0–2:  Minimum pixel clock in kHz (24-bit LE)
+/// - Bytes 3–5:  Maximum pixel clock in kHz (24-bit LE)
+/// - Byte  6:    Minimum vertical refresh rate in Hz
+/// - Byte  7:    Maximum vertical refresh rate, low 8 bits
+/// - Byte  8:    Support flags
+///   - Bits 1:0  Maximum vertical refresh rate, high 2 bits (block revision ≥ 1; gives a 9-bit max)
+///   - Bit  7    Seamless variable refresh rate: `0` = unsupported, `1` = supported
+///     (fixed horizontal pixel rate, dynamic vertical blanking)
+///
+/// On block revision 0 the upper 2 bits of byte 8 are reserved; the max vertical refresh
+/// rate is the 8-bit value from byte 7 alone.
+///
+/// The decoded record is stored on `did.dynamic_timing_range`. For interoperability with
+/// the V1 0x09 path, `caps.max_pixel_clock_mhz` and `caps.min_v_rate` / `caps.max_v_rate`
+/// are also populated. Pixel clock is converted from kHz to MHz, losing sub-MHz precision
+/// in the unified field — callers needing kHz precision must read `did.dynamic_timing_range`.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_v2_dynamic_timing_range_block(
+    payload: &[u8],
+    revision: u8,
+    caps: &mut DisplayCapabilities,
+    did: &mut DisplayIdCapabilities,
+) {
+    if payload.len() < 9 {
+        return;
+    }
+
+    let min_pixel_clock_khz =
+        u32::from(payload[0]) | (u32::from(payload[1]) << 8) | (u32::from(payload[2]) << 16);
+    let max_pixel_clock_khz =
+        u32::from(payload[3]) | (u32::from(payload[4]) << 8) | (u32::from(payload[5]) << 16);
+    let min_v_rate_hz = payload[6];
+    let max_v_lsb = payload[7];
+    let flags = payload[8];
+
+    let block_revision = revision & 0x07;
+    let max_v_rate_hz: u16 = if block_revision >= 1 {
+        u16::from(max_v_lsb) | (u16::from(flags & 0x03) << 8)
+    } else {
+        u16::from(max_v_lsb)
+    };
+    let vrr_supported = (flags >> 7) & 0x01 != 0;
+
+    let mut range = DynamicTimingRange::default();
+    range.min_pixel_clock_khz = min_pixel_clock_khz;
+    range.max_pixel_clock_khz = max_pixel_clock_khz;
+    range.min_v_rate_hz = min_v_rate_hz;
+    range.max_v_rate_hz = max_v_rate_hz;
+    range.vrr_supported = vrr_supported;
+    did.dynamic_timing_range = Some(range);
+
+    if max_pixel_clock_khz != 0 {
+        caps.max_pixel_clock_mhz =
+            Some((max_pixel_clock_khz / 1000).min(u32::from(u16::MAX)) as u16);
+    }
+    if min_v_rate_hz != 0 {
+        caps.min_v_rate = Some(u16::from(min_v_rate_hz));
+    }
+    if max_v_rate_hz != 0 {
+        caps.max_v_rate = Some(max_v_rate_hz);
+    }
 }
 
 /// Decodes a Display Parameters Block payload into `caps`.
@@ -1060,6 +1126,7 @@ pub(super) fn scan_all_metadata_blocks(
     if version == DISPLAYID_V2 {
         let mut found_v2_product_id = false;
         let mut found_v2_display_params = false;
+        let mut found_v2_dynamic_timing_range = false;
         for_each_data_block(payload, |tag, revision, block_payload| match tag {
             TAG_V2_PRODUCT_ID if !found_v2_product_id => {
                 found_v2_product_id = true;
@@ -1068,6 +1135,10 @@ pub(super) fn scan_all_metadata_blocks(
             TAG_V2_DISPLAY_PARAMS if !found_v2_display_params => {
                 found_v2_display_params = true;
                 decode_v2_display_params_block(block_payload, revision, caps, did);
+            }
+            TAG_V2_DYNAMIC_TIMING_RANGE if !found_v2_dynamic_timing_range => {
+                found_v2_dynamic_timing_range = true;
+                decode_v2_dynamic_timing_range_block(block_payload, revision, caps, did);
             }
             _ => {}
         });
@@ -1876,6 +1947,131 @@ mod tests {
         assert!(did_v2.display_params_v2.is_some());
         assert_eq!(caps_v2.preferred_image_size_mm, Some((597, 336)));
         assert_eq!(caps_v2.native_pixels, Some((3840, 2160)));
+    }
+
+    // -----------------------------------------------------------------------
+    // V2 Dynamic Video Timing Range Limits Block (tag 0x25)
+    // -----------------------------------------------------------------------
+
+    fn make_v2_dynamic_timing_range_payload(
+        min_pclk_khz: u32,
+        max_pclk_khz: u32,
+        min_v_hz: u8,
+        max_v_hz: u16,
+        vrr: bool,
+    ) -> [u8; 9] {
+        let mut p = [0u8; 9];
+        p[0] = (min_pclk_khz & 0xFF) as u8;
+        p[1] = ((min_pclk_khz >> 8) & 0xFF) as u8;
+        p[2] = ((min_pclk_khz >> 16) & 0xFF) as u8;
+        p[3] = (max_pclk_khz & 0xFF) as u8;
+        p[4] = ((max_pclk_khz >> 8) & 0xFF) as u8;
+        p[5] = ((max_pclk_khz >> 16) & 0xFF) as u8;
+        p[6] = min_v_hz;
+        p[7] = (max_v_hz & 0xFF) as u8;
+        let mut flags = ((max_v_hz >> 8) & 0x03) as u8;
+        if vrr {
+            flags |= 0x80;
+        }
+        p[8] = flags;
+        p
+    }
+
+    #[test]
+    fn test_v2_dynamic_timing_range_basic() {
+        // 25 MHz–600 MHz, 24–60 Hz, no VRR. Block revision 0 (8-bit max v rate).
+        let p = make_v2_dynamic_timing_range_payload(25_000, 600_000, 24, 60, false);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_dynamic_timing_range_block(&p, 0x00, &mut caps, &mut did);
+        let r = did.dynamic_timing_range.unwrap();
+        assert_eq!(r.min_pixel_clock_khz, 25_000);
+        assert_eq!(r.max_pixel_clock_khz, 600_000);
+        assert_eq!(r.min_v_rate_hz, 24);
+        assert_eq!(r.max_v_rate_hz, 60);
+        assert!(!r.vrr_supported);
+        assert_eq!(caps.max_pixel_clock_mhz, Some(600));
+        assert_eq!(caps.min_v_rate, Some(24));
+        assert_eq!(caps.max_v_rate, Some(60));
+    }
+
+    #[test]
+    fn test_v2_dynamic_timing_range_vrr_flag() {
+        let p = make_v2_dynamic_timing_range_payload(25_000, 600_000, 30, 144, true);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_dynamic_timing_range_block(&p, 0x01, &mut caps, &mut did);
+        assert!(did.dynamic_timing_range.unwrap().vrr_supported);
+    }
+
+    #[test]
+    fn test_v2_dynamic_timing_range_revision_1_uses_9_bit_max_v_rate() {
+        // Max v rate = 480 Hz (0x1E0). Low 8 bits = 0xE0 in byte 7; high 2 bits = 0b01 in flags[1:0].
+        let p = make_v2_dynamic_timing_range_payload(25_000, 600_000, 24, 480, false);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_dynamic_timing_range_block(&p, 0x01, &mut caps, &mut did);
+        assert_eq!(did.dynamic_timing_range.unwrap().max_v_rate_hz, 480);
+        assert_eq!(caps.max_v_rate, Some(480));
+    }
+
+    #[test]
+    fn test_v2_dynamic_timing_range_revision_0_ignores_high_bits() {
+        // Encode a 9-bit max_v_rate (480 Hz) but pass revision 0 — the high 2 bits
+        // are reserved on revision 0, so only the low 8 bits should decode (0xE0 = 224).
+        let p = make_v2_dynamic_timing_range_payload(25_000, 600_000, 24, 480, false);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_dynamic_timing_range_block(&p, 0x00, &mut caps, &mut did);
+        assert_eq!(did.dynamic_timing_range.unwrap().max_v_rate_hz, 0xE0);
+    }
+
+    #[test]
+    fn test_v2_dynamic_timing_range_pixel_clock_khz_precision_preserved() {
+        // 148_500 kHz = 148.5 MHz; the kHz precision is preserved on did.dynamic_timing_range
+        // even though the unified caps field rounds down to 148 MHz.
+        let p = make_v2_dynamic_timing_range_payload(25_000, 148_500, 24, 60, false);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_dynamic_timing_range_block(&p, 0x00, &mut caps, &mut did);
+        assert_eq!(
+            did.dynamic_timing_range.unwrap().max_pixel_clock_khz,
+            148_500
+        );
+        assert_eq!(caps.max_pixel_clock_mhz, Some(148));
+    }
+
+    #[test]
+    fn test_v2_dynamic_timing_range_short_payload_skipped() {
+        let short = [0u8; 8];
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_dynamic_timing_range_block(&short, 0x01, &mut caps, &mut did);
+        assert!(did.dynamic_timing_range.is_none());
+    }
+
+    #[test]
+    fn test_v2_dynamic_timing_range_dispatched_only_for_v2_section() {
+        let body = make_v2_dynamic_timing_range_payload(25_000, 600_000, 24, 60, true);
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_V2_DYNAMIC_TIMING_RANGE);
+        block_payload.push(0x01); // revision 1
+        block_payload.push(body.len() as u8);
+        block_payload.extend_from_slice(&body);
+
+        // V1 section: must not decode.
+        let mut caps_v1 = DisplayCapabilities::default();
+        let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
+        scan_all_metadata_blocks(&block_payload, 0x13, &mut caps_v1, &mut did_v1);
+        assert!(did_v1.dynamic_timing_range.is_none());
+
+        // V2 section: decoder runs.
+        let mut caps_v2 = DisplayCapabilities::default();
+        let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps_v2, &mut did_v2);
+        let r = did_v2.dynamic_timing_range.unwrap();
+        assert_eq!(r.max_pixel_clock_khz, 600_000);
+        assert!(r.vrr_supported);
     }
 
     // -----------------------------------------------------------------------
