@@ -500,3 +500,46 @@ fn phl_275e1_phl_supported_modes() {
             .any(|m| m.width == 1280 && m.height == 1440 && m.refresh_rate == 59)
     );
 }
+
+// ---------------------------------------------------------------------------
+// SAMSUNG (SAM)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn samsung_sam_parses_without_error() {
+    let bytes = load("testdata/valid/samsung_sam.bin");
+    let library = ExtensionLibrary::with_standard_handlers();
+    assert!(parse_edid(&bytes, &library).is_ok());
+}
+
+#[test]
+fn samsung_sam_identification() {
+    let bytes = load("testdata/valid/samsung_sam.bin");
+    let library = ExtensionLibrary::with_standard_handlers();
+    let parsed = parse_edid(&bytes, &library).unwrap();
+    let caps = capabilities_from_edid(&parsed, &library);
+
+    assert_eq!(caps.manufacturer.as_ref().map(|m| m.as_str()), Some("SAM"));
+    assert_eq!(caps.display_name.as_deref(), Some("SAMSUNG"));
+    assert_eq!(caps.manufacture_date, Some(ManufactureDate::Manufactured { week: Some(1), year: 2018 }));
+    assert_eq!(caps.edid_version, Some(EdidVersion { version: 1, revision: 3 }));
+    assert_eq!(caps.digital, true);
+    assert_eq!(caps.screen_size, Some(ScreenSize::Physical { width_cm: 111, height_cm: 62 }));
+    assert_eq!(caps.preferred_image_size_mm, Some((1872, 1053)));
+    assert_eq!(caps.min_v_rate, Some(24));
+    assert_eq!(caps.max_v_rate, Some(75));
+}
+
+#[test]
+fn samsung_sam_supported_modes() {
+    let bytes = load("testdata/valid/samsung_sam.bin");
+    let library = ExtensionLibrary::with_standard_handlers();
+    let parsed = parse_edid(&bytes, &library).unwrap();
+    let caps = capabilities_from_edid(&parsed, &library);
+
+    assert!(!caps.supported_modes.is_empty());
+    assert!(caps.supported_modes.iter().any(|m| m.width == 4096 && m.height == 2160 && m.refresh_rate == 60));
+    assert!(caps.supported_modes.iter().any(|m| m.width == 3840 && m.height == 2160 && m.refresh_rate == 60));
+    assert!(caps.supported_modes.iter().any(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 60));
+}
+

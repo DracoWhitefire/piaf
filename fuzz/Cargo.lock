@@ -33,6 +33,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "display-types"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60dc3a31d8f31b9c3061260c75faacc7c2cffa1f351a8051bc700e051ece17a6"
+dependencies = [
+ "bitflags",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -78,9 +87,10 @@ dependencies = [
 
 [[package]]
 name = "piaf"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "bitflags",
+ "display-types",
  "thiserror",
 ]
 
