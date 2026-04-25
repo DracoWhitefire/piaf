@@ -1,4 +1,4 @@
-use crate::model::capabilities::VideoMode;
+use crate::model::capabilities::{RefreshRate, VideoMode};
 use crate::model::prelude::Vec;
 pub use display_types::cea861::colorimetry::{ColorimetryBlock, ColorimetryFlags};
 pub use display_types::cea861::hdmi_forum::{
@@ -423,8 +423,8 @@ pub(super) fn parse_t7vtdb(block_data: &[u8]) -> Option<T7VtdbBlock> {
 
     let h_total = hactive as u64 + hblank as u64;
     let v_total = vactive as u64 + vblank as u64;
-    let refresh_hz = (pixel_clock_khz as u64 * 1000) / (h_total * v_total);
-    let refresh_rate = u16::try_from(refresh_hz).ok()?;
+    let pixel_clock_hz = pixel_clock_khz as u64 * 1000;
+    let refresh_rate = RefreshRate::from_ratio(pixel_clock_hz, h_total * v_total)?;
 
     let mode = VideoMode::new(hactive, vactive, refresh_rate, interlaced);
 
