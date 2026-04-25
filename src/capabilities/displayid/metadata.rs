@@ -2,9 +2,9 @@ use super::{
     DISPLAYID_V2, TAG_ASCII_STRING, TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_DEVICE_DATA,
     TAG_DISPLAY_INTERFACE, TAG_DISPLAY_PARAMS, TAG_POWER_SEQUENCING, TAG_PRODUCT_ID,
     TAG_SERIAL_NUMBER, TAG_STEREO_DISPLAY_INTERFACE, TAG_TILED_TOPOLOGY,
-    TAG_TRANSFER_CHARACTERISTICS, TAG_V2_DISPLAY_PARAMS, TAG_V2_DYNAMIC_TIMING_RANGE,
-    TAG_V2_INTERFACE_FEATURES, TAG_V2_PRODUCT_ID, TAG_V2_TILED_TOPOLOGY, TAG_VIDEO_TIMING_RANGE,
-    for_each_data_block,
+    TAG_TRANSFER_CHARACTERISTICS, TAG_V2_CONTAINER_ID, TAG_V2_DISPLAY_PARAMS,
+    TAG_V2_DYNAMIC_TIMING_RANGE, TAG_V2_INTERFACE_FEATURES, TAG_V2_PRODUCT_ID,
+    TAG_V2_TILED_TOPOLOGY, TAG_VIDEO_TIMING_RANGE, for_each_data_block,
 };
 
 use crate::capabilities::base::{decode_color_bit_depth, decode_manufacture_date};
@@ -456,6 +456,27 @@ pub(super) fn decode_v2_interface_features_block(payload: &[u8], did: &mut Displ
     features.audio_flags = payload[5];
     features.color_space_eotf_1 = payload[6];
     did.interface_features = Some(features);
+}
+
+/// Decodes a DisplayID 2.x ContainerID Block payload (tag `0x29`).
+///
+/// Payload layout (DisplayID 2.x §4.9, fixed 16 bytes):
+/// - Bytes 0–15: 128-bit UUID identifying the physical display container
+///   (typically a Microsoft-style ContainerID GUID, used by the OS to group
+///   related interfaces such as a tiled monitor's individual tile EDIDs).
+///
+/// The raw 16-byte buffer is stored on `did.container_id`. Endianness is
+/// preserved as-is — byte ordering interpretation (mixed-endian for the
+/// classic GUID layout vs. big-endian for RFC 4122) is left to consumers.
+/// Payloads shorter than 16 bytes are skipped with no side effects.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_v2_container_id_block(payload: &[u8], did: &mut DisplayIdCapabilities) {
+    if payload.len() < 16 {
+        return;
+    }
+    let mut uuid = [0u8; 16];
+    uuid.copy_from_slice(&payload[..16]);
+    did.container_id = Some(uuid);
 }
 
 /// Decodes a Display Parameters Block payload into `caps`.
@@ -1164,6 +1185,7 @@ pub(super) fn scan_all_metadata_blocks(
         let mut found_v2_dynamic_timing_range = false;
         let mut found_v2_interface_features = false;
         let mut found_v2_tiled_topology = false;
+        let mut found_v2_container_id = false;
         for_each_data_block(payload, |tag, revision, block_payload| match tag {
             TAG_V2_PRODUCT_ID if !found_v2_product_id => {
                 found_v2_product_id = true;
@@ -1184,6 +1206,10 @@ pub(super) fn scan_all_metadata_blocks(
             TAG_V2_TILED_TOPOLOGY if !found_v2_tiled_topology => {
                 found_v2_tiled_topology = true;
                 decode_tiled_topology_block(block_payload, caps);
+            }
+            TAG_V2_CONTAINER_ID if !found_v2_container_id => {
+                found_v2_container_id = true;
+                decode_v2_container_id_block(block_payload, did);
             }
             _ => {}
         });
@@ -3279,7 +3305,9 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         let mut did = DisplayIdCapabilities::new(0x20, 0);
         scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps, &mut did);
-        let t = caps.tiled_topology.expect("V2 0x28 should populate tiled_topology");
+        let t = caps
+            .tiled_topology
+            .expect("V2 0x28 should populate tiled_topology");
         assert_eq!(t.h_tile_count, 2);
         assert_eq!(t.v_tile_count, 2);
     }
@@ -3330,9 +3358,81 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         let mut did = DisplayIdCapabilities::new(0x20, 0);
         scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did);
-        let t = caps.tiled_topology.expect("first 0x28 should populate tiled_topology");
+        let t = caps
+            .tiled_topology
+            .expect("first 0x28 should populate tiled_topology");
         assert_eq!(t.h_tile_count, 2);
         assert_eq!(t.v_tile_count, 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // V2 ContainerID Block (tag 0x29)
+    // -----------------------------------------------------------------------
+
+    const SAMPLE_UUID: [u8; 16] = [
+        0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+        0x88,
+    ];
+
+    #[test]
+    fn test_v2_container_id_basic() {
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_container_id_block(&SAMPLE_UUID, &mut did);
+        assert_eq!(did.container_id, Some(SAMPLE_UUID));
+    }
+
+    #[test]
+    fn test_v2_container_id_short_payload_skipped() {
+        let short = [0u8; 15];
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_container_id_block(&short, &mut did);
+        assert!(did.container_id.is_none());
+    }
+
+    #[test]
+    fn test_v2_container_id_ignores_trailing_bytes() {
+        let mut payload = SAMPLE_UUID.to_vec();
+        payload.extend_from_slice(&[0xAA; 8]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_container_id_block(&payload, &mut did);
+        assert_eq!(did.container_id, Some(SAMPLE_UUID));
+    }
+
+    #[test]
+    fn test_v2_container_id_dispatched_only_for_v2_section() {
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_V2_CONTAINER_ID);
+        block_payload.push(0x00);
+        block_payload.push(SAMPLE_UUID.len() as u8);
+        block_payload.extend_from_slice(&SAMPLE_UUID);
+
+        // V1 section: must not decode.
+        let mut caps_v1 = DisplayCapabilities::default();
+        let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
+        scan_all_metadata_blocks(&block_payload, 0x13, &mut caps_v1, &mut did_v1);
+        assert!(did_v1.container_id.is_none());
+
+        // V2 section: decoder runs.
+        let mut caps_v2 = DisplayCapabilities::default();
+        let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps_v2, &mut did_v2);
+        assert_eq!(did_v2.container_id, Some(SAMPLE_UUID));
+    }
+
+    #[test]
+    fn test_v2_container_id_first_wins() {
+        let second = [0xFFu8; 16];
+        let mut payload = Vec::new();
+        for body in [SAMPLE_UUID, second] {
+            payload.push(TAG_V2_CONTAINER_ID);
+            payload.push(0x00);
+            payload.push(body.len() as u8);
+            payload.extend_from_slice(&body);
+        }
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did);
+        assert_eq!(did.container_id, Some(SAMPLE_UUID));
     }
 
     // -----------------------------------------------------------------------
