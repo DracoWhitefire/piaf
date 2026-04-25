@@ -59,6 +59,7 @@ const TAG_TYPE_V_TIMING: u8 = tag::TYPE_V_TIMING;
 const TAG_TILED_TOPOLOGY: u8 = tag::TILED_TOPOLOGY;
 const TAG_TYPE_VI_TIMING: u8 = tag::TYPE_VI_TIMING;
 const TAG_V2_PRODUCT_ID: u8 = tag::V2_PRODUCT_ID;
+const TAG_V2_DISPLAY_PARAMS: u8 = tag::V2_DISPLAY_PARAMS;
 const TAG_V2_TYPE_VII_TIMING: u8 = tag::V2_TYPE_VII_TIMING;
 const TAG_V2_TYPE_VIII_TIMING: u8 = tag::V2_TYPE_VIII_TIMING;
 const TAG_V2_TYPE_IX_TIMING: u8 = tag::V2_TYPE_IX_TIMING;
@@ -292,6 +293,7 @@ const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
 #[cfg(test)]
 const IMPLEMENTED_V2_BLOCK_TAGS: &[u8] = &[
     TAG_V2_PRODUCT_ID,       // 0x20
+    TAG_V2_DISPLAY_PARAMS,   // 0x21
     TAG_V2_TYPE_VII_TIMING,  // 0x22
     TAG_V2_TYPE_VIII_TIMING, // 0x23
     TAG_V2_TYPE_IX_TIMING,   // 0x24
@@ -305,7 +307,6 @@ const IMPLEMENTED_V2_BLOCK_TAGS: &[u8] = &[
 #[cfg(test)]
 const DEFERRED_OR_RESERVED_V2_TAG_RANGES: &[(u8, u8)] = &[
     (0x00, 0x1F), // Outside the DisplayID 2.x tag space (covers 1.x range)
-    (0x21, 0x21), // Display Parameters (deferred)
     (0x25, 0x29), // Dynamic Range through ContainerID (deferred)
     (0x2A, 0x7D), // Reserved in DisplayID 2.x
     (0x7E, 0x7E), // Vendor-Specific (deferred)
