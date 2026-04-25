@@ -68,6 +68,32 @@ pub(super) fn decode_type_v_descriptor(d: &[u8; 7], sink: &mut dyn ModeSink) {
     sink.push_mode(VideoMode::new(h_active, v_active, refresh_rate, false)); // Type V: progressive only
 }
 
+/// Decodes one 6-byte Type IX Formula-Based Timing descriptor and pushes a mode to `sink`.
+///
+/// Descriptor layout (DisplayID 2.x §4.5.9, "Video Timing Mode Type 9 — Formula-based"):
+/// - Byte 0:    Options: bits 2:0 = CVT algorithm (0=CVT-RB1, 1=CVT-RB2, 2=CVT-RB3,
+///   3=reduced blanking with CVT-RB1, 4=reduced blanking with CVT-RB2); bit 4 = Y420;
+///   bits 6:5 = stereo
+/// - Bytes 1–2: Horizontal active in pixels (exact, little-endian uint16)
+/// - Bytes 3–4: Vertical active in lines (exact, little-endian uint16)
+/// - Byte 5:    Vertical refresh rate — `byte + 1` Hz (range 1–256 Hz)
+///
+/// The wire format mirrors Type V minus the trailing reserved byte. Like Type V,
+/// Type IX timings are progressive-only. The CVT algorithm is signalled but not
+/// reified into `VideoMode` (which doesn't carry blanking parameters for formula
+/// timings). Descriptors with zero width or height are silently skipped.
+pub(super) fn decode_type_ix_descriptor(d: &[u8; 6], sink: &mut dyn ModeSink) {
+    let h_active = u16::from_le_bytes([d[1], d[2]]);
+    let v_active = u16::from_le_bytes([d[3], d[4]]);
+    let refresh_rate = (d[5] as u16) + 1;
+
+    if h_active == 0 || v_active == 0 {
+        return;
+    }
+
+    sink.push_mode(VideoMode::new(h_active, v_active, refresh_rate, false));
+}
+
 #[cfg(test)]
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod tests {
@@ -238,5 +264,58 @@ mod tests {
             caps.supported_modes[0].refresh_rate,
             RefreshRate::integral(120)
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Type IX Formula-Based Timing (DisplayID 2.x tag 0x24)
+    // -----------------------------------------------------------------------
+
+    fn make_type_ix_descriptor(h_active: u16, v_active: u16, refresh_raw: u8) -> [u8; 6] {
+        let mut d = [0u8; 6];
+        d[1..3].copy_from_slice(&h_active.to_le_bytes());
+        d[3..5].copy_from_slice(&v_active.to_le_bytes());
+        d[5] = refresh_raw;
+        d
+    }
+
+    #[test]
+    fn test_type_ix_1920x1080_at_60hz() {
+        let d = make_type_ix_descriptor(1920, 1080, 59);
+        let mut caps = DisplayCapabilities::default();
+        decode_type_ix_descriptor(&d, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        let mode = &caps.supported_modes[0];
+        assert_eq!(mode.width, 1920);
+        assert_eq!(mode.height, 1080);
+        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+        assert!(!mode.interlaced);
+    }
+
+    #[test]
+    fn test_type_ix_refresh_raw_255_yields_256hz() {
+        let d = make_type_ix_descriptor(3840, 2160, 255);
+        let mut caps = DisplayCapabilities::default();
+        decode_type_ix_descriptor(&d, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(
+            caps.supported_modes[0].refresh_rate,
+            RefreshRate::integral(256)
+        );
+    }
+
+    #[test]
+    fn test_type_ix_zero_width_skipped() {
+        let d = make_type_ix_descriptor(0, 1080, 59);
+        let mut caps = DisplayCapabilities::default();
+        decode_type_ix_descriptor(&d, &mut caps);
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_type_ix_zero_height_skipped() {
+        let d = make_type_ix_descriptor(1920, 0, 59);
+        let mut caps = DisplayCapabilities::default();
+        decode_type_ix_descriptor(&d, &mut caps);
+        assert!(caps.supported_modes.is_empty());
     }
 }

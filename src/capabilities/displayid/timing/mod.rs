@@ -4,8 +4,8 @@ mod short;
 
 use super::{
     DISPLAYID_V2, TAG_CTA_VIDEO_TIMING, TAG_TYPE_I_TIMING, TAG_TYPE_II_TIMING, TAG_TYPE_III_TIMING,
-    TAG_TYPE_IV_TIMING, TAG_TYPE_V_TIMING, TAG_TYPE_VI_TIMING, TAG_V2_TYPE_VII_TIMING,
-    TAG_VESA_VIDEO_TIMING, for_each_data_block,
+    TAG_TYPE_IV_TIMING, TAG_TYPE_V_TIMING, TAG_TYPE_VI_TIMING, TAG_V2_TYPE_IX_TIMING,
+    TAG_V2_TYPE_VII_TIMING, TAG_VESA_VIDEO_TIMING, for_each_data_block,
 };
 use crate::model::capabilities::ModeSink;
 use coded::{decode_cta_video_timing_block, decode_type_iv_block, decode_vesa_video_timing_block};
@@ -13,7 +13,7 @@ use detailed::{
     decode_type_i_descriptor, decode_type_ii_descriptor, decode_type_vi_descriptor,
     decode_type_vii_descriptor,
 };
-use short::{decode_type_iii_descriptor, decode_type_v_descriptor};
+use short::{decode_type_iii_descriptor, decode_type_ix_descriptor, decode_type_v_descriptor};
 
 pub(crate) use detailed::decode_type_vii_descriptor_to_mode;
 
@@ -38,6 +38,15 @@ pub(super) fn process_data_blocks(payload: &[u8], version: u8, sink: &mut dyn Mo
                         .expect("slice length guaranteed by loop condition");
                     decode_type_vii_descriptor(descriptor, sink);
                     i += 20;
+                }
+            } else if tag == TAG_V2_TYPE_IX_TIMING {
+                let mut i = 0;
+                while i + 6 <= block_payload.len() {
+                    let descriptor: &[u8; 6] = block_payload[i..i + 6]
+                        .try_into()
+                        .expect("slice length guaranteed by loop condition");
+                    decode_type_ix_descriptor(descriptor, sink);
+                    i += 6;
                 }
             }
             return;
@@ -411,6 +420,55 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         process_data_blocks(&payload, DISPLAYID_V2, &mut caps);
         assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_type_ix_v2_dispatch() {
+        // 1920×1080@60: refresh_raw = 59 → 60 Hz.
+        let mut payload = vec![TAG_V2_TYPE_IX_TIMING, 0x00, 6];
+        let mut d = [0u8; 6];
+        d[1..3].copy_from_slice(&1920u16.to_le_bytes());
+        d[3..5].copy_from_slice(&1080u16.to_le_bytes());
+        d[5] = 59;
+        payload.extend_from_slice(&d);
+        let mut caps = DisplayCapabilities::default();
+        process_data_blocks(&payload, DISPLAYID_V2, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        let mode = &caps.supported_modes[0];
+        assert_eq!(mode.width, 1920);
+        assert_eq!(mode.height, 1080);
+        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+    }
+
+    #[test]
+    fn test_type_ix_not_decoded_on_v1_section() {
+        let mut payload = vec![TAG_V2_TYPE_IX_TIMING, 0x00, 6];
+        let mut d = [0u8; 6];
+        d[1..3].copy_from_slice(&1920u16.to_le_bytes());
+        d[3..5].copy_from_slice(&1080u16.to_le_bytes());
+        d[5] = 59;
+        payload.extend_from_slice(&d);
+        let mut caps = DisplayCapabilities::default();
+        process_data_blocks(&payload, 0x10, &mut caps);
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_type_ix_v2_static_pipeline() {
+        let mut payload = vec![TAG_V2_TYPE_IX_TIMING, 0x00, 6];
+        let mut d = [0u8; 6];
+        d[1..3].copy_from_slice(&1920u16.to_le_bytes());
+        d[3..5].copy_from_slice(&1080u16.to_le_bytes());
+        d[5] = 59;
+        payload.extend_from_slice(&d);
+        let mut caps = StaticDisplayCapabilities::<16>::default();
+        let mut ctx = StaticContext::new(&mut caps);
+        process_data_blocks(&payload, DISPLAYID_V2, &mut ctx);
+        assert_eq!(caps.num_modes, 1);
+        let mode = caps.supported_modes[0].as_ref().unwrap();
+        assert_eq!(mode.width, 1920);
+        assert_eq!(mode.height, 1080);
+        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
     }
 
     #[test]
