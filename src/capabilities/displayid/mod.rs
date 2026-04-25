@@ -65,6 +65,7 @@ const TAG_V2_TYPE_VIII_TIMING: u8 = tag::V2_TYPE_VIII_TIMING;
 const TAG_V2_TYPE_IX_TIMING: u8 = tag::V2_TYPE_IX_TIMING;
 const TAG_V2_DYNAMIC_TIMING_RANGE: u8 = tag::V2_DYNAMIC_TIMING_RANGE;
 const TAG_V2_INTERFACE_FEATURES: u8 = tag::V2_INTERFACE_FEATURES;
+const TAG_V2_TILED_TOPOLOGY: u8 = tag::V2_TILED_TOPOLOGY;
 
 /// Calls `f(tag, revision, block_payload)` for each well-formed data block in `payload`.
 ///
@@ -301,6 +302,7 @@ const IMPLEMENTED_V2_BLOCK_TAGS: &[u8] = &[
     TAG_V2_TYPE_IX_TIMING,       // 0x24
     TAG_V2_DYNAMIC_TIMING_RANGE, // 0x25
     TAG_V2_INTERFACE_FEATURES,   // 0x26
+    TAG_V2_TILED_TOPOLOGY,       // 0x28
 ];
 
 /// DisplayID 2.x block tags that are defined by the specification but not yet
@@ -311,7 +313,8 @@ const IMPLEMENTED_V2_BLOCK_TAGS: &[u8] = &[
 #[cfg(test)]
 const DEFERRED_OR_RESERVED_V2_TAG_RANGES: &[(u8, u8)] = &[
     (0x00, 0x1F), // Outside the DisplayID 2.x tag space (covers 1.x range)
-    (0x27, 0x29), // Stereo Display Interface through ContainerID (deferred)
+    (0x27, 0x27), // Stereo Display Interface (deferred)
+    (0x29, 0x29), // ContainerID (deferred)
     (0x2A, 0x7D), // Reserved in DisplayID 2.x
     (0x7E, 0x7E), // Vendor-Specific (deferred)
     (0x7F, 0x80), // Reserved in DisplayID 2.x

@@ -3,7 +3,8 @@ use super::{
     TAG_DISPLAY_INTERFACE, TAG_DISPLAY_PARAMS, TAG_POWER_SEQUENCING, TAG_PRODUCT_ID,
     TAG_SERIAL_NUMBER, TAG_STEREO_DISPLAY_INTERFACE, TAG_TILED_TOPOLOGY,
     TAG_TRANSFER_CHARACTERISTICS, TAG_V2_DISPLAY_PARAMS, TAG_V2_DYNAMIC_TIMING_RANGE,
-    TAG_V2_INTERFACE_FEATURES, TAG_V2_PRODUCT_ID, TAG_VIDEO_TIMING_RANGE, for_each_data_block,
+    TAG_V2_INTERFACE_FEATURES, TAG_V2_PRODUCT_ID, TAG_V2_TILED_TOPOLOGY, TAG_VIDEO_TIMING_RANGE,
+    for_each_data_block,
 };
 
 use crate::capabilities::base::{decode_color_bit_depth, decode_manufacture_date};
@@ -1162,6 +1163,7 @@ pub(super) fn scan_all_metadata_blocks(
         let mut found_v2_display_params = false;
         let mut found_v2_dynamic_timing_range = false;
         let mut found_v2_interface_features = false;
+        let mut found_v2_tiled_topology = false;
         for_each_data_block(payload, |tag, revision, block_payload| match tag {
             TAG_V2_PRODUCT_ID if !found_v2_product_id => {
                 found_v2_product_id = true;
@@ -1178,6 +1180,10 @@ pub(super) fn scan_all_metadata_blocks(
             TAG_V2_INTERFACE_FEATURES if !found_v2_interface_features => {
                 found_v2_interface_features = true;
                 decode_v2_interface_features_block(block_payload, did);
+            }
+            TAG_V2_TILED_TOPOLOGY if !found_v2_tiled_topology => {
+                found_v2_tiled_topology = true;
+                decode_tiled_topology_block(block_payload, caps);
             }
             _ => {}
         });
@@ -3255,6 +3261,78 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         decode_tiled_topology_block(&[], &mut caps);
         assert_eq!(caps.tiled_topology, None);
+    }
+
+    // -----------------------------------------------------------------------
+    // V2 Tiled Display Topology Data Block (tag 0x28)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_v2_tiled_topology_dispatched_for_v2_section() {
+        let body = make_tiled_topology_payload(true, false, 1, 1, 1, 0, 0, 1920, 1080, None);
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_V2_TILED_TOPOLOGY);
+        block_payload.push(0x00);
+        block_payload.push(body.len() as u8);
+        block_payload.extend_from_slice(&body);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps, &mut did);
+        let t = caps.tiled_topology.expect("V2 0x28 should populate tiled_topology");
+        assert_eq!(t.h_tile_count, 2);
+        assert_eq!(t.v_tile_count, 2);
+    }
+
+    #[test]
+    fn test_v2_tiled_topology_v1_tag_ignored_in_v2_section() {
+        // 1.x tag 0x12 must not decode under a V2 section header.
+        let body = make_tiled_topology_payload(true, false, 1, 1, 1, 0, 0, 1920, 1080, None);
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_TILED_TOPOLOGY); // 0x12 (V1 tag)
+        block_payload.push(0x00);
+        block_payload.push(body.len() as u8);
+        block_payload.extend_from_slice(&body);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps, &mut did);
+        assert!(caps.tiled_topology.is_none());
+    }
+
+    #[test]
+    fn test_v2_tiled_topology_v2_tag_ignored_in_v1_section() {
+        // 2.x tag 0x28 must not decode under a V1 section header.
+        let body = make_tiled_topology_payload(true, false, 1, 1, 1, 0, 0, 1920, 1080, None);
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_V2_TILED_TOPOLOGY); // 0x28
+        block_payload.push(0x00);
+        block_payload.push(body.len() as u8);
+        block_payload.extend_from_slice(&body);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x13, 0);
+        scan_all_metadata_blocks(&block_payload, 0x13, &mut caps, &mut did);
+        assert!(caps.tiled_topology.is_none());
+    }
+
+    #[test]
+    fn test_v2_tiled_topology_first_wins() {
+        let first = make_tiled_topology_payload(true, false, 1, 1, 1, 0, 0, 1920, 1080, None);
+        let second = make_tiled_topology_payload(false, false, 0, 3, 3, 1, 1, 800, 600, None);
+        let mut payload = Vec::new();
+        for body in [first, second] {
+            payload.push(TAG_V2_TILED_TOPOLOGY);
+            payload.push(0x00);
+            payload.push(body.len() as u8);
+            payload.extend_from_slice(&body);
+        }
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did);
+        let t = caps.tiled_topology.expect("first 0x28 should populate tiled_topology");
+        assert_eq!(t.h_tile_count, 2);
+        assert_eq!(t.v_tile_count, 2);
     }
 
     // -----------------------------------------------------------------------
