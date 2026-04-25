@@ -4,7 +4,7 @@ use super::{
     TAG_SERIAL_NUMBER, TAG_STEREO_DISPLAY_INTERFACE, TAG_TILED_TOPOLOGY,
     TAG_TRANSFER_CHARACTERISTICS, TAG_V2_CONTAINER_ID, TAG_V2_DISPLAY_PARAMS,
     TAG_V2_DYNAMIC_TIMING_RANGE, TAG_V2_INTERFACE_FEATURES, TAG_V2_PRODUCT_ID,
-    TAG_V2_TILED_TOPOLOGY, TAG_VIDEO_TIMING_RANGE, for_each_data_block,
+    TAG_V2_STEREO_INTERFACE, TAG_V2_TILED_TOPOLOGY, TAG_VIDEO_TIMING_RANGE, for_each_data_block,
 };
 
 use crate::capabilities::base::{decode_color_bit_depth, decode_manufacture_date};
@@ -33,8 +33,9 @@ use crate::model::transfer::{
 use display_types::DisplayIdCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use display_types::displayid::{
-    Chromaticity12, ChromaticityPoint12, DisplayInterfaceFeatures, DisplayParamsV2,
-    DisplayTechnology as V2DisplayTechnology, DynamicTimingRange, ScanOrientation,
+    Chromaticity12, ChromaticityPoint12, DisplayIdStereoInterfaceV2, DisplayInterfaceFeatures,
+    DisplayParamsV2, DisplayTechnology as V2DisplayTechnology, DualInterfaceMirroring,
+    DynamicTimingRange, ScanOrientation, StereoEye, StereoTimingScopeV2, StereoViewingMethodV2,
 };
 
 /// Decodes a Product Identification Block payload into `caps`.
@@ -456,6 +457,122 @@ pub(super) fn decode_v2_interface_features_block(payload: &[u8], did: &mut Displ
     features.audio_flags = payload[5];
     features.color_space_eotf_1 = payload[6];
     did.interface_features = Some(features);
+}
+
+/// Decodes a DisplayID 2.x Stereo Display Interface Block payload (tag `0x27`).
+///
+/// Payload layout (DisplayID 2.x §4.7, variable length):
+/// - Byte 0: Length of the stereo descriptor that follows (in bytes; ≥ 1, includes the
+///   method byte). The full descriptor occupies `payload[1..1 + payload[0]]`.
+/// - Byte 1: Stereo viewing method
+///   - `0x00` Field Sequential
+///   - `0x01` Side-by-Side
+///   - `0x02` Pixel Interleaved
+///   - `0x03` Dual Interface
+///   - `0x04` Multi-View
+///   - `0x05` Stacked Frame
+///   - `0xFF` Proprietary
+///   - other  Reserved (surfaced as [`StereoViewingMethodV2::Reserved`])
+/// - Byte 2 onwards: Method-specific arguments (length depends on method).
+///
+/// The `revision` byte's upper two bits encode the timing scope (see
+/// [`StereoTimingScopeV2::from_revision`]). When the scope indicates inline timing codes
+/// the payload also carries a list of DMT/VIC/HDMI-VIC code records after the stereo
+/// descriptor; that list is currently ignored.
+///
+/// The decoded record is stored on `did.stereo_interface_v2`. Payloads shorter than the
+/// declared descriptor length, or with method-specific argument bytes missing, are skipped.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_v2_stereo_interface_block(
+    payload: &[u8],
+    revision: u8,
+    did: &mut DisplayIdCapabilities,
+) {
+    if payload.len() < 2 {
+        return;
+    }
+    let descriptor_len = payload[0] as usize;
+    if descriptor_len < 1 || payload.len() < 1 + descriptor_len {
+        return;
+    }
+    let method_byte = payload[1];
+    let args = &payload[2..1 + descriptor_len];
+
+    let method = match method_byte {
+        0x00 => {
+            if args.is_empty() {
+                return;
+            }
+            StereoViewingMethodV2::FieldSequential {
+                right_eye_polarity_high: (args[0] & 0x01) != 0,
+            }
+        }
+        0x01 => {
+            if args.is_empty() {
+                return;
+            }
+            StereoViewingMethodV2::SideBySide {
+                left_half: if (args[0] & 0x01) != 0 {
+                    StereoEye::Right
+                } else {
+                    StereoEye::Left
+                },
+            }
+        }
+        0x02 => {
+            if args.len() < 8 {
+                return;
+            }
+            let mut pattern = [0u8; 8];
+            pattern.copy_from_slice(&args[..8]);
+            StereoViewingMethodV2::PixelInterleaved { pattern }
+        }
+        0x03 => {
+            if args.is_empty() {
+                return;
+            }
+            let eye = if (args[0] & 0x01) != 0 {
+                StereoEye::Right
+            } else {
+                StereoEye::Left
+            };
+            let mirroring = match (args[0] >> 1) & 0x03 {
+                0b00 => DualInterfaceMirroring::None,
+                0b01 => DualInterfaceMirroring::LeftRight,
+                0b10 => DualInterfaceMirroring::TopBottom,
+                _ => DualInterfaceMirroring::Reserved,
+            };
+            StereoViewingMethodV2::DualInterface { eye, mirroring }
+        }
+        0x04 => {
+            if args.len() < 2 {
+                return;
+            }
+            StereoViewingMethodV2::MultiView {
+                view_count: args[0],
+                interleaving_method_code: args[1],
+            }
+        }
+        0x05 => {
+            if args.is_empty() {
+                return;
+            }
+            StereoViewingMethodV2::StackedFrame {
+                top_half: if (args[0] & 0x01) != 0 {
+                    StereoEye::Right
+                } else {
+                    StereoEye::Left
+                },
+            }
+        }
+        0xFF => StereoViewingMethodV2::Proprietary,
+        other => StereoViewingMethodV2::Reserved(other),
+    };
+
+    let mut record = DisplayIdStereoInterfaceV2::default();
+    record.timing_scope = StereoTimingScopeV2::from_revision(revision);
+    record.method = method;
+    did.stereo_interface_v2 = Some(record);
 }
 
 /// Decodes a DisplayID 2.x ContainerID Block payload (tag `0x29`).
@@ -1184,6 +1301,7 @@ pub(super) fn scan_all_metadata_blocks(
         let mut found_v2_display_params = false;
         let mut found_v2_dynamic_timing_range = false;
         let mut found_v2_interface_features = false;
+        let mut found_v2_stereo_interface = false;
         let mut found_v2_tiled_topology = false;
         let mut found_v2_container_id = false;
         for_each_data_block(payload, |tag, revision, block_payload| match tag {
@@ -1202,6 +1320,10 @@ pub(super) fn scan_all_metadata_blocks(
             TAG_V2_INTERFACE_FEATURES if !found_v2_interface_features => {
                 found_v2_interface_features = true;
                 decode_v2_interface_features_block(block_payload, did);
+            }
+            TAG_V2_STEREO_INTERFACE if !found_v2_stereo_interface => {
+                found_v2_stereo_interface = true;
+                decode_v2_stereo_interface_block(block_payload, revision, did);
             }
             TAG_V2_TILED_TOPOLOGY if !found_v2_tiled_topology => {
                 found_v2_tiled_topology = true;
@@ -3363,6 +3485,227 @@ mod tests {
             .expect("first 0x28 should populate tiled_topology");
         assert_eq!(t.h_tile_count, 2);
         assert_eq!(t.v_tile_count, 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // V2 Stereo Display Interface Block (tag 0x27)
+    // -----------------------------------------------------------------------
+
+    fn make_v2_stereo_payload(method: u8, args: &[u8]) -> Vec<u8> {
+        // payload[0] = descriptor length (1 method byte + args), [1] = method, [2..] = args.
+        let mut v = Vec::with_capacity(2 + args.len());
+        v.push(1 + args.len() as u8);
+        v.push(method);
+        v.extend_from_slice(args);
+        v
+    }
+
+    #[test]
+    fn test_v2_stereo_field_sequential() {
+        let p = make_v2_stereo_payload(0x00, &[0x01]); // polarity bit set
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(r.timing_scope, StereoTimingScopeV2::ExplicitTimingsOnly);
+        assert!(matches!(
+            r.method,
+            StereoViewingMethodV2::FieldSequential {
+                right_eye_polarity_high: true
+            }
+        ));
+    }
+
+    #[test]
+    fn test_v2_stereo_side_by_side_left_eye_in_left_half() {
+        let p = make_v2_stereo_payload(0x01, &[0x00]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(
+            r.method,
+            StereoViewingMethodV2::SideBySide {
+                left_half: StereoEye::Left
+            }
+        );
+    }
+
+    #[test]
+    fn test_v2_stereo_side_by_side_right_eye_in_left_half() {
+        let p = make_v2_stereo_payload(0x01, &[0x01]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(
+            r.method,
+            StereoViewingMethodV2::SideBySide {
+                left_half: StereoEye::Right
+            }
+        );
+    }
+
+    #[test]
+    fn test_v2_stereo_pixel_interleaved() {
+        let pattern = [0xAA, 0x55, 0xF0, 0x0F, 0xCC, 0x33, 0xFF, 0x00];
+        let p = make_v2_stereo_payload(0x02, &pattern);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(
+            r.method,
+            StereoViewingMethodV2::PixelInterleaved { pattern }
+        );
+    }
+
+    #[test]
+    fn test_v2_stereo_dual_interface_left_no_mirror() {
+        let p = make_v2_stereo_payload(0x03, &[0x00]); // eye=L, mirror=00
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(
+            r.method,
+            StereoViewingMethodV2::DualInterface {
+                eye: StereoEye::Left,
+                mirroring: DualInterfaceMirroring::None
+            }
+        );
+    }
+
+    #[test]
+    fn test_v2_stereo_dual_interface_right_top_bottom_mirror() {
+        // bit0=1 (Right), bits2:1=10 (TopBottom)
+        let p = make_v2_stereo_payload(0x03, &[0b0000_0101]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(
+            r.method,
+            StereoViewingMethodV2::DualInterface {
+                eye: StereoEye::Right,
+                mirroring: DualInterfaceMirroring::TopBottom
+            }
+        );
+    }
+
+    #[test]
+    fn test_v2_stereo_multi_view() {
+        let p = make_v2_stereo_payload(0x04, &[8, 0x42]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(
+            r.method,
+            StereoViewingMethodV2::MultiView {
+                view_count: 8,
+                interleaving_method_code: 0x42
+            }
+        );
+    }
+
+    #[test]
+    fn test_v2_stereo_stacked_frame_top_is_right() {
+        let p = make_v2_stereo_payload(0x05, &[0x01]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(
+            r.method,
+            StereoViewingMethodV2::StackedFrame {
+                top_half: StereoEye::Right
+            }
+        );
+    }
+
+    #[test]
+    fn test_v2_stereo_proprietary() {
+        let p = make_v2_stereo_payload(0xFF, &[]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(r.method, StereoViewingMethodV2::Proprietary);
+    }
+
+    #[test]
+    fn test_v2_stereo_reserved_method() {
+        let p = make_v2_stereo_payload(0x42, &[0x00]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(r.method, StereoViewingMethodV2::Reserved(0x42));
+    }
+
+    #[test]
+    fn test_v2_stereo_timing_scope_decoded_from_revision() {
+        // Revision bits 7:6 = 0b11 → ListedTimingCodesOnly
+        let p = make_v2_stereo_payload(0x00, &[0x00]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0b1100_0000, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(r.timing_scope, StereoTimingScopeV2::ListedTimingCodesOnly);
+        assert!(r.has_timing_codes());
+    }
+
+    #[test]
+    fn test_v2_stereo_short_payload_skipped() {
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&[0x02], 0x00, &mut did);
+        assert!(did.stereo_interface_v2.is_none());
+    }
+
+    #[test]
+    fn test_v2_stereo_method_args_truncated_skipped() {
+        // method 0x02 (pixel interleaved) needs 8 arg bytes; descriptor claims 9 bytes total
+        // but payload only carries 4. Decoder must skip without panicking.
+        let p = vec![0x09, 0x02, 0xAA, 0x55, 0xF0]; // 1 + 1 + 3 args, claim 9
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        assert!(did.stereo_interface_v2.is_none());
+    }
+
+    #[test]
+    fn test_v2_stereo_dispatched_only_for_v2_section() {
+        let body = make_v2_stereo_payload(0x01, &[0x00]);
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_V2_STEREO_INTERFACE);
+        block_payload.push(0x00); // revision
+        block_payload.push(body.len() as u8);
+        block_payload.extend_from_slice(&body);
+
+        // V1 section: must not decode.
+        let mut caps_v1 = DisplayCapabilities::default();
+        let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
+        scan_all_metadata_blocks(&block_payload, 0x13, &mut caps_v1, &mut did_v1);
+        assert!(did_v1.stereo_interface_v2.is_none());
+
+        // V2 section: decoder runs.
+        let mut caps_v2 = DisplayCapabilities::default();
+        let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps_v2, &mut did_v2);
+        let r = did_v2.stereo_interface_v2.unwrap();
+        assert_eq!(
+            r.method,
+            StereoViewingMethodV2::SideBySide {
+                left_half: StereoEye::Left
+            }
+        );
+    }
+
+    #[test]
+    fn test_v2_stereo_first_wins() {
+        let first = make_v2_stereo_payload(0x01, &[0x00]); // SideBySide left=L
+        let second = make_v2_stereo_payload(0x05, &[0x01]); // StackedFrame top=R
+        let mut payload = Vec::new();
+        for body in [first, second] {
+            payload.push(TAG_V2_STEREO_INTERFACE);
+            payload.push(0x00);
+            payload.push(body.len() as u8);
+            payload.extend_from_slice(&body);
+        }
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert!(matches!(r.method, StereoViewingMethodV2::SideBySide { .. }));
     }
 
     // -----------------------------------------------------------------------
