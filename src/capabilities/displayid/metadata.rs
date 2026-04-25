@@ -3,7 +3,7 @@ use super::{
     TAG_DISPLAY_INTERFACE, TAG_DISPLAY_PARAMS, TAG_POWER_SEQUENCING, TAG_PRODUCT_ID,
     TAG_SERIAL_NUMBER, TAG_STEREO_DISPLAY_INTERFACE, TAG_TILED_TOPOLOGY,
     TAG_TRANSFER_CHARACTERISTICS, TAG_V2_DISPLAY_PARAMS, TAG_V2_DYNAMIC_TIMING_RANGE,
-    TAG_V2_PRODUCT_ID, TAG_VIDEO_TIMING_RANGE, for_each_data_block,
+    TAG_V2_INTERFACE_FEATURES, TAG_V2_PRODUCT_ID, TAG_VIDEO_TIMING_RANGE, for_each_data_block,
 };
 
 use crate::capabilities::base::{decode_color_bit_depth, decode_manufacture_date};
@@ -32,8 +32,8 @@ use crate::model::transfer::{
 use display_types::DisplayIdCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use display_types::displayid::{
-    Chromaticity12, ChromaticityPoint12, DisplayParamsV2, DisplayTechnology as V2DisplayTechnology,
-    DynamicTimingRange, ScanOrientation,
+    Chromaticity12, ChromaticityPoint12, DisplayInterfaceFeatures, DisplayParamsV2,
+    DisplayTechnology as V2DisplayTechnology, DynamicTimingRange, ScanOrientation,
 };
 
 /// Decodes a Product Identification Block payload into `caps`.
@@ -421,6 +421,40 @@ pub(super) fn decode_v2_dynamic_timing_range_block(
     if max_v_rate_hz != 0 {
         caps.max_v_rate = Some(max_v_rate_hz);
     }
+}
+
+/// Decodes a DisplayID 2.x Display Interface Features Block payload (tag `0x26`).
+///
+/// Payload layout (DisplayID 2.x §4.6, mandatory 9 bytes — only the first 7 are stored):
+/// - Byte 0: RGB color depth bitmask
+///   (bit 0 = 6 bpc, bit 1 = 8, bit 2 = 10, bit 3 = 12, bit 4 = 14, bit 5 = 16)
+/// - Byte 1: YCbCr 4:4:4 color depth bitmask (same bit layout as RGB)
+/// - Byte 2: YCbCr 4:2:2 color depth bitmask
+///   (bit 0 = 8 bpc, bit 1 = 10, bit 2 = 12, bit 3 = 14, bit 4 = 16)
+/// - Byte 3: YCbCr 4:2:0 color depth bitmask (same bit layout as 4:2:2)
+/// - Byte 4: Minimum pixel rate at which YCbCr 4:2:0 is supported, in 74.25 MP/s units
+///   (`0` = supported at all pixel rates)
+/// - Byte 5: Audio capability flags (bit 5 = 32 kHz, bit 6 = 44.1 kHz, bit 7 = 48 kHz)
+/// - Byte 6: Color space and EOTF defined-combinations bitmask
+/// - Bytes 7–8: Custom color space/EOTF combinations and additional-bytes count (not decoded)
+///
+/// The decoded record is stored on `did.interface_features`. If the payload is shorter
+/// than the mandatory 9 bytes the block is skipped with no side effects.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_v2_interface_features_block(payload: &[u8], did: &mut DisplayIdCapabilities) {
+    if payload.len() < 9 {
+        return;
+    }
+
+    let mut features = DisplayInterfaceFeatures::default();
+    features.color_depth_rgb = payload[0];
+    features.color_depth_ycbcr444 = payload[1];
+    features.color_depth_ycbcr422 = payload[2];
+    features.color_depth_ycbcr420 = payload[3];
+    features.min_ycbcr420_pixel_rate = payload[4];
+    features.audio_flags = payload[5];
+    features.color_space_eotf_1 = payload[6];
+    did.interface_features = Some(features);
 }
 
 /// Decodes a Display Parameters Block payload into `caps`.
@@ -1127,6 +1161,7 @@ pub(super) fn scan_all_metadata_blocks(
         let mut found_v2_product_id = false;
         let mut found_v2_display_params = false;
         let mut found_v2_dynamic_timing_range = false;
+        let mut found_v2_interface_features = false;
         for_each_data_block(payload, |tag, revision, block_payload| match tag {
             TAG_V2_PRODUCT_ID if !found_v2_product_id => {
                 found_v2_product_id = true;
@@ -1139,6 +1174,10 @@ pub(super) fn scan_all_metadata_blocks(
             TAG_V2_DYNAMIC_TIMING_RANGE if !found_v2_dynamic_timing_range => {
                 found_v2_dynamic_timing_range = true;
                 decode_v2_dynamic_timing_range_block(block_payload, revision, caps, did);
+            }
+            TAG_V2_INTERFACE_FEATURES if !found_v2_interface_features => {
+                found_v2_interface_features = true;
+                decode_v2_interface_features_block(block_payload, did);
             }
             _ => {}
         });
@@ -2072,6 +2111,133 @@ mod tests {
         let r = did_v2.dynamic_timing_range.unwrap();
         assert_eq!(r.max_pixel_clock_khz, 600_000);
         assert!(r.vrr_supported);
+    }
+
+    // -----------------------------------------------------------------------
+    // V2 Display Interface Features Block (tag 0x26)
+    // -----------------------------------------------------------------------
+
+    fn make_v2_interface_features_payload(
+        rgb: u8,
+        ycbcr444: u8,
+        ycbcr422: u8,
+        ycbcr420: u8,
+        min_420_rate: u8,
+        audio: u8,
+        cs_eotf_1: u8,
+    ) -> [u8; 9] {
+        [
+            rgb,
+            ycbcr444,
+            ycbcr422,
+            ycbcr420,
+            min_420_rate,
+            audio,
+            cs_eotf_1,
+            0x00,
+            0x00,
+        ]
+    }
+
+    #[test]
+    fn test_v2_interface_features_basic() {
+        // RGB: 8/10/12 bpc; YCbCr 4:4:4: 8/10; YCbCr 4:2:2: 8/10/12;
+        // YCbCr 4:2:0: 10; min 4:2:0 rate at 74.25 MP/s; 48 kHz audio; default colorspace.
+        let p = make_v2_interface_features_payload(
+            0b0000_1110,
+            0b0000_0110,
+            0b0000_0111,
+            0b0000_0010,
+            1,
+            0b1000_0000,
+            0b0000_0001,
+        );
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_interface_features_block(&p, &mut did);
+        let f = did.interface_features.unwrap();
+        assert_eq!(f.color_depth_rgb, 0b0000_1110);
+        assert_eq!(f.color_depth_ycbcr444, 0b0000_0110);
+        assert_eq!(f.color_depth_ycbcr422, 0b0000_0111);
+        assert_eq!(f.color_depth_ycbcr420, 0b0000_0010);
+        assert_eq!(f.min_ycbcr420_pixel_rate, 1);
+        assert_eq!(f.audio_flags, 0b1000_0000);
+        assert_eq!(f.color_space_eotf_1, 0b0000_0001);
+    }
+
+    #[test]
+    fn test_v2_interface_features_all_zero_payload() {
+        let p = make_v2_interface_features_payload(0, 0, 0, 0, 0, 0, 0);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_interface_features_block(&p, &mut did);
+        // Even fully-zero (no formats supported) is a valid decoded record.
+        let f = did.interface_features.unwrap();
+        assert_eq!(f.color_depth_rgb, 0);
+        assert_eq!(f.audio_flags, 0);
+    }
+
+    #[test]
+    fn test_v2_interface_features_short_payload_skipped() {
+        let short = [0x3E, 0x06, 0x07, 0x02, 0x00, 0x80, 0x01, 0x00]; // 8 bytes
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_interface_features_block(&short, &mut did);
+        assert!(did.interface_features.is_none());
+    }
+
+    #[test]
+    fn test_v2_interface_features_ignores_trailing_bytes() {
+        // Payload longer than the mandatory 9 bytes; only the first 7 fields are read.
+        let mut p =
+            make_v2_interface_features_payload(0x3E, 0x06, 0x07, 0x02, 0, 0x80, 0x01).to_vec();
+        p.extend_from_slice(&[0xAA, 0xBB, 0xCC, 0xDD]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_interface_features_block(&p, &mut did);
+        let f = did.interface_features.unwrap();
+        assert_eq!(f.color_depth_rgb, 0x3E);
+        assert_eq!(f.color_space_eotf_1, 0x01);
+    }
+
+    #[test]
+    fn test_v2_interface_features_dispatched_only_for_v2_section() {
+        let body = make_v2_interface_features_payload(0x3E, 0x06, 0x07, 0x02, 0, 0x80, 0x01);
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_V2_INTERFACE_FEATURES);
+        block_payload.push(0x00); // revision
+        block_payload.push(body.len() as u8);
+        block_payload.extend_from_slice(&body);
+
+        // V1 section: must not decode.
+        let mut caps_v1 = DisplayCapabilities::default();
+        let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
+        scan_all_metadata_blocks(&block_payload, 0x13, &mut caps_v1, &mut did_v1);
+        assert!(did_v1.interface_features.is_none());
+
+        // V2 section: decoder runs.
+        let mut caps_v2 = DisplayCapabilities::default();
+        let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps_v2, &mut did_v2);
+        let f = did_v2.interface_features.unwrap();
+        assert_eq!(f.color_depth_rgb, 0x3E);
+        assert_eq!(f.audio_flags, 0x80);
+    }
+
+    #[test]
+    fn test_v2_interface_features_only_first_block_decoded() {
+        // Two 0x26 blocks back-to-back: the second must be ignored.
+        let first = make_v2_interface_features_payload(0x3E, 0x06, 0x07, 0x02, 0, 0x80, 0x01);
+        let second = make_v2_interface_features_payload(0xFF, 0xFF, 0xFF, 0xFF, 9, 0xE0, 0xFF);
+        let mut payload = Vec::new();
+        for body in [first, second] {
+            payload.push(TAG_V2_INTERFACE_FEATURES);
+            payload.push(0x00);
+            payload.push(body.len() as u8);
+            payload.extend_from_slice(&body);
+        }
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did);
+        let f = did.interface_features.unwrap();
+        assert_eq!(f.color_depth_rgb, 0x3E);
+        assert_eq!(f.audio_flags, 0x80);
     }
 
     // -----------------------------------------------------------------------
