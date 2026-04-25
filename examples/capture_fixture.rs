@@ -29,6 +29,15 @@ use std::path::Path;
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Formats a `RefreshRate` as a Rust expression string for use in generated test code.
+fn refresh_rate_expr(r: piaf::RefreshRate) -> String {
+    if r.denom() == 1 {
+        format!("RefreshRate::integral({})", r.numer())
+    } else {
+        format!("RefreshRate::fractional({}, {})", r.numer(), r.denom())
+    }
+}
+
 /// Converts an arbitrary string into a valid snake_case Rust identifier segment.
 fn sanitize(s: &str) -> String {
     s.chars()
@@ -179,15 +188,17 @@ fn gen_displayid(
     if let Some(m) = caps
         .supported_modes
         .iter()
-        .max_by_key(|m| (m.width as u32 * m.height as u32, m.refresh_rate as u32))
+        .max_by_key(|m| (m.width as u32 * m.height as u32, m.refresh_rate))
     {
-        let (w, h, r) = (m.width, m.height, m.refresh_rate);
+        let (w, h) = (m.width, m.height);
+        let r_expr = refresh_rate_expr(m.refresh_rate);
+        let r_display = m.refresh_rate.as_f64();
         println!("    assert!(");
         println!(
             "        caps.supported_modes.iter().any(\
-             |m| m.width == {w} && m.height == {h} && m.refresh_rate == {r}),"
+             |m| m.width == {w} && m.height == {h} && m.refresh_rate == {r_expr}),"
         );
-        println!("        \"expected {w}x{h}@{r}Hz mode\"");
+        println!("        \"expected {w}x{h}@{r_display:.3}Hz mode\"");
         println!("    );");
     }
     println!("}}");
@@ -205,15 +216,14 @@ fn gen_supported_modes(mod_name: &str, bin_path: &str, caps: &piaf::DisplayCapab
 
     // Assert up to 3 distinct resolutions: highest first, then a couple of others.
     let mut modes: Vec<_> = caps.supported_modes.iter().collect();
-    modes.sort_by_key(|m| {
-        std::cmp::Reverse((m.width as u32 * m.height as u32, m.refresh_rate as u32))
-    });
+    modes.sort_by_key(|m| std::cmp::Reverse((m.width as u32 * m.height as u32, m.refresh_rate)));
     modes.dedup_by_key(|m| (m.width, m.height));
     for m in modes.iter().take(3) {
-        let (w, h, r) = (m.width, m.height, m.refresh_rate);
+        let (w, h) = (m.width, m.height);
+        let r_expr = refresh_rate_expr(m.refresh_rate);
         println!(
             "    assert!(caps.supported_modes.iter().any(\
-             |m| m.width == {w} && m.height == {h} && m.refresh_rate == {r}));"
+             |m| m.width == {w} && m.height == {h} && m.refresh_rate == {r_expr}));"
         );
     }
     println!("}}");

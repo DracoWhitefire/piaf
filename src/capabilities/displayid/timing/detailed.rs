@@ -219,7 +219,7 @@ pub(super) fn decode_type_vi_descriptor(d: &[u8], sink: &mut dyn ModeSink) -> us
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod tests {
     use super::*;
-    use crate::model::capabilities::{DisplayCapabilities, SyncDefinition};
+    use crate::model::capabilities::{DisplayCapabilities, RefreshRate, SyncDefinition};
 
     #[allow(clippy::too_many_arguments)]
     fn make_type_i_descriptor(
@@ -290,7 +290,7 @@ mod tests {
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
-        assert_eq!(mode.refresh_rate, 60);
+        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
         assert!(!mode.interlaced);
     }
 
@@ -326,7 +326,7 @@ mod tests {
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
-        assert_eq!(mode.refresh_rate, 60);
+        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
         assert_eq!(mode.h_front_porch, 88);
         assert_eq!(mode.h_sync_width, 48);
         assert_eq!(mode.v_front_porch, 5);
@@ -433,7 +433,7 @@ mod tests {
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
-        assert_eq!(mode.refresh_rate, 60);
+        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
         assert!(!mode.interlaced);
         assert_eq!(mode.h_front_porch, 88);
         assert_eq!(mode.h_sync_width, 44);

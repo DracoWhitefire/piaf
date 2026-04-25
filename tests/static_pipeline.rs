@@ -1,6 +1,7 @@
 use piaf::{
-    EdidWarning, ExtensionLibrary, ExtensionTagRegistry, KnownExtensions, STANDARD_HANDLERS,
-    StaticDisplayCapabilities, capabilities_from_edid, capabilities_from_edid_static, parse_edid,
+    EdidWarning, ExtensionLibrary, ExtensionTagRegistry, KnownExtensions, RefreshRate,
+    STANDARD_HANDLERS, StaticDisplayCapabilities, capabilities_from_edid,
+    capabilities_from_edid_static, parse_edid,
 };
 
 fn load(path: &str) -> Vec<u8> {
@@ -65,8 +66,9 @@ fn test_static_base_block_modes() {
         capabilities_from_edid_static(&parsed, STANDARD_HANDLERS);
 
     assert!(
-        caps.iter_modes()
-            .any(|m| m.width == 800 && m.height == 600 && m.refresh_rate == 60),
+        caps.iter_modes().any(|m| m.width == 800
+            && m.height == 600
+            && m.refresh_rate == RefreshRate::integral(60)),
         "expected 800×600@60 from established timings"
     );
 }
@@ -86,8 +88,10 @@ fn test_static_cea861_svds() {
         capabilities_from_edid_static(&parsed, STANDARD_HANDLERS);
 
     assert!(
-        caps.iter_modes()
-            .any(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 60 && !m.interlaced),
+        caps.iter_modes().any(|m| m.width == 1920
+            && m.height == 1080
+            && m.refresh_rate == RefreshRate::integral(60)
+            && !m.interlaced),
         "expected VIC 16 (1080p60) in static caps"
     );
 }

@@ -72,7 +72,7 @@ pub(super) fn decode_type_v_descriptor(d: &[u8; 7], sink: &mut dyn ModeSink) {
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod tests {
     use super::*;
-    use crate::model::capabilities::DisplayCapabilities;
+    use crate::model::capabilities::{DisplayCapabilities, RefreshRate};
 
     fn make_type_iii_descriptor(
         preferred: bool,
@@ -97,7 +97,7 @@ mod tests {
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
-        assert_eq!(mode.refresh_rate, 60);
+        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
         assert!(!mode.interlaced);
     }
 
@@ -110,7 +110,10 @@ mod tests {
         assert_eq!(caps.supported_modes.len(), 1);
         assert_eq!(caps.supported_modes[0].width, 1024);
         assert_eq!(caps.supported_modes[0].height, 768);
-        assert_eq!(caps.supported_modes[0].refresh_rate, 75);
+        assert_eq!(
+            caps.supported_modes[0].refresh_rate,
+            RefreshRate::integral(75)
+        );
     }
 
     #[test]
@@ -189,7 +192,7 @@ mod tests {
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
-        assert_eq!(mode.refresh_rate, 60);
+        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
         assert!(!mode.interlaced);
     }
 
@@ -200,7 +203,10 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         decode_type_v_descriptor(&d, &mut caps);
         assert_eq!(caps.supported_modes.len(), 1);
-        assert_eq!(caps.supported_modes[0].refresh_rate, 256);
+        assert_eq!(
+            caps.supported_modes[0].refresh_rate,
+            RefreshRate::integral(256)
+        );
     }
 
     #[test]
@@ -228,6 +234,9 @@ mod tests {
         assert_eq!(caps.supported_modes.len(), 1);
         assert_eq!(caps.supported_modes[0].width, 7680);
         assert_eq!(caps.supported_modes[0].height, 4320);
-        assert_eq!(caps.supported_modes[0].refresh_rate, 120);
+        assert_eq!(
+            caps.supported_modes[0].refresh_rate,
+            RefreshRate::integral(120)
+        );
     }
 }

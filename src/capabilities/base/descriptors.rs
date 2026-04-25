@@ -299,7 +299,7 @@ pub(super) fn decode_descriptors_modes(base: &[u8; 128], sink: &mut dyn ModeSink
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod tests {
     use crate::capabilities::base::BaseBlockHandler;
-    use crate::model::capabilities::{DisplayCapabilities, VideoMode};
+    use crate::model::capabilities::{DisplayCapabilities, RefreshRate, VideoMode};
     use crate::model::color::{ChromaticityPoint, DisplayGamma};
     use crate::model::extension::ExtensionHandler;
     use crate::model::prelude::Vec;
@@ -422,19 +422,19 @@ mod tests {
 
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(1024, 768, 85, false))
+                .contains(&VideoMode::new(1024, 768, 85u32, false))
         );
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(1152, 864, 75, false))
+                .contains(&VideoMode::new(1152, 864, 75u32, false))
         );
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(1280, 1024, 60, false))
+                .contains(&VideoMode::new(1280, 1024, 60u32, false))
         );
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(1600, 1200, 60, false))
+                .contains(&VideoMode::new(1600, 1200, 60u32, false))
         );
         assert_eq!(caps.supported_modes.len(), 4);
     }
@@ -463,11 +463,11 @@ mod tests {
 
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(1920, 1080, 60, false))
+                .contains(&VideoMode::new(1920, 1080, 60u32, false))
         );
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(1280, 720, 60, false))
+                .contains(&VideoMode::new(1280, 720, 60u32, false))
         );
     }
 
@@ -676,17 +676,19 @@ mod tests {
 
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(1920, 1080, 60, false))
+                .contains(&VideoMode::new(1920, 1080, 60u32, false))
         );
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(1280, 720, 50, false))
+                .contains(&VideoMode::new(1280, 720, 50u32, false))
         );
         // 60 Hz RB (0x01 bit) deduplicates against preferred 60 Hz
         assert_eq!(
             caps.supported_modes
                 .iter()
-                .filter(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 60)
+                .filter(|m| m.width == 1920
+                    && m.height == 1080
+                    && m.refresh_rate == RefreshRate::integral(60))
                 .count(),
             1
         );

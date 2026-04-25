@@ -53,10 +53,11 @@ pub use model::{
     ExtensionLibrary, ExtensionMetadata, ExtensionTagRegistry, GtfSecondaryParams,
     InterfaceContentProtection, KnownExtensions, ManufactureDate, ManufacturerId, ModeSink,
     MonitorString, OperatingMode, ParsedEdid, ParsedEdidRef, PhysicalOrientation, PowerSequencing,
-    RotationCapability, ScanDirection, ScreenSize, StaticContext, StaticDisplayCapabilities,
-    StaticExtensionHandler, StereoMode, StereoSyncInterface, StereoViewingMode, SubpixelLayout,
-    SyncDefinition, TileBezelInfo, TileTopologyBehavior, TimingFormula, TransferPointEncoding,
-    VideoInputFlags, VideoInterface, VideoMode, WhitePoint, ZeroPixelLocation,
+    RefreshRate, RotationCapability, ScanDirection, ScreenSize, StaticContext,
+    StaticDisplayCapabilities, StaticExtensionHandler, StereoMode, StereoSyncInterface,
+    StereoViewingMode, SubpixelLayout, SyncDefinition, TileBezelInfo, TileTopologyBehavior,
+    TimingFormula, TransferPointEncoding, VideoInputFlags, VideoInterface, VideoMode, WhitePoint,
+    ZeroPixelLocation,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use model::{DisplayIdTransferCharacteristic, TransferCurve};

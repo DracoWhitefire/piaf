@@ -527,7 +527,7 @@ mod test_static {
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod tests {
     use super::*;
-    use crate::model::capabilities::DisplayCapabilities;
+    use crate::model::capabilities::{DisplayCapabilities, RefreshRate};
 
     #[test]
     fn test_audio_flag() {
@@ -602,22 +602,16 @@ mod tests {
 
         // All three VICs should produce entries in supported_modes
         assert_eq!(caps.supported_modes.len(), 3);
-        assert!(
-            caps.supported_modes.iter().any(|m| m.width == 1920
-                && m.height == 1080
-                && m.refresh_rate == 60
-                && !m.interlaced)
-        );
-        assert!(
-            caps.supported_modes
-                .iter()
-                .any(|m| m.width == 1280 && m.height == 720 && m.refresh_rate == 60)
-        );
-        assert!(
-            caps.supported_modes
-                .iter()
-                .any(|m| m.width == 640 && m.height == 480 && m.refresh_rate == 60)
-        );
+        assert!(caps.supported_modes.iter().any(|m| m.width == 1920
+            && m.height == 1080
+            && m.refresh_rate == RefreshRate::integral(60)
+            && !m.interlaced));
+        assert!(caps.supported_modes.iter().any(|m| m.width == 1280
+            && m.height == 720
+            && m.refresh_rate == RefreshRate::integral(60)));
+        assert!(caps.supported_modes.iter().any(|m| m.width == 640
+            && m.height == 480
+            && m.refresh_rate == RefreshRate::integral(60)));
     }
 
     #[test]
@@ -641,7 +635,9 @@ mod tests {
         assert_eq!(
             caps.supported_modes
                 .iter()
-                .filter(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 60)
+                .filter(|m| m.width == 1920
+                    && m.height == 1080
+                    && m.refresh_rate == RefreshRate::integral(60))
                 .count(),
             1
         );
@@ -698,9 +694,9 @@ mod tests {
         ExtensionHandler::process(&Cea861Handler, &[&ext], &mut caps, &mut Vec::new());
 
         assert!(
-            caps.supported_modes
-                .iter()
-                .any(|m| m.width == 2560 && m.height == 1440 && m.refresh_rate == 144),
+            caps.supported_modes.iter().any(|m| m.width == 2560
+                && m.height == 1440
+                && m.refresh_rate == RefreshRate::integral(144)),
             "2560×1440@144 not found in supported_modes"
         );
     }
@@ -754,11 +750,9 @@ mod tests {
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         assert_eq!(cea.y420_vics, vec![96]);
         // VIC 96 = 3840×2160@50Hz — should appear in supported_modes
-        assert!(
-            caps.supported_modes
-                .iter()
-                .any(|m| m.width == 3840 && m.height == 2160 && m.refresh_rate == 50)
-        );
+        assert!(caps.supported_modes.iter().any(|m| m.width == 3840
+            && m.height == 2160
+            && m.refresh_rate == RefreshRate::integral(50)));
     }
 
     #[test]
@@ -778,11 +772,9 @@ mod tests {
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         assert_eq!(cea.vics, vec![(193, false)]);
         // VIC 193 = 5120×2160p120 — should appear in supported_modes
-        assert!(
-            caps.supported_modes
-                .iter()
-                .any(|m| m.width == 5120 && m.height == 2160 && m.refresh_rate == 120)
-        );
+        assert!(caps.supported_modes.iter().any(|m| m.width == 5120
+            && m.height == 2160
+            && m.refresh_rate == RefreshRate::integral(120)));
     }
 
     #[test]

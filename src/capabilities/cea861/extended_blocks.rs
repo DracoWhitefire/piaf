@@ -986,6 +986,7 @@ pub(super) fn parse_vtb_ext(block_data: &[u8]) -> Option<VtbExtBlock> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::capabilities::RefreshRate;
 
     #[test]
     fn test_video_capability() {
@@ -1444,7 +1445,7 @@ mod tests {
         assert_eq!(vtb.timings.len(), 1);
         assert_eq!(vtb.timings[0].width, 1280);
         assert_eq!(vtb.timings[0].height, 800); // 1280 * 10 / 16 = 800
-        assert_eq!(vtb.timings[0].refresh_rate, 60);
+        assert_eq!(vtb.timings[0].refresh_rate, RefreshRate::integral(60));
     }
 
     #[test]
@@ -1456,7 +1457,11 @@ mod tests {
         let data = [0x01u8, 0x00, 0x01, 0x00, 0x1B, 0x24, 0x08];
         let vtb = parse_vtb_ext(&data).unwrap();
         assert!(!vtb.timings.is_empty());
-        let t = vtb.timings.iter().find(|m| m.refresh_rate == 60).unwrap();
+        let t = vtb
+            .timings
+            .iter()
+            .find(|m| m.refresh_rate == RefreshRate::integral(60))
+            .unwrap();
         assert_eq!(t.height, 1080);
         // 16:9: h = (1080 * 16 / 9) rounded down to multiple of 8 = 1920
         assert_eq!(t.width, 1920);
@@ -1545,7 +1550,7 @@ mod tests {
         assert_eq!(t7.version, 2);
         assert_eq!(t7.mode.width, 1920);
         assert_eq!(t7.mode.height, 1080);
-        assert_eq!(t7.mode.refresh_rate, 60);
+        assert_eq!(t7.mode.refresh_rate, RefreshRate::integral(60));
         assert!(!t7.mode.interlaced);
         assert!(!t7.y420);
     }
@@ -1614,7 +1619,7 @@ mod tests {
         let t7 = parse_t7vtdb(&d).unwrap();
         assert_eq!(t7.mode.width, 1280);
         assert_eq!(t7.mode.height, 720);
-        assert_eq!(t7.mode.refresh_rate, 60);
+        assert_eq!(t7.mode.refresh_rate, RefreshRate::integral(60));
     }
 
     // T8VTDB tests
@@ -1630,7 +1635,7 @@ mod tests {
         assert_eq!(t8.timings.len(), 1);
         assert_eq!(t8.timings[0].width, 1920);
         assert_eq!(t8.timings[0].height, 1080);
-        assert_eq!(t8.timings[0].refresh_rate, 60);
+        assert_eq!(t8.timings[0].refresh_rate, RefreshRate::integral(60));
         assert!(!t8.timings[0].interlaced);
     }
 
@@ -1653,7 +1658,7 @@ mod tests {
         let t8 = parse_t8vtdb(&data).unwrap();
         assert_eq!(t8.timings[0].width, 1024);
         assert_eq!(t8.timings[0].height, 768);
-        assert_eq!(t8.timings[0].refresh_rate, 43);
+        assert_eq!(t8.timings[0].refresh_rate, RefreshRate::integral(43));
         assert!(t8.timings[0].interlaced);
     }
 
@@ -1664,7 +1669,7 @@ mod tests {
         let t8 = parse_t8vtdb(&data).unwrap();
         assert_eq!(t8.codes, vec![0x0052]);
         assert_eq!(t8.timings[0].width, 1920);
-        assert_eq!(t8.timings[0].refresh_rate, 60);
+        assert_eq!(t8.timings[0].refresh_rate, RefreshRate::integral(60));
     }
 
     #[test]
@@ -1709,12 +1714,12 @@ mod tests {
         let m = dmt_to_mode(0x55).unwrap();
         assert_eq!(m.width, 1280);
         assert_eq!(m.height, 720);
-        assert_eq!(m.refresh_rate, 60);
+        assert_eq!(m.refresh_rate, RefreshRate::integral(60));
         assert!(!m.interlaced);
 
         let m = dmt_to_mode(0x0F).unwrap();
         assert!(m.interlaced);
-        assert_eq!(m.refresh_rate, 43);
+        assert_eq!(m.refresh_rate, RefreshRate::integral(43));
 
         assert!(dmt_to_mode(0x00).is_none());
         assert!(dmt_to_mode(0x59).is_none());
