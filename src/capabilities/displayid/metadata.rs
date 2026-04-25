@@ -2,7 +2,7 @@ use super::{
     DISPLAYID_V2, TAG_ASCII_STRING, TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_DEVICE_DATA,
     TAG_DISPLAY_INTERFACE, TAG_DISPLAY_PARAMS, TAG_POWER_SEQUENCING, TAG_PRODUCT_ID,
     TAG_SERIAL_NUMBER, TAG_STEREO_DISPLAY_INTERFACE, TAG_TILED_TOPOLOGY,
-    TAG_TRANSFER_CHARACTERISTICS, TAG_VIDEO_TIMING_RANGE, for_each_data_block,
+    TAG_TRANSFER_CHARACTERISTICS, TAG_V2_PRODUCT_ID, TAG_VIDEO_TIMING_RANGE, for_each_data_block,
 };
 
 use crate::capabilities::base::{decode_color_bit_depth, decode_manufacture_date};
@@ -13,7 +13,7 @@ use crate::model::color::{Chromaticity, ChromaticityPoint};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::manufacture::{ManufacturerId, MonitorString};
+use crate::model::manufacture::{ManufactureDate, ManufacturerId, MonitorString};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::panel::{
     BacklightType, DisplayIdInterface, DisplayIdStereoInterface, DisplayIdTiledTopology,
@@ -27,6 +27,8 @@ use crate::model::prelude::{Arc, Vec};
 use crate::model::transfer::{
     DisplayIdTransferCharacteristic, TransferCurve, TransferPointEncoding,
 };
+#[cfg(any(feature = "alloc", feature = "std"))]
+use display_types::DisplayIdCapabilities;
 
 /// Decodes a Product Identification Block payload into `caps`.
 ///
@@ -103,6 +105,76 @@ pub(super) fn scan_product_id_block(payload: &[u8], caps: &mut DisplayCapabiliti
             decode_product_id_block(block_payload, caps);
         }
     });
+}
+
+/// Decodes a DisplayID 2.x Product Identification Block payload (tag `0x20`).
+///
+/// Payload layout (DisplayID 2.x §4.1):
+/// - Bytes 0–2:   IEEE OUI (manufacturer identifier; 3 raw bytes — not PNP encoded)
+/// - Bytes 3–4:   Product code (little-endian uint16)
+/// - Bytes 5–8:   Serial number (little-endian uint32; `0` = not specified)
+/// - Byte  9:     Week of manufacture (`0` = unspecified, `0xFF` = model year)
+/// - Byte  10:    Year (`byte + 2000`; when week = `0xFF`, this is the model year)
+/// - Byte  11:    Product name length in bytes (`0` = no name; spec maximum 236)
+/// - Bytes 12+:   Product name (no termination; ASCII / ISO 8859-1)
+///
+/// The OUI is written to `did.manufacturer_oui`. The V1 PNP-derived `caps.manufacturer`
+/// field is intentionally left untouched — DisplayID 2.x identifies vendors by IEEE OUI,
+/// which does not map onto the 3-letter PNP namespace.
+///
+/// Each field is written only when the payload is long enough to contain it. The product
+/// name is truncated to fit `MonitorString`'s 13-byte buffer; longer names lose tail bytes.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_v2_product_id_block(
+    payload: &[u8],
+    caps: &mut DisplayCapabilities,
+    did: &mut DisplayIdCapabilities,
+) {
+    if payload.len() >= 3 {
+        did.manufacturer_oui = Some([payload[0], payload[1], payload[2]]);
+    }
+    if payload.len() >= 5 {
+        caps.product_code = Some(u16::from_le_bytes([payload[3], payload[4]]));
+    }
+    if payload.len() >= 9 {
+        let sn = u32::from_le_bytes([payload[5], payload[6], payload[7], payload[8]]);
+        if sn != 0 {
+            caps.serial_number = Some(sn);
+        }
+    }
+    if payload.len() >= 11 {
+        caps.manufacture_date = Some(decode_v2_manufacture_date(payload[9], payload[10]));
+    }
+    if payload.len() >= 12 {
+        let name_len = payload[11] as usize;
+        if name_len > 0 && payload.len() >= 12 + name_len {
+            let name_bytes = &payload[12..12 + name_len];
+            let mut buf = [b' '; 13];
+            let copy_len = name_bytes.len().min(13);
+            buf[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
+            if !buf.contains(&0x0A) {
+                buf[copy_len.min(12)] = 0x0A;
+            }
+            caps.display_name = Some(MonitorString(buf));
+        }
+    }
+}
+
+/// Decodes the DisplayID 2.x manufacture date encoding (year stored as `byte + 2000`).
+#[cfg(any(feature = "alloc", feature = "std"))]
+const fn decode_v2_manufacture_date(week: u8, year: u8) -> ManufactureDate {
+    let y = year as u16 + 2000;
+    match week {
+        0xFF => ManufactureDate::ModelYear(y),
+        0x00 => ManufactureDate::Manufactured {
+            week: None,
+            year: y,
+        },
+        w => ManufactureDate::Manufactured {
+            week: Some(w),
+            year: y,
+        },
+    }
 }
 
 /// Decodes a Display Parameters Block payload into `caps`.
@@ -795,16 +867,24 @@ pub(super) fn scan_tiled_topology_block(payload: &[u8], caps: &mut DisplayCapabi
 /// This replaces the individual `scan_*` calls in the alloc pipeline and
 /// reduces the number of passes over the payload from one-per-tag to one.
 ///
-/// `version` is the DisplayID version byte from the section header. V1 metadata
-/// decoders run only when `version` falls in the 1.x range; V2 sections do not yet
-/// decode any metadata blocks.
+/// `version` is the DisplayID version byte from the section header. The decoder
+/// dispatches to the V1 or V2 metadata block tags based on `version`. The V2 path
+/// also writes into `did` (e.g., `manufacturer_oui` from block 0x20).
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub(super) fn scan_all_metadata_blocks(
     payload: &[u8],
     version: u8,
     caps: &mut DisplayCapabilities,
+    did: &mut DisplayIdCapabilities,
 ) {
     if version == DISPLAYID_V2 {
+        let mut found_v2_product_id = false;
+        for_each_data_block(payload, |tag, _revision, block_payload| {
+            if tag == TAG_V2_PRODUCT_ID && !found_v2_product_id {
+                found_v2_product_id = true;
+                decode_v2_product_id_block(block_payload, caps, did);
+            }
+        });
         return;
     }
     let mut found_product_id = false;
@@ -1014,6 +1094,179 @@ mod tests {
         decode_product_id_block(&payload, &mut caps);
         assert_eq!(caps.manufacturer, None);
         assert_eq!(caps.product_code, None);
+    }
+
+    // -----------------------------------------------------------------------
+    // V2 Product Identification Block (tag 0x20)
+    // -----------------------------------------------------------------------
+
+    fn make_v2_product_id_payload(
+        oui: [u8; 3],
+        product_code: u16,
+        serial: u32,
+        week: u8,
+        year_offset: u8, // actual year = offset + 2000
+        name: Option<&[u8]>,
+    ) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&oui);
+        v.extend_from_slice(&product_code.to_le_bytes());
+        v.extend_from_slice(&serial.to_le_bytes());
+        v.push(week);
+        v.push(year_offset);
+        match name {
+            Some(n) => {
+                v.push(n.len() as u8);
+                v.extend_from_slice(n);
+            }
+            None => v.push(0),
+        }
+        v
+    }
+
+    #[test]
+    fn test_v2_product_id_oui_and_product_code() {
+        // 00-1A-7E is the LG Electronics OUI.
+        let payload = make_v2_product_id_payload([0x00, 0x1A, 0x7E], 0x1234, 0, 0, 0, None);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(did.manufacturer_oui, Some([0x00, 0x1A, 0x7E]));
+        assert_eq!(caps.product_code, Some(0x1234));
+        // V2 must not populate the V1 PNP-encoded manufacturer field.
+        assert_eq!(caps.manufacturer, None);
+    }
+
+    #[test]
+    fn test_v2_product_id_serial_number() {
+        let payload =
+            make_v2_product_id_payload([0xAA, 0xBB, 0xCC], 0x0001, 0xDEAD_BEEF, 0, 0, None);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(caps.serial_number, Some(0xDEAD_BEEF));
+    }
+
+    #[test]
+    fn test_v2_product_id_zero_serial_not_stored() {
+        let payload = make_v2_product_id_payload([0xAA, 0xBB, 0xCC], 0x0001, 0, 0, 0, None);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(caps.serial_number, None);
+    }
+
+    #[test]
+    fn test_v2_product_id_year_uses_2000_offset() {
+        // Week 10, year 2024 → year_byte = 2024 - 2000 = 24.
+        let payload = make_v2_product_id_payload([0x00, 0x1A, 0x7E], 0x0001, 0, 10, 24, None);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(
+            caps.manufacture_date,
+            Some(ManufactureDate::Manufactured {
+                week: Some(10),
+                year: 2024,
+            })
+        );
+    }
+
+    #[test]
+    fn test_v2_product_id_model_year() {
+        // week = 0xFF marks the year as a model year.
+        let payload = make_v2_product_id_payload([0x00, 0x1A, 0x7E], 0x0001, 0, 0xFF, 25, None);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(
+            caps.manufacture_date,
+            Some(ManufactureDate::ModelYear(2025))
+        );
+    }
+
+    #[test]
+    fn test_v2_product_id_display_name() {
+        let name: &[u8] = b"UltraGear";
+        let payload = make_v2_product_id_payload([0x00, 0x1A, 0x7E], 0x0042, 0, 0, 24, Some(name));
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(caps.display_name.as_deref(), Some("UltraGear"));
+    }
+
+    #[test]
+    fn test_v2_product_id_long_name_truncated() {
+        // Names longer than MonitorString's 13-byte buffer are truncated. When the
+        // buffer is full and the name does not contain a `0x0A`, byte 12 is replaced
+        // with the terminator, costing the final character.
+        let name: &[u8] = b"Big Long Display Name";
+        let payload = make_v2_product_id_payload([0x00, 0x1A, 0x7E], 0x0001, 0, 0, 24, Some(name));
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(caps.display_name.as_deref(), Some("Big Long Dis"));
+    }
+
+    #[test]
+    fn test_v2_product_id_zero_length_name_skipped() {
+        let payload = make_v2_product_id_payload([0x00, 0x1A, 0x7E], 0x0001, 0, 0, 24, None);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(caps.display_name, None);
+    }
+
+    #[test]
+    fn test_v2_product_id_truncated_name_payload_skipped() {
+        // Length byte declares 20 bytes but only 4 follow — name field must be ignored.
+        let mut payload =
+            make_v2_product_id_payload([0x00, 0x1A, 0x7E], 0x0001, 0, 0, 24, Some(b"abcd"));
+        // Overwrite the name length byte at offset 11 to 20.
+        payload[11] = 20;
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(caps.display_name, None);
+        // Other fields still decoded.
+        assert_eq!(did.manufacturer_oui, Some([0x00, 0x1A, 0x7E]));
+    }
+
+    #[test]
+    fn test_v2_product_id_too_short_does_not_panic() {
+        // Two bytes — not even enough for the OUI.
+        let payload = [0x00u8, 0x1A];
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(did.manufacturer_oui, None);
+        assert_eq!(caps.product_code, None);
+    }
+
+    #[test]
+    fn test_v2_product_id_dispatched_only_for_v2_section() {
+        // A 0x20 block that, on a V1 section, would parse as garbage. On a V1 section,
+        // 0x20 is outside the V1 metadata tag space and the V2 decoder must not run.
+        let body = make_v2_product_id_payload([0x00, 0x1A, 0x7E], 0xAAAA, 0, 0, 24, None);
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_V2_PRODUCT_ID); // tag
+        block_payload.push(0x00); // revision
+        block_payload.push(body.len() as u8); // length
+        block_payload.extend_from_slice(&body);
+
+        // V1 section: nothing should be decoded.
+        let mut caps_v1 = DisplayCapabilities::default();
+        let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
+        scan_all_metadata_blocks(&block_payload, 0x13, &mut caps_v1, &mut did_v1);
+        assert_eq!(did_v1.manufacturer_oui, None);
+        assert_eq!(caps_v1.product_code, None);
+
+        // V2 section: decoder runs.
+        let mut caps_v2 = DisplayCapabilities::default();
+        let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps_v2, &mut did_v2);
+        assert_eq!(did_v2.manufacturer_oui, Some([0x00, 0x1A, 0x7E]));
+        assert_eq!(caps_v2.product_code, Some(0xAAAA));
     }
 
     // -----------------------------------------------------------------------

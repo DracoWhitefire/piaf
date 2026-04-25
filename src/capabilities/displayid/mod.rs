@@ -58,6 +58,7 @@ const TAG_STEREO_DISPLAY_INTERFACE: u8 = tag::STEREO_DISPLAY_INTERFACE;
 const TAG_TYPE_V_TIMING: u8 = tag::TYPE_V_TIMING;
 const TAG_TILED_TOPOLOGY: u8 = tag::TILED_TOPOLOGY;
 const TAG_TYPE_VI_TIMING: u8 = tag::TYPE_VI_TIMING;
+const TAG_V2_PRODUCT_ID: u8 = tag::V2_PRODUCT_ID;
 const TAG_V2_TYPE_VII_TIMING: u8 = tag::V2_TYPE_VII_TIMING;
 const TAG_V2_TYPE_VIII_TIMING: u8 = tag::V2_TYPE_VIII_TIMING;
 const TAG_V2_TYPE_IX_TIMING: u8 = tag::V2_TYPE_IX_TIMING;
@@ -180,8 +181,10 @@ impl ExtensionHandler for DisplayIdHandler {
             }));
         }
 
-        // Store rich capabilities.
-        caps.set_extension_data(0x70, DisplayIdCapabilities::new(version, product_type));
+        // Build rich capabilities locally; metadata decoders may populate fields on it
+        // (e.g., `manufacturer_oui` from V2 block 0x20). Stored at the end so all fragments
+        // contribute before the immutable Arc is constructed.
+        let mut did = DisplayIdCapabilities::new(version, product_type);
 
         // Process data blocks from all fragments.
         for block in blocks {
@@ -190,8 +193,10 @@ impl ExtensionHandler for DisplayIdHandler {
             }
             let payload = fragment_payload(block);
             process_data_blocks(payload, version, caps);
-            scan_all_metadata_blocks(payload, version, caps);
+            scan_all_metadata_blocks(payload, version, caps, &mut did);
         }
+
+        caps.set_extension_data(0x70, did);
     }
 }
 
@@ -286,6 +291,7 @@ const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
 /// Phase 2 of the 2.x rollout adds the first 2.x decoder.
 #[cfg(test)]
 const IMPLEMENTED_V2_BLOCK_TAGS: &[u8] = &[
+    TAG_V2_PRODUCT_ID,       // 0x20
     TAG_V2_TYPE_VII_TIMING,  // 0x22
     TAG_V2_TYPE_VIII_TIMING, // 0x23
     TAG_V2_TYPE_IX_TIMING,   // 0x24
@@ -299,7 +305,7 @@ const IMPLEMENTED_V2_BLOCK_TAGS: &[u8] = &[
 #[cfg(test)]
 const DEFERRED_OR_RESERVED_V2_TAG_RANGES: &[(u8, u8)] = &[
     (0x00, 0x1F), // Outside the DisplayID 2.x tag space (covers 1.x range)
-    (0x20, 0x21), // Product ID, Display Parameters (deferred)
+    (0x21, 0x21), // Display Parameters (deferred)
     (0x25, 0x29), // Dynamic Range through ContainerID (deferred)
     (0x2A, 0x7D), // Reserved in DisplayID 2.x
     (0x7E, 0x7E), // Vendor-Specific (deferred)
