@@ -39,9 +39,9 @@ use display_types::DisplayIdCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use display_types::displayid::{
     Chromaticity12, ChromaticityPoint12, ColorDepthsFull, ColorDepthsSubsampled,
-    DisplayIdStereoInterfaceV2, DisplayIdVendorSpecific, DisplayInterfaceFeatures,
-    DisplayParamsV2, DisplayTechnology as V2DisplayTechnology, DualInterfaceMirroring,
-    DynamicTimingRange, ScanOrientation, StereoEye, StereoTimingScopeV2, StereoViewingMethodV2,
+    DisplayIdStereoInterfaceV2, DisplayIdVendorSpecific, DisplayInterfaceFeatures, DisplayParamsV2,
+    DisplayTechnology as V2DisplayTechnology, DualInterfaceMirroring, DynamicTimingRange,
+    ScanOrientation, StereoEye, StereoTimingScopeV2, StereoViewingMethodV2,
 };
 
 /// Decodes a Product Identification Block payload into `caps`.
@@ -461,7 +461,7 @@ pub(super) fn decode_v2_interface_features_block(payload: &[u8], did: &mut Displ
     features.color_depth_ycbcr420 = ColorDepthsSubsampled::from_bits_truncate(payload[3]);
     features.min_ycbcr420_pixel_rate = payload[4];
     features.audio_flags = payload[5];
-    features.color_space_eotf_1 = payload[6];
+    features.color_space_eotf_combos = payload[6];
     did.interface_features = Some(features);
 }
 
@@ -2424,7 +2424,7 @@ mod tests {
         assert_eq!(f.color_depth_ycbcr420.bits(), 0b0000_0010);
         assert_eq!(f.min_ycbcr420_pixel_rate, 1);
         assert_eq!(f.audio_flags, 0b1000_0000);
-        assert_eq!(f.color_space_eotf_1, 0b0000_0001);
+        assert_eq!(f.color_space_eotf_combos, 0b0000_0001);
     }
 
     #[test]
@@ -2456,7 +2456,7 @@ mod tests {
         decode_v2_interface_features_block(&p, &mut did);
         let f = did.interface_features.unwrap();
         assert_eq!(f.color_depth_rgb.bits(), 0x3E);
-        assert_eq!(f.color_space_eotf_1, 0x01);
+        assert_eq!(f.color_space_eotf_combos, 0x01);
     }
 
     #[test]
