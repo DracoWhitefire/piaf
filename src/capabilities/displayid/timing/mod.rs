@@ -248,7 +248,7 @@ mod tests {
         let mode = caps.supported_modes[0].as_ref().unwrap();
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
-        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
     }
 
     #[test]
@@ -274,7 +274,7 @@ mod tests {
         let mode = caps.supported_modes[0].as_ref().unwrap();
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
-        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
     }
 
     #[test]
@@ -289,7 +289,7 @@ mod tests {
         let mode = caps.supported_modes[0].as_ref().unwrap();
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
-        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
     }
 
     #[test]
@@ -303,7 +303,7 @@ mod tests {
         let mode = caps.supported_modes[0].as_ref().unwrap();
         assert_eq!(mode.width, 800);
         assert_eq!(mode.height, 600);
-        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
     }
 
     #[test]
@@ -317,7 +317,7 @@ mod tests {
         let mode = caps.supported_modes[0].as_ref().unwrap();
         assert_eq!(mode.width, 800);
         assert_eq!(mode.height, 600);
-        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
     }
 
     #[test]
@@ -347,7 +347,7 @@ mod tests {
         let mode = caps.supported_modes[0].as_ref().unwrap();
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
-        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
     }
 
     fn make_type_vii_descriptor_1080p60() -> [u8; 20] {
@@ -380,7 +380,7 @@ mod tests {
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
-        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
     }
 
     #[test]
@@ -492,7 +492,7 @@ mod tests {
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
-        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
     }
 
     #[test]
@@ -523,7 +523,7 @@ mod tests {
         let mode = caps.supported_modes[0].as_ref().unwrap();
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
-        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
     }
 
     #[test]
@@ -538,7 +538,7 @@ mod tests {
         let mode = caps.supported_modes[0].as_ref().unwrap();
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
-        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
     }
 
     #[test]
@@ -567,7 +567,7 @@ mod tests {
         let mode = caps.supported_modes[0].as_ref().unwrap();
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
-        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
     }
 
     #[test]

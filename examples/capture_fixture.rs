@@ -29,12 +29,16 @@ use std::path::Path;
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Formats a `RefreshRate` as a Rust expression string for use in generated test code.
-fn refresh_rate_expr(r: piaf::RefreshRate) -> String {
-    if r.denom() == 1 {
-        format!("RefreshRate::integral({})", r.numer())
-    } else {
-        format!("RefreshRate::fractional({}, {})", r.numer(), r.denom())
+/// Formats an `Option<RefreshRate>` as a Rust expression string for use in generated test code.
+fn refresh_rate_expr(r: Option<piaf::RefreshRate>) -> String {
+    match r {
+        Some(r) if r.denom() == 1 => format!("Some(RefreshRate::integral({}))", r.numer()),
+        Some(r) => format!(
+            "Some(RefreshRate::fractional({}, {}))",
+            r.numer(),
+            r.denom()
+        ),
+        None => "None".to_string(),
     }
 }
 
@@ -192,7 +196,7 @@ fn gen_displayid(
     {
         let (w, h) = (m.width, m.height);
         let r_expr = refresh_rate_expr(m.refresh_rate);
-        let r_display = m.refresh_rate.as_f64();
+        let r_display = m.refresh_rate.map(|r| r.as_f64()).unwrap_or(0.0);
         println!("    assert!(");
         println!(
             "        caps.supported_modes.iter().any(\

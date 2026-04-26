@@ -137,7 +137,7 @@ mod tests {
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
-        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
         assert!(!mode.interlaced);
         assert_eq!(mode.h_front_porch, 88);
         assert_eq!(mode.h_sync_width, 44);
@@ -161,7 +161,7 @@ mod tests {
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.width, 1024);
         assert_eq!(mode.height, 768);
-        assert_eq!(mode.refresh_rate, RefreshRate::integral(43));
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(43)));
         assert!(mode.interlaced);
     }
 
@@ -175,7 +175,7 @@ mod tests {
         assert_eq!(caps.supported_modes[0].height, 480);
         assert_eq!(
             caps.supported_modes[0].refresh_rate,
-            RefreshRate::integral(60)
+            Some(RefreshRate::integral(60))
         );
     }
 
@@ -189,7 +189,7 @@ mod tests {
         assert_eq!(caps.supported_modes[0].height, 2160);
         assert_eq!(
             caps.supported_modes[0].refresh_rate,
-            RefreshRate::integral(30)
+            Some(RefreshRate::integral(30))
         );
     }
 
@@ -232,7 +232,7 @@ mod tests {
         assert_eq!(caps.supported_modes[0].height, 1024);
         assert_eq!(
             caps.supported_modes[0].refresh_rate,
-            RefreshRate::integral(60)
+            Some(RefreshRate::integral(60))
         );
     }
 
@@ -257,7 +257,7 @@ mod tests {
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.width, 640);
         assert_eq!(mode.height, 480);
-        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
         assert_eq!(mode.h_front_porch, 16);
         assert_eq!(mode.h_sync_width, 96);
         assert_eq!(mode.v_front_porch, 10);
@@ -322,7 +322,7 @@ mod tests {
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.width, 640);
         assert_eq!(mode.height, 480);
-        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
         assert!(mode.h_front_porch != 0 || mode.h_sync_width != 0);
     }
 
@@ -396,7 +396,7 @@ mod tests {
         assert_eq!(caps.supported_modes[0].width, 3840);
         assert_eq!(
             caps.supported_modes[0].refresh_rate,
-            RefreshRate::integral(30)
+            Some(RefreshRate::integral(30))
         );
     }
 

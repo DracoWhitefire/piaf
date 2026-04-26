@@ -123,7 +123,7 @@ mod tests {
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
-        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
         assert!(!mode.interlaced);
     }
 
@@ -138,7 +138,7 @@ mod tests {
         assert_eq!(caps.supported_modes[0].height, 768);
         assert_eq!(
             caps.supported_modes[0].refresh_rate,
-            RefreshRate::integral(75)
+            Some(RefreshRate::integral(75))
         );
     }
 
@@ -218,7 +218,7 @@ mod tests {
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
-        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
         assert!(!mode.interlaced);
     }
 
@@ -231,7 +231,7 @@ mod tests {
         assert_eq!(caps.supported_modes.len(), 1);
         assert_eq!(
             caps.supported_modes[0].refresh_rate,
-            RefreshRate::integral(256)
+            Some(RefreshRate::integral(256))
         );
     }
 
@@ -262,7 +262,7 @@ mod tests {
         assert_eq!(caps.supported_modes[0].height, 4320);
         assert_eq!(
             caps.supported_modes[0].refresh_rate,
-            RefreshRate::integral(120)
+            Some(RefreshRate::integral(120))
         );
     }
 
@@ -287,7 +287,7 @@ mod tests {
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
-        assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
         assert!(!mode.interlaced);
     }
 
@@ -299,7 +299,7 @@ mod tests {
         assert_eq!(caps.supported_modes.len(), 1);
         assert_eq!(
             caps.supported_modes[0].refresh_rate,
-            RefreshRate::integral(256)
+            Some(RefreshRate::integral(256))
         );
     }
 

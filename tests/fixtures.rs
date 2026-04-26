@@ -182,26 +182,26 @@ fn lg_ultragear_cea_vics() {
     // Each in-table VIC should have a corresponding entry in supported_modes
     assert!(caps.supported_modes.iter().any(|m| m.width == 1920
         && m.height == 1080
-        && m.refresh_rate == RefreshRate::integral(60)
+        && m.refresh_rate == Some(RefreshRate::integral(60))
         && !m.interlaced)); // VIC 16
     assert!(caps.supported_modes.iter().any(|m| m.width == 1280
         && m.height == 720
-        && m.refresh_rate == RefreshRate::integral(60))); // VIC 4
+        && m.refresh_rate == Some(RefreshRate::integral(60)))); // VIC 4
     assert!(caps.supported_modes.iter().any(|m| m.width == 1920
         && m.height == 1080
-        && m.refresh_rate == RefreshRate::integral(120)
+        && m.refresh_rate == Some(RefreshRate::integral(120))
         && !m.interlaced)); // VIC 63
 
     // 4K UHD VICs are now in the extended table (VICs 93–97)
     assert!(caps.supported_modes.iter().any(|m| m.width == 3840
         && m.height == 2160
-        && m.refresh_rate == RefreshRate::integral(24))); // VIC 93
+        && m.refresh_rate == Some(RefreshRate::integral(24)))); // VIC 93
     assert!(caps.supported_modes.iter().any(|m| m.width == 3840
         && m.height == 2160
-        && m.refresh_rate == RefreshRate::integral(30))); // VIC 95
+        && m.refresh_rate == Some(RefreshRate::integral(30)))); // VIC 95
     assert!(caps.supported_modes.iter().any(|m| m.width == 3840
         && m.height == 2160
-        && m.refresh_rate == RefreshRate::integral(60))); // VIC 97
+        && m.refresh_rate == Some(RefreshRate::integral(60)))); // VIC 97
 }
 
 #[test]
@@ -323,7 +323,7 @@ fn auo_edp_supported_modes() {
     assert!(!caps.supported_modes.is_empty());
     assert!(caps.supported_modes.iter().any(|m| m.width == 1920
         && m.height == 1080
-        && m.refresh_rate == RefreshRate::integral(144)));
+        && m.refresh_rate == Some(RefreshRate::integral(144))));
 }
 
 #[test]
@@ -402,13 +402,13 @@ fn philips_ftv_phl_supported_modes() {
     assert!(!caps.supported_modes.is_empty());
     assert!(caps.supported_modes.iter().any(|m| m.width == 1920
         && m.height == 1080
-        && m.refresh_rate == RefreshRate::integral(60)));
+        && m.refresh_rate == Some(RefreshRate::integral(60))));
     assert!(caps.supported_modes.iter().any(|m| m.width == 1280
         && m.height == 1024
-        && m.refresh_rate == RefreshRate::integral(60)));
+        && m.refresh_rate == Some(RefreshRate::integral(60))));
     assert!(caps.supported_modes.iter().any(|m| m.width == 1360
         && m.height == 768
-        && m.refresh_rate == RefreshRate::integral(59)));
+        && m.refresh_rate == Some(RefreshRate::integral(59))));
 }
 
 // ---------------------------------------------------------------------------
@@ -468,11 +468,11 @@ fn phl_275e1_phl_supported_modes() {
     assert!(!caps.supported_modes.is_empty());
     assert!(caps.supported_modes.iter().any(|m| m.width == 2560
         && m.height == 1440
-        && m.refresh_rate == RefreshRate::integral(74)));
+        && m.refresh_rate == Some(RefreshRate::integral(74))));
     assert!(caps.supported_modes.iter().any(|m| m.width == 1920
         && m.height == 1080
-        && m.refresh_rate == RefreshRate::integral(60)));
+        && m.refresh_rate == Some(RefreshRate::integral(60))));
     assert!(caps.supported_modes.iter().any(|m| m.width == 1280
         && m.height == 1440
-        && m.refresh_rate == RefreshRate::integral(59)));
+        && m.refresh_rate == Some(RefreshRate::integral(59))));
 }

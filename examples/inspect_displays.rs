@@ -8,6 +8,16 @@ use piaf::{
 use std::fs;
 use std::path::Path;
 
+/// Renders the numeric portion of an `Option<RefreshRate>` for inline use in `{}@{}Hz`-style
+/// format strings (no trailing "Hz"); `None` shows as `?`.
+fn rate(r: Option<piaf::RefreshRate>) -> String {
+    match r {
+        Some(r) if r.denom() == 1 => r.numer().to_string(),
+        Some(r) => format!("{}/{}", r.numer(), r.denom()),
+        None => "?".to_string(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Custom extension data example
 //
@@ -736,7 +746,7 @@ fn main() {
                                             "    {}x{}@{}Hz{}",
                                             t7.mode.width,
                                             t7.mode.height,
-                                            t7.mode.refresh_rate,
+                                            rate(t7.mode.refresh_rate),
                                             if t7.y420 { " (Y420)" } else { "" }
                                         );
                                     }
@@ -755,7 +765,7 @@ fn main() {
                                                 "    {}x{}@{}Hz{}{}",
                                                 mode.width,
                                                 mode.height,
-                                                mode.refresh_rate,
+                                                rate(mode.refresh_rate),
                                                 if mode.interlaced { "i" } else { "" },
                                                 if t8.y420 { " (Y420)" } else { "" }
                                             );
@@ -843,7 +853,10 @@ fn main() {
                                         for t in &vtb.timings {
                                             println!(
                                                 "    [{}] {}x{}@{}Hz",
-                                                i, t.width, t.height, t.refresh_rate
+                                                i,
+                                                t.width,
+                                                t.height,
+                                                rate(t.refresh_rate)
                                             );
                                         }
                                     }
@@ -946,7 +959,7 @@ fn main() {
                                         mode.width,
                                         mode.height,
                                         interlaced,
-                                        mode.refresh_rate,
+                                        rate(mode.refresh_rate),
                                         sync,
                                         timing,
                                     );

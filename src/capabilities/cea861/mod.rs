@@ -617,14 +617,14 @@ mod tests {
         assert_eq!(caps.supported_modes.len(), 3);
         assert!(caps.supported_modes.iter().any(|m| m.width == 1920
             && m.height == 1080
-            && m.refresh_rate == RefreshRate::integral(60)
+            && m.refresh_rate == Some(RefreshRate::integral(60))
             && !m.interlaced));
         assert!(caps.supported_modes.iter().any(|m| m.width == 1280
             && m.height == 720
-            && m.refresh_rate == RefreshRate::integral(60)));
+            && m.refresh_rate == Some(RefreshRate::integral(60))));
         assert!(caps.supported_modes.iter().any(|m| m.width == 640
             && m.height == 480
-            && m.refresh_rate == RefreshRate::integral(60)));
+            && m.refresh_rate == Some(RefreshRate::integral(60))));
     }
 
     #[test]
@@ -650,7 +650,7 @@ mod tests {
                 .iter()
                 .filter(|m| m.width == 1920
                     && m.height == 1080
-                    && m.refresh_rate == RefreshRate::integral(60))
+                    && m.refresh_rate == Some(RefreshRate::integral(60)))
                 .count(),
             1
         );
@@ -709,7 +709,7 @@ mod tests {
         assert!(
             caps.supported_modes.iter().any(|m| m.width == 2560
                 && m.height == 1440
-                && m.refresh_rate == RefreshRate::integral(144)),
+                && m.refresh_rate == Some(RefreshRate::integral(144))),
             "2560×1440@144 not found in supported_modes"
         );
     }
@@ -765,7 +765,7 @@ mod tests {
         // VIC 96 = 3840×2160@50Hz — should appear in supported_modes
         assert!(caps.supported_modes.iter().any(|m| m.width == 3840
             && m.height == 2160
-            && m.refresh_rate == RefreshRate::integral(50)));
+            && m.refresh_rate == Some(RefreshRate::integral(50))));
     }
 
     #[test]
@@ -787,7 +787,7 @@ mod tests {
         // VIC 193 = 5120×2160p120 — should appear in supported_modes
         assert!(caps.supported_modes.iter().any(|m| m.width == 5120
             && m.height == 2160
-            && m.refresh_rate == RefreshRate::integral(120)));
+            && m.refresh_rate == Some(RefreshRate::integral(120))));
     }
 
     #[test]

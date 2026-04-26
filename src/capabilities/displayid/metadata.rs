@@ -2418,10 +2418,10 @@ mod tests {
         let mut did = DisplayIdCapabilities::new(0x20, 0);
         decode_v2_interface_features_block(&p, &mut did);
         let f = did.interface_features.unwrap();
-        assert_eq!(f.color_depth_rgb, 0b0000_1110);
-        assert_eq!(f.color_depth_ycbcr444, 0b0000_0110);
-        assert_eq!(f.color_depth_ycbcr422, 0b0000_0111);
-        assert_eq!(f.color_depth_ycbcr420, 0b0000_0010);
+        assert_eq!(f.color_depth_rgb.bits(), 0b0000_1110);
+        assert_eq!(f.color_depth_ycbcr444.bits(), 0b0000_0110);
+        assert_eq!(f.color_depth_ycbcr422.bits(), 0b0000_0111);
+        assert_eq!(f.color_depth_ycbcr420.bits(), 0b0000_0010);
         assert_eq!(f.min_ycbcr420_pixel_rate, 1);
         assert_eq!(f.audio_flags, 0b1000_0000);
         assert_eq!(f.color_space_eotf_1, 0b0000_0001);
@@ -2434,7 +2434,7 @@ mod tests {
         decode_v2_interface_features_block(&p, &mut did);
         // Even fully-zero (no formats supported) is a valid decoded record.
         let f = did.interface_features.unwrap();
-        assert_eq!(f.color_depth_rgb, 0);
+        assert_eq!(f.color_depth_rgb.bits(), 0);
         assert_eq!(f.audio_flags, 0);
     }
 
@@ -2455,7 +2455,7 @@ mod tests {
         let mut did = DisplayIdCapabilities::new(0x20, 0);
         decode_v2_interface_features_block(&p, &mut did);
         let f = did.interface_features.unwrap();
-        assert_eq!(f.color_depth_rgb, 0x3E);
+        assert_eq!(f.color_depth_rgb.bits(), 0x3E);
         assert_eq!(f.color_space_eotf_1, 0x01);
     }
 
@@ -2491,7 +2491,7 @@ mod tests {
             &mut Vec::new(),
         );
         let f = did_v2.interface_features.unwrap();
-        assert_eq!(f.color_depth_rgb, 0x3E);
+        assert_eq!(f.color_depth_rgb.bits(), 0x3E);
         assert_eq!(f.audio_flags, 0x80);
     }
 
@@ -2511,7 +2511,7 @@ mod tests {
         let mut did = DisplayIdCapabilities::new(0x20, 0);
         scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut Vec::new());
         let f = did.interface_features.unwrap();
-        assert_eq!(f.color_depth_rgb, 0x3E);
+        assert_eq!(f.color_depth_rgb.bits(), 0x3E);
         assert_eq!(f.audio_flags, 0x80);
     }
 

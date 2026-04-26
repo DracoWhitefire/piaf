@@ -301,13 +301,13 @@ mod tests {
         assert_eq!(caps.supported_modes[0].height, 1080);
         assert_eq!(
             caps.supported_modes[0].refresh_rate,
-            RefreshRate::integral(60)
+            Some(RefreshRate::integral(60))
         );
         assert_eq!(caps.supported_modes[1].width, 1280);
         assert_eq!(caps.supported_modes[1].height, 1024);
         assert_eq!(
             caps.supported_modes[1].refresh_rate,
-            RefreshRate::integral(75)
+            Some(RefreshRate::integral(75))
         );
     }
 
@@ -344,7 +344,7 @@ mod tests {
         assert_eq!(caps.supported_modes[0].height, 1080);
         assert_eq!(
             caps.supported_modes[0].refresh_rate,
-            RefreshRate::integral(60)
+            Some(RefreshRate::integral(60))
         );
         assert_eq!(caps.min_v_rate, Some(48));
         assert_eq!(caps.max_v_rate, Some(75));
