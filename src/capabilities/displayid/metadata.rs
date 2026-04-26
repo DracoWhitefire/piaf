@@ -510,7 +510,11 @@ pub(super) fn decode_v2_stereo_interface_block(
                 return;
             }
             StereoViewingMethodV2::FieldSequential {
-                right_eye_polarity_high: (args[0] & 0x01) != 0,
+                eye_on_high_half: if (args[0] & 0x01) != 0 {
+                    StereoEye::Right
+                } else {
+                    StereoEye::Left
+                },
             }
         }
         0x01 => {
@@ -3643,7 +3647,7 @@ mod tests {
         assert!(matches!(
             r.method,
             StereoViewingMethodV2::FieldSequential {
-                right_eye_polarity_high: true
+                eye_on_high_half: StereoEye::Right
             }
         ));
     }
