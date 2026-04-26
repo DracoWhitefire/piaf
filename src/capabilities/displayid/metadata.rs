@@ -2,7 +2,7 @@ use super::{
     DISPLAYID_V2, TAG_ASCII_STRING, TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_DEVICE_DATA,
     TAG_DISPLAY_INTERFACE, TAG_DISPLAY_PARAMS, TAG_POWER_SEQUENCING, TAG_PRODUCT_ID,
     TAG_SERIAL_NUMBER, TAG_STEREO_DISPLAY_INTERFACE, TAG_TILED_TOPOLOGY,
-    TAG_TRANSFER_CHARACTERISTICS, TAG_V2_CONTAINER_ID, TAG_V2_DISPLAY_PARAMS,
+    TAG_TRANSFER_CHARACTERISTICS, TAG_V2_CONTAINER_ID, TAG_V2_CTA_DISPLAYID, TAG_V2_DISPLAY_PARAMS,
     TAG_V2_DYNAMIC_TIMING_RANGE, TAG_V2_INTERFACE_FEATURES, TAG_V2_PRODUCT_ID,
     TAG_V2_STEREO_INTERFACE, TAG_V2_TILED_TOPOLOGY, TAG_V2_VENDOR_SPECIFIC, TAG_VIDEO_TIMING_RANGE,
     for_each_data_block,
@@ -10,11 +10,15 @@ use super::{
 
 use crate::capabilities::base::{decode_color_bit_depth, decode_manufacture_date};
 #[cfg(any(feature = "alloc", feature = "std"))]
+use crate::capabilities::cea861::parse_cea861_data_block_collection;
+#[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::color::{Chromaticity, ChromaticityPoint};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::diagnostics::ParseWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::manufacture::{ManufactureDate, ManufacturerId, MonitorString};
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -616,6 +620,46 @@ pub(super) fn decode_v2_vendor_specific_block(payload: &[u8], did: &mut DisplayI
     record.oui = [payload[0], payload[1], payload[2]];
     record.data = payload[3..].to_vec();
     did.vendor_specific.push(record);
+}
+
+/// Decodes a DisplayID 2.x CTA DisplayID Block payload (tag `0x81`).
+///
+/// The payload is a CTA-861 data block collection — the same structure that follows
+/// byte 4 of a CEA-861 extension block, but without DTDs or section flags. Each block
+/// starts with a 1-byte header (`tag << 5 | length`) followed by `length` payload
+/// bytes; a zero header byte terminates scanning.
+///
+/// Decoding is delegated to [`parse_cea861_data_block_collection`]. The resulting
+/// CTA-861 capability state is merged into the sink's existing `Cea861Capabilities`
+/// entry (extension tag `0x02`) under a take-mutate-restore pattern, so
+/// 0x81-derived data combines with any data parsed from a real CEA-861 extension
+/// block on the same EDID — regardless of which extension was processed first.
+///
+/// Spec marks revision 0 as the only defined value; non-zero revisions emit
+/// [`EdidWarning::UnsupportedV2BlockRevision`] and the payload is parsed anyway
+/// using the revision-0 wire format.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_v2_cta_displayid_block(
+    payload: &[u8],
+    revision: u8,
+    caps: &mut DisplayCapabilities,
+    warnings: &mut Vec<ParseWarning>,
+) {
+    if revision != 0 {
+        warnings.push(Arc::new(EdidWarning::UnsupportedV2BlockRevision {
+            tag: TAG_V2_CTA_DISPLAYID,
+            revision,
+        }));
+    }
+    let mut cea_caps = caps
+        .take_extension_data::<crate::capabilities::cea861::Cea861Capabilities>(0x02)
+        .unwrap_or_else(|| {
+            crate::capabilities::cea861::Cea861Capabilities::new(
+                crate::capabilities::cea861::Cea861Flags::empty(),
+            )
+        });
+    parse_cea861_data_block_collection(payload, caps, &mut cea_caps, warnings);
+    caps.set_extension_data(0x02, cea_caps);
 }
 
 /// Decodes a Display Parameters Block payload into `caps`.
@@ -1317,6 +1361,7 @@ pub(super) fn scan_all_metadata_blocks(
     version: u8,
     caps: &mut DisplayCapabilities,
     did: &mut DisplayIdCapabilities,
+    warnings: &mut Vec<ParseWarning>,
 ) {
     if version == DISPLAYID_V2 {
         let mut found_v2_product_id = false;
@@ -1357,6 +1402,9 @@ pub(super) fn scan_all_metadata_blocks(
             }
             TAG_V2_VENDOR_SPECIFIC => {
                 decode_v2_vendor_specific_block(block_payload, did);
+            }
+            TAG_V2_CTA_DISPLAYID => {
+                decode_v2_cta_displayid_block(block_payload, revision, caps, warnings);
             }
             _ => {}
         });
@@ -1732,14 +1780,26 @@ mod tests {
         // V1 section: nothing should be decoded.
         let mut caps_v1 = DisplayCapabilities::default();
         let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
-        scan_all_metadata_blocks(&block_payload, 0x13, &mut caps_v1, &mut did_v1);
+        scan_all_metadata_blocks(
+            &block_payload,
+            0x13,
+            &mut caps_v1,
+            &mut did_v1,
+            &mut Vec::new(),
+        );
         assert_eq!(did_v1.manufacturer_oui, None);
         assert_eq!(caps_v1.product_code, None);
 
         // V2 section: decoder runs.
         let mut caps_v2 = DisplayCapabilities::default();
         let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
-        scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps_v2, &mut did_v2);
+        scan_all_metadata_blocks(
+            &block_payload,
+            DISPLAYID_V2,
+            &mut caps_v2,
+            &mut did_v2,
+            &mut Vec::new(),
+        );
         assert_eq!(did_v2.manufacturer_oui, Some([0x00, 0x1A, 0x7E]));
         assert_eq!(caps_v2.product_code, Some(0xAAAA));
     }
@@ -2155,13 +2215,25 @@ mod tests {
         // V1 section: should not decode V2 0x21.
         let mut caps_v1 = DisplayCapabilities::default();
         let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
-        scan_all_metadata_blocks(&block_payload, 0x13, &mut caps_v1, &mut did_v1);
+        scan_all_metadata_blocks(
+            &block_payload,
+            0x13,
+            &mut caps_v1,
+            &mut did_v1,
+            &mut Vec::new(),
+        );
         assert!(did_v1.display_params_v2.is_none());
 
         // V2 section: decoder runs.
         let mut caps_v2 = DisplayCapabilities::default();
         let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
-        scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps_v2, &mut did_v2);
+        scan_all_metadata_blocks(
+            &block_payload,
+            DISPLAYID_V2,
+            &mut caps_v2,
+            &mut did_v2,
+            &mut Vec::new(),
+        );
         assert!(did_v2.display_params_v2.is_some());
         assert_eq!(caps_v2.preferred_image_size_mm, Some((597, 336)));
         assert_eq!(caps_v2.native_pixels, Some((3840, 2160)));
@@ -2280,13 +2352,25 @@ mod tests {
         // V1 section: must not decode.
         let mut caps_v1 = DisplayCapabilities::default();
         let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
-        scan_all_metadata_blocks(&block_payload, 0x13, &mut caps_v1, &mut did_v1);
+        scan_all_metadata_blocks(
+            &block_payload,
+            0x13,
+            &mut caps_v1,
+            &mut did_v1,
+            &mut Vec::new(),
+        );
         assert!(did_v1.dynamic_timing_range.is_none());
 
         // V2 section: decoder runs.
         let mut caps_v2 = DisplayCapabilities::default();
         let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
-        scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps_v2, &mut did_v2);
+        scan_all_metadata_blocks(
+            &block_payload,
+            DISPLAYID_V2,
+            &mut caps_v2,
+            &mut did_v2,
+            &mut Vec::new(),
+        );
         let r = did_v2.dynamic_timing_range.unwrap();
         assert_eq!(r.max_pixel_clock_khz, 600_000);
         assert!(r.vrr_supported);
@@ -2387,13 +2471,25 @@ mod tests {
         // V1 section: must not decode.
         let mut caps_v1 = DisplayCapabilities::default();
         let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
-        scan_all_metadata_blocks(&block_payload, 0x13, &mut caps_v1, &mut did_v1);
+        scan_all_metadata_blocks(
+            &block_payload,
+            0x13,
+            &mut caps_v1,
+            &mut did_v1,
+            &mut Vec::new(),
+        );
         assert!(did_v1.interface_features.is_none());
 
         // V2 section: decoder runs.
         let mut caps_v2 = DisplayCapabilities::default();
         let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
-        scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps_v2, &mut did_v2);
+        scan_all_metadata_blocks(
+            &block_payload,
+            DISPLAYID_V2,
+            &mut caps_v2,
+            &mut did_v2,
+            &mut Vec::new(),
+        );
         let f = did_v2.interface_features.unwrap();
         assert_eq!(f.color_depth_rgb, 0x3E);
         assert_eq!(f.audio_flags, 0x80);
@@ -2413,7 +2509,7 @@ mod tests {
         }
         let mut caps = DisplayCapabilities::default();
         let mut did = DisplayIdCapabilities::new(0x20, 0);
-        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut Vec::new());
         let f = did.interface_features.unwrap();
         assert_eq!(f.color_depth_rgb, 0x3E);
         assert_eq!(f.audio_flags, 0x80);
@@ -3451,7 +3547,13 @@ mod tests {
 
         let mut caps = DisplayCapabilities::default();
         let mut did = DisplayIdCapabilities::new(0x20, 0);
-        scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps, &mut did);
+        scan_all_metadata_blocks(
+            &block_payload,
+            DISPLAYID_V2,
+            &mut caps,
+            &mut did,
+            &mut Vec::new(),
+        );
         let t = caps
             .tiled_topology
             .expect("V2 0x28 should populate tiled_topology");
@@ -3471,7 +3573,13 @@ mod tests {
 
         let mut caps = DisplayCapabilities::default();
         let mut did = DisplayIdCapabilities::new(0x20, 0);
-        scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps, &mut did);
+        scan_all_metadata_blocks(
+            &block_payload,
+            DISPLAYID_V2,
+            &mut caps,
+            &mut did,
+            &mut Vec::new(),
+        );
         assert!(caps.tiled_topology.is_none());
     }
 
@@ -3487,7 +3595,7 @@ mod tests {
 
         let mut caps = DisplayCapabilities::default();
         let mut did = DisplayIdCapabilities::new(0x13, 0);
-        scan_all_metadata_blocks(&block_payload, 0x13, &mut caps, &mut did);
+        scan_all_metadata_blocks(&block_payload, 0x13, &mut caps, &mut did, &mut Vec::new());
         assert!(caps.tiled_topology.is_none());
     }
 
@@ -3504,7 +3612,7 @@ mod tests {
         }
         let mut caps = DisplayCapabilities::default();
         let mut did = DisplayIdCapabilities::new(0x20, 0);
-        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut Vec::new());
         let t = caps
             .tiled_topology
             .expect("first 0x28 should populate tiled_topology");
@@ -3699,13 +3807,25 @@ mod tests {
         // V1 section: must not decode.
         let mut caps_v1 = DisplayCapabilities::default();
         let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
-        scan_all_metadata_blocks(&block_payload, 0x13, &mut caps_v1, &mut did_v1);
+        scan_all_metadata_blocks(
+            &block_payload,
+            0x13,
+            &mut caps_v1,
+            &mut did_v1,
+            &mut Vec::new(),
+        );
         assert!(did_v1.stereo_interface_v2.is_none());
 
         // V2 section: decoder runs.
         let mut caps_v2 = DisplayCapabilities::default();
         let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
-        scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps_v2, &mut did_v2);
+        scan_all_metadata_blocks(
+            &block_payload,
+            DISPLAYID_V2,
+            &mut caps_v2,
+            &mut did_v2,
+            &mut Vec::new(),
+        );
         let r = did_v2.stereo_interface_v2.unwrap();
         assert_eq!(
             r.method,
@@ -3728,7 +3848,7 @@ mod tests {
         }
         let mut caps = DisplayCapabilities::default();
         let mut did = DisplayIdCapabilities::new(0x20, 0);
-        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut Vec::new());
         let r = did.stereo_interface_v2.unwrap();
         assert!(matches!(r.method, StereoViewingMethodV2::SideBySide { .. }));
     }
@@ -3777,13 +3897,25 @@ mod tests {
         // V1 section: must not decode.
         let mut caps_v1 = DisplayCapabilities::default();
         let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
-        scan_all_metadata_blocks(&block_payload, 0x13, &mut caps_v1, &mut did_v1);
+        scan_all_metadata_blocks(
+            &block_payload,
+            0x13,
+            &mut caps_v1,
+            &mut did_v1,
+            &mut Vec::new(),
+        );
         assert!(did_v1.container_id.is_none());
 
         // V2 section: decoder runs.
         let mut caps_v2 = DisplayCapabilities::default();
         let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
-        scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps_v2, &mut did_v2);
+        scan_all_metadata_blocks(
+            &block_payload,
+            DISPLAYID_V2,
+            &mut caps_v2,
+            &mut did_v2,
+            &mut Vec::new(),
+        );
         assert_eq!(did_v2.container_id, Some(SAMPLE_UUID));
     }
 
@@ -3799,7 +3931,7 @@ mod tests {
         }
         let mut caps = DisplayCapabilities::default();
         let mut did = DisplayIdCapabilities::new(0x20, 0);
-        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut Vec::new());
         assert_eq!(did.container_id, Some(SAMPLE_UUID));
     }
 
@@ -3857,13 +3989,25 @@ mod tests {
         // V1 section: 0x7E is not a 1.x tag — must not decode.
         let mut caps_v1 = DisplayCapabilities::default();
         let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
-        scan_all_metadata_blocks(&block_payload, 0x13, &mut caps_v1, &mut did_v1);
+        scan_all_metadata_blocks(
+            &block_payload,
+            0x13,
+            &mut caps_v1,
+            &mut did_v1,
+            &mut Vec::new(),
+        );
         assert!(did_v1.vendor_specific.is_empty());
 
         // V2 section: decoder runs.
         let mut caps_v2 = DisplayCapabilities::default();
         let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
-        scan_all_metadata_blocks(&block_payload, DISPLAYID_V2, &mut caps_v2, &mut did_v2);
+        scan_all_metadata_blocks(
+            &block_payload,
+            DISPLAYID_V2,
+            &mut caps_v2,
+            &mut did_v2,
+            &mut Vec::new(),
+        );
         assert_eq!(did_v2.vendor_specific.len(), 1);
         assert_eq!(did_v2.vendor_specific[0].oui, DOLBY_OUI);
     }
@@ -3889,7 +4033,7 @@ mod tests {
         }
         let mut caps = DisplayCapabilities::default();
         let mut did = DisplayIdCapabilities::new(0x20, 0);
-        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut Vec::new());
         assert_eq!(did.vendor_specific.len(), 2);
         assert_eq!(did.vendor_specific[0].oui, DOLBY_OUI);
         assert_eq!(did.vendor_specific[0].data.as_slice(), &[0x11]);
@@ -4077,5 +4221,154 @@ mod tests {
         let topo = caps.tiled_topology.unwrap();
         assert_eq!(topo.h_tile_count, 2);
         assert_eq!(topo.v_tile_count, 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // V2 CTA DisplayID Block (tag 0x81)
+    // -----------------------------------------------------------------------
+
+    /// Builds a CTA-861 Video Data Block holding the given VICs as Short Video Descriptors
+    /// (1 byte each, native bit clear). Returns the bytes including the 1-byte CTA header.
+    fn cta_video_data_block(vics: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(1 + vics.len());
+        out.push((0x02 << 5) | (vics.len() as u8 & 0x1F)); // tag=2, length=N
+        out.extend_from_slice(vics);
+        out
+    }
+
+    /// Wraps a CTA-861 data block collection in a DisplayID 2.x block header (tag 0x81,
+    /// revision `revision`, length = collection.len()). Returns bytes ready to drop into a
+    /// DisplayID V2 section payload.
+    fn make_v2_cta_displayid_block(revision: u8, collection: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(3 + collection.len());
+        out.push(TAG_V2_CTA_DISPLAYID);
+        out.push(revision);
+        out.push(collection.len() as u8);
+        out.extend_from_slice(collection);
+        out
+    }
+
+    #[test]
+    fn test_v2_cta_displayid_basic_decodes_vics() {
+        // VIC 1 = 640x480@60.
+        let collection = cta_video_data_block(&[1]);
+        let payload = make_v2_cta_displayid_block(0, &collection);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut warnings);
+
+        let cea = caps
+            .get_extension_data::<crate::capabilities::cea861::Cea861Capabilities>(0x02)
+            .expect("0x81 must populate the 0x02 Cea861Capabilities entry");
+        assert_eq!(cea.vics, [(1, false)]);
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 640 && m.height == 480),
+            "VIC 1 mode 640x480 must reach caps.supported_modes",
+        );
+        assert!(warnings.is_empty(), "revision 0 must not warn");
+    }
+
+    #[test]
+    fn test_v2_cta_displayid_dispatched_only_for_v2_section() {
+        let collection = cta_video_data_block(&[1]);
+        let payload = make_v2_cta_displayid_block(0, &collection);
+
+        // V1 section: 0x81 is outside the V1 metadata tag space; decoder must not run.
+        let mut caps_v1 = DisplayCapabilities::default();
+        let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
+        scan_all_metadata_blocks(&payload, 0x13, &mut caps_v1, &mut did_v1, &mut Vec::new());
+        assert!(
+            caps_v1
+                .get_extension_data::<crate::capabilities::cea861::Cea861Capabilities>(0x02)
+                .is_none(),
+        );
+    }
+
+    #[test]
+    fn test_v2_cta_displayid_merges_with_existing_cea_extension_data() {
+        // Pre-populate as if the CEA-861 handler ran first and stored two VICs.
+        let mut caps = DisplayCapabilities::default();
+        let mut existing = crate::capabilities::cea861::Cea861Capabilities::new(
+            crate::capabilities::cea861::Cea861Flags::empty(),
+        );
+        existing.vics.push((16, true)); // VIC 16 = 1920x1080@60
+        caps.set_extension_data(0x02, existing);
+
+        // Now run 0x81 carrying VIC 1 (640x480@60).
+        let collection = cta_video_data_block(&[1]);
+        let payload = make_v2_cta_displayid_block(0, &collection);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut Vec::new());
+
+        let cea = caps
+            .get_extension_data::<crate::capabilities::cea861::Cea861Capabilities>(0x02)
+            .expect("merged Cea861Capabilities must remain at tag 0x02");
+        // Both VICs preserved, in observation order.
+        assert!(cea.vics.contains(&(16, true)));
+        assert!(cea.vics.contains(&(1, false)));
+        assert_eq!(cea.vics.len(), 2);
+    }
+
+    #[test]
+    fn test_v2_cta_displayid_dedupes_modes_against_supported_modes() {
+        // Pre-populate supported_modes with VIC 1's resolution.
+        let mut caps = DisplayCapabilities::default();
+        caps.supported_modes
+            .push(crate::model::capabilities::VideoMode::new(
+                640, 480, 60u32, false,
+            ));
+
+        let collection = cta_video_data_block(&[1]);
+        let payload = make_v2_cta_displayid_block(0, &collection);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut Vec::new());
+
+        let count_640x480 = caps
+            .supported_modes
+            .iter()
+            .filter(|m| m.width == 640 && m.height == 480)
+            .count();
+        assert_eq!(count_640x480, 1, "duplicate VIC mode must not be appended");
+    }
+
+    #[test]
+    fn test_v2_cta_displayid_warns_on_nonzero_revision_and_parses_anyway() {
+        let collection = cta_video_data_block(&[1]);
+        let payload = make_v2_cta_displayid_block(0x05, &collection);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut warnings);
+
+        assert_eq!(warnings.len(), 1);
+        let msg = warnings[0].to_string();
+        assert!(
+            msg.contains("0x81"),
+            "warning text must reference tag 0x81: {msg}"
+        );
+        // Payload still parsed.
+        let cea = caps
+            .get_extension_data::<crate::capabilities::cea861::Cea861Capabilities>(0x02)
+            .expect("payload still decoded under revision-0 wire format");
+        assert_eq!(cea.vics, [(1, false)]);
+    }
+
+    #[test]
+    fn test_v2_cta_displayid_multiple_blocks_accumulate() {
+        // Two 0x81 blocks in a single payload — both should contribute.
+        let mut payload = make_v2_cta_displayid_block(0, &cta_video_data_block(&[1]));
+        payload.extend(make_v2_cta_displayid_block(0, &cta_video_data_block(&[16])));
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut Vec::new());
+
+        let cea = caps
+            .get_extension_data::<crate::capabilities::cea861::Cea861Capabilities>(0x02)
+            .expect("Cea861Capabilities must accumulate across multiple 0x81 blocks");
+        assert!(cea.vics.contains(&(1, false)));
+        assert!(cea.vics.contains(&(16, false)));
     }
 }

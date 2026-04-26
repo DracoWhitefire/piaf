@@ -4,9 +4,11 @@ mod short;
 
 use super::{
     DISPLAYID_V2, TAG_CTA_VIDEO_TIMING, TAG_TYPE_I_TIMING, TAG_TYPE_II_TIMING, TAG_TYPE_III_TIMING,
-    TAG_TYPE_IV_TIMING, TAG_TYPE_V_TIMING, TAG_TYPE_VI_TIMING, TAG_V2_TYPE_IX_TIMING,
-    TAG_V2_TYPE_VII_TIMING, TAG_V2_TYPE_VIII_TIMING, TAG_VESA_VIDEO_TIMING, for_each_data_block,
+    TAG_TYPE_IV_TIMING, TAG_TYPE_V_TIMING, TAG_TYPE_VI_TIMING, TAG_V2_CTA_DISPLAYID,
+    TAG_V2_TYPE_IX_TIMING, TAG_V2_TYPE_VII_TIMING, TAG_V2_TYPE_VIII_TIMING, TAG_VESA_VIDEO_TIMING,
+    for_each_data_block,
 };
+use crate::capabilities::cea861::cea861_collection_into_sink;
 use crate::model::capabilities::ModeSink;
 use coded::{
     decode_cta_video_timing_block, decode_type_iv_block, decode_type_viii_block,
@@ -55,6 +57,11 @@ pub(super) fn process_data_blocks(payload: &[u8], version: u8, sink: &mut dyn Mo
                     decode_type_ix_descriptor(descriptor, sink);
                     i += 6;
                 }
+            } else if tag == TAG_V2_CTA_DISPLAYID {
+                // CTA DisplayID Block — payload is a CTA-861 data block collection.
+                // Mode-producing entries (VICs, VTB-EXT, T7/T8/T10VTDB, Y420) are emitted;
+                // CTA metadata is dropped on the static path.
+                cea861_collection_into_sink(block_payload, sink);
             }
             return;
         }
@@ -561,5 +568,25 @@ mod tests {
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
         assert_eq!(mode.refresh_rate, RefreshRate::integral(60));
+    }
+
+    #[test]
+    fn test_v2_cta_displayid_static_path_emits_modes() {
+        // V2 section with a 0x81 block carrying VIC 1 (640x480@60).
+        // Static path should extract the mode through cea861_collection_into_sink.
+        let collection: [u8; 2] = [
+            (0x02 << 5) | 0x01, // CTA Video Data Block: tag=2, length=1
+            1,                  // VIC 1
+        ];
+        let mut payload = vec![TAG_V2_CTA_DISPLAYID, 0x00, collection.len() as u8];
+        payload.extend_from_slice(&collection);
+
+        let mut caps = StaticDisplayCapabilities::<16>::default();
+        let mut ctx = StaticContext::new(&mut caps);
+        process_data_blocks(&payload, DISPLAYID_V2, &mut ctx);
+        assert_eq!(caps.num_modes, 1);
+        let mode = caps.supported_modes[0].as_ref().unwrap();
+        assert_eq!(mode.width, 640);
+        assert_eq!(mode.height, 480);
     }
 }

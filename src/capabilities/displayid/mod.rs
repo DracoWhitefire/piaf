@@ -69,6 +69,7 @@ const TAG_V2_STEREO_INTERFACE: u8 = tag::V2_STEREO_INTERFACE;
 const TAG_V2_TILED_TOPOLOGY: u8 = tag::V2_TILED_TOPOLOGY;
 const TAG_V2_CONTAINER_ID: u8 = tag::V2_CONTAINER_ID;
 const TAG_V2_VENDOR_SPECIFIC: u8 = tag::V2_VENDOR_SPECIFIC;
+const TAG_V2_CTA_DISPLAYID: u8 = tag::V2_CTA_DISPLAYID;
 
 /// Calls `f(tag, revision, block_payload)` for each well-formed data block in `payload`.
 ///
@@ -200,7 +201,7 @@ impl ExtensionHandler for DisplayIdHandler {
             }
             let payload = fragment_payload(block);
             process_data_blocks(payload, version, caps);
-            scan_all_metadata_blocks(payload, version, caps, &mut did);
+            scan_all_metadata_blocks(payload, version, caps, &mut did, warnings);
         }
 
         caps.set_extension_data(0x70, did);
@@ -309,6 +310,7 @@ const IMPLEMENTED_V2_BLOCK_TAGS: &[u8] = &[
     TAG_V2_TILED_TOPOLOGY,       // 0x28
     TAG_V2_CONTAINER_ID,         // 0x29
     TAG_V2_VENDOR_SPECIFIC,      // 0x7E
+    TAG_V2_CTA_DISPLAYID,        // 0x81
 ];
 
 /// DisplayID 2.x block tags that are defined by the specification but not yet
@@ -321,7 +323,6 @@ const DEFERRED_OR_RESERVED_V2_TAG_RANGES: &[(u8, u8)] = &[
     (0x00, 0x1F), // Outside the DisplayID 2.x tag space (covers 1.x range)
     (0x2A, 0x7D), // Reserved in DisplayID 2.x
     (0x7F, 0x80), // Reserved in DisplayID 2.x
-    (0x81, 0x81), // CTA DisplayID (deferred)
     (0x82, 0xFF), // Reserved in DisplayID 2.x
 ];
 
