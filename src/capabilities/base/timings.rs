@@ -430,7 +430,7 @@ mod tests {
                 .iter()
                 .filter(|m| m.width == 1920
                     && m.height == 1080
-                    && m.refresh_rate == RefreshRate::integral(60))
+                    && m.refresh_rate == Some(RefreshRate::integral(60)))
                 .count(),
             1
         );

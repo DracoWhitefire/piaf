@@ -68,7 +68,7 @@ fn test_static_base_block_modes() {
     assert!(
         caps.iter_modes().any(|m| m.width == 800
             && m.height == 600
-            && m.refresh_rate == RefreshRate::integral(60)),
+            && m.refresh_rate == Some(RefreshRate::integral(60))),
         "expected 800×600@60 from established timings"
     );
 }
@@ -90,7 +90,7 @@ fn test_static_cea861_svds() {
     assert!(
         caps.iter_modes().any(|m| m.width == 1920
             && m.height == 1080
-            && m.refresh_rate == RefreshRate::integral(60)
+            && m.refresh_rate == Some(RefreshRate::integral(60))
             && !m.interlaced),
         "expected VIC 16 (1080p60) in static caps"
     );
