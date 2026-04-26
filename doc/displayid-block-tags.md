@@ -2,6 +2,9 @@
 
 Source: VESA DisplayID Standard Version 1.3.
 
+For DisplayID 2.x (version byte `0x20`), which uses a disjoint tag space at `0x20`–`0x29`,
+`0x7E`, and `0x81`, see [DisplayID 2.x](./displayid-2x.md).
+
 Block tags are 8-bit values in the first byte of each data block header within a DisplayID
 section. The section payload starts at byte 4 of the 128-byte EDID extension block; each
 data block has a 3-byte header (tag, revision, payload length) followed by its payload.
