@@ -38,10 +38,10 @@ use crate::model::transfer::{
 use display_types::DisplayIdCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use display_types::displayid::{
-    Chromaticity12, ChromaticityPoint12, DisplayIdStereoInterfaceV2, DisplayIdVendorSpecific,
-    DisplayInterfaceFeatures, DisplayParamsV2, DisplayTechnology as V2DisplayTechnology,
-    DualInterfaceMirroring, DynamicTimingRange, ScanOrientation, StereoEye, StereoTimingScopeV2,
-    StereoViewingMethodV2,
+    Chromaticity12, ChromaticityPoint12, ColorDepthsFull, ColorDepthsSubsampled,
+    DisplayIdStereoInterfaceV2, DisplayIdVendorSpecific, DisplayInterfaceFeatures,
+    DisplayParamsV2, DisplayTechnology as V2DisplayTechnology, DualInterfaceMirroring,
+    DynamicTimingRange, ScanOrientation, StereoEye, StereoTimingScopeV2, StereoViewingMethodV2,
 };
 
 /// Decodes a Product Identification Block payload into `caps`.
@@ -455,10 +455,10 @@ pub(super) fn decode_v2_interface_features_block(payload: &[u8], did: &mut Displ
     }
 
     let mut features = DisplayInterfaceFeatures::default();
-    features.color_depth_rgb = payload[0];
-    features.color_depth_ycbcr444 = payload[1];
-    features.color_depth_ycbcr422 = payload[2];
-    features.color_depth_ycbcr420 = payload[3];
+    features.color_depth_rgb = ColorDepthsFull::from_bits_truncate(payload[0]);
+    features.color_depth_ycbcr444 = ColorDepthsFull::from_bits_truncate(payload[1]);
+    features.color_depth_ycbcr422 = ColorDepthsSubsampled::from_bits_truncate(payload[2]);
+    features.color_depth_ycbcr420 = ColorDepthsSubsampled::from_bits_truncate(payload[3]);
     features.min_ycbcr420_pixel_rate = payload[4];
     features.audio_flags = payload[5];
     features.color_space_eotf_1 = payload[6];
