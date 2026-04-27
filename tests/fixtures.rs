@@ -379,7 +379,7 @@ fn philips_ftv_phl_identification() {
             revision: 3
         })
     );
-    assert_eq!(caps.digital, true);
+    assert!(caps.digital);
     assert_eq!(
         caps.screen_size,
         Some(ScreenSize::Physical {
@@ -445,7 +445,7 @@ fn phl_275e1_phl_identification() {
             revision: 3
         })
     );
-    assert_eq!(caps.digital, true);
+    assert!(caps.digital);
     assert_eq!(
         caps.screen_size,
         Some(ScreenSize::Physical {
