@@ -439,8 +439,9 @@ mod tests {
     }
 
     #[test]
-    fn test_type_ix_cvt_rb_v3_leaves_timing_unpopulated() {
-        // CVT-RB v3 evaluator not yet implemented — pixel_clock_khz and porches stay default.
+    fn test_type_ix_cvt_rb_v3_populates_pixel_clock_and_blanking() {
+        // CVT-RB v3 baseline timing is identical to RB v2 (the v3 spec additions
+        // are VRR-only and don't apply to fixed-rate Type IX descriptors).
         let mut d = make_type_ix_descriptor(1920, 1080, 59);
         d[0] = 0x02; // bits 2:0 = 2 → CVT-RB3
         let mut caps = DisplayCapabilities::default();
@@ -448,6 +449,27 @@ mod tests {
         assert_eq!(caps.supported_modes.len(), 1);
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.cvt_algorithm, Some(CvtAlgorithm::CvtRb3));
+        assert_eq!(mode.pixel_clock_khz, Some(133_320));
+        assert_eq!(mode.h_front_porch, 8);
+        assert_eq!(mode.h_sync_width, 32);
+        assert_eq!(mode.v_front_porch, 17);
+        assert_eq!(mode.v_sync_width, 8);
+    }
+
+    #[test]
+    fn test_type_ix_reduced_blanking_with_cvt_rb1_leaves_timing_unpopulated() {
+        // "Reduced blanking with CVT-RB1" (encoding 3) evaluator not yet implemented
+        // — keep a regression guard on the deferred-algorithm path.
+        let mut d = make_type_ix_descriptor(1920, 1080, 59);
+        d[0] = 0x03; // bits 2:0 = 3 → ReducedBlankingCvtRb1
+        let mut caps = DisplayCapabilities::default();
+        decode_type_ix_descriptor(&d, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        let mode = &caps.supported_modes[0];
+        assert_eq!(
+            mode.cvt_algorithm,
+            Some(CvtAlgorithm::ReducedBlankingCvtRb1)
+        );
         assert_eq!(mode.pixel_clock_khz, None);
         assert_eq!(mode.h_front_porch, 0);
         assert_eq!(mode.h_sync_width, 0);
