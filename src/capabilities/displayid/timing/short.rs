@@ -421,8 +421,9 @@ mod tests {
     }
 
     #[test]
-    fn test_type_ix_cvt_rb_v2_leaves_timing_unpopulated() {
-        // CVT-RB v2 evaluator not yet implemented — pixel_clock_khz and porches stay default.
+    fn test_type_ix_cvt_rb_v2_populates_pixel_clock_and_blanking() {
+        // CVT-RB v2 1920×1080@60: 133.320 MHz pixel clock, 80 px H blanking,
+        // V_FPORCH = 17 (slack lives in V_FPORCH for v2).
         let mut d = make_type_ix_descriptor(1920, 1080, 59);
         d[0] = 0x01; // bits 2:0 = 1 → CVT-RB2
         let mut caps = DisplayCapabilities::default();
@@ -430,7 +431,23 @@ mod tests {
         assert_eq!(caps.supported_modes.len(), 1);
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.cvt_algorithm, Some(CvtAlgorithm::CvtRb2));
-        // Pixel clock and porches remain at defaults — consumer must apply the formula.
+        assert_eq!(mode.pixel_clock_khz, Some(133_320));
+        assert_eq!(mode.h_front_porch, 8);
+        assert_eq!(mode.h_sync_width, 32);
+        assert_eq!(mode.v_front_porch, 17);
+        assert_eq!(mode.v_sync_width, 8);
+    }
+
+    #[test]
+    fn test_type_ix_cvt_rb_v3_leaves_timing_unpopulated() {
+        // CVT-RB v3 evaluator not yet implemented — pixel_clock_khz and porches stay default.
+        let mut d = make_type_ix_descriptor(1920, 1080, 59);
+        d[0] = 0x02; // bits 2:0 = 2 → CVT-RB3
+        let mut caps = DisplayCapabilities::default();
+        decode_type_ix_descriptor(&d, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        let mode = &caps.supported_modes[0];
+        assert_eq!(mode.cvt_algorithm, Some(CvtAlgorithm::CvtRb3));
         assert_eq!(mode.pixel_clock_khz, None);
         assert_eq!(mode.h_front_porch, 0);
         assert_eq!(mode.h_sync_width, 0);

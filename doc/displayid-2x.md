@@ -226,14 +226,14 @@ and a YCbCr 4:2:0-only flag. Decoded into `VideoMode` as:
 | `cvt_algorithm`     | Byte 0 bits 2:0 → `CvtAlgorithm` (CVT-RB1/RB2/RB3, RB-with-CVT-RB1/RB2, or `Reserved(b)`) |
 | `y420`              | Byte 0 bit 4                                              |
 
-When the algorithm is **CVT-RB v1**, the descriptor is expanded to a full timing via
-the `display_types::compute_type_ix_timing` evaluator: `pixel_clock_khz`,
-`h_front_porch`, `h_sync_width`, `v_front_porch`, and `v_sync_width` are populated to
-match the VESA CVT 1.1 §3.4 reference values. For all other algorithms (CVT-RB v2,
-CVT-RB v3, the "reduced blanking with CVT-RB1/RB2" encodings, and `Reserved(_)`) the
-emitted `VideoMode` carries only `(width, height, refresh_rate, cvt_algorithm, y420)`
-— consumers can apply the named CVT formula themselves, or wait for built-in support
-(see `doc/roadmap.md`).
+When the algorithm is **CVT-RB v1** (VESA CVT 1.1 §3.4) or **CVT-RB v2** (VESA CVT 1.2
+§4), the descriptor is expanded to a full timing via the
+`display_types::compute_type_ix_timing` evaluator: `pixel_clock_khz`, `h_front_porch`,
+`h_sync_width`, `v_front_porch`, and `v_sync_width` are populated to match the spec
+reference values. For all other algorithms (CVT-RB v3, the "reduced blanking with
+CVT-RB1/RB2" encodings, and `Reserved(_)`) the emitted `VideoMode` carries only
+`(width, height, refresh_rate, cvt_algorithm, y420)` — consumers can apply the named
+CVT formula themselves, or wait for built-in support (see `doc/roadmap.md`).
 
 The stereo bits (byte 0 bits 6:5) are not yet decoded; the encoding is likely distinct
 from the DTD-derived `StereoMode` codes carried elsewhere on `VideoMode` and needs a
