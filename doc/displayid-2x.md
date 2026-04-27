@@ -12,23 +12,23 @@ section is wholly one or the other, and the handler ignores tags from the wrong 
 
 ## Tag assignments
 
-| Tag           | Block                                          | Pipeline      |
-|---------------|------------------------------------------------|---------------|
-| `0x20`        | Product Identification Block                   | dynamic       |
-| `0x21`        | Display Parameters Block                       | dynamic       |
-| `0x22`        | Type VII Detailed Timing Block                 | dynamic+static|
-| `0x23`        | Type VIII Enumerated Timing Code Block         | dynamic+static|
-| `0x24`        | Type IX Formula-Based Timing Block             | dynamic+static|
-| `0x25`        | Dynamic Video Timing Range Limits Block        | dynamic       |
-| `0x26`        | Display Interface Features Block               | dynamic       |
-| `0x27`        | Stereo Display Interface Block                 | dynamic       |
-| `0x28`        | Tiled Display Topology Block                   | dynamic       |
-| `0x29`        | ContainerID Block                              | dynamic       |
-| `0x2A`–`0x7D` | Reserved by DisplayID 2.x                      | —             |
-| `0x7E`        | Vendor-Specific Block                          | dynamic       |
-| `0x7F`–`0x80` | Reserved by DisplayID 2.x                      | —             |
-| `0x81`        | CTA DisplayID Block (wraps a CTA-861 collection)| dynamic+static|
-| `0x82`–`0xFF` | Reserved by DisplayID 2.x                      | —             |
+| Tag           | Block                                            | Pipeline       |
+|---------------|--------------------------------------------------|----------------|
+| `0x20`        | Product Identification Block                     | dynamic        |
+| `0x21`        | Display Parameters Block                         | dynamic        |
+| `0x22`        | Type VII Detailed Timing Block                   | dynamic+static |
+| `0x23`        | Type VIII Enumerated Timing Code Block           | dynamic+static |
+| `0x24`        | Type IX Formula-Based Timing Block               | dynamic+static |
+| `0x25`        | Dynamic Video Timing Range Limits Block          | dynamic        |
+| `0x26`        | Display Interface Features Block                 | dynamic        |
+| `0x27`        | Stereo Display Interface Block                   | dynamic        |
+| `0x28`        | Tiled Display Topology Block                     | dynamic        |
+| `0x29`        | ContainerID Block                                | dynamic        |
+| `0x2A`–`0x7D` | Reserved by DisplayID 2.x                        | —              |
+| `0x7E`        | Vendor-Specific Block                            | dynamic        |
+| `0x7F`–`0x80` | Reserved by DisplayID 2.x                        | —              |
+| `0x81`        | CTA DisplayID Block (wraps a CTA-861 collection) | dynamic+static |
+| `0x82`–`0xFF` | Reserved by DisplayID 2.x                        | —              |
 
 The "Pipeline" column distinguishes blocks decoded only in the dynamic
 (`alloc`/`std`) pipeline from those that also produce video modes through the static
@@ -64,13 +64,13 @@ to the 3-letter PNP namespace; the OUI is exposed separately as
 
 Fields decoded into `DisplayCapabilities` and `DisplayIdCapabilities`:
 
-| Field                       | Source                                                                |
-|-----------------------------|-----------------------------------------------------------------------|
-| `did.manufacturer_oui`      | Bytes 0–2 — IEEE OUI, 3 raw bytes (high byte first)                   |
-| `caps.product_code`         | LE uint16 at bytes 3–4                                                |
-| `caps.serial_number`        | LE uint32 at bytes 5–8; `0` is treated as unspecified                 |
-| `caps.manufacture_date`     | Bytes 9–10 (`year = byte + 2000`; week `0xFF` = model year)           |
-| `caps.display_name`         | Length byte at 11; ASCII / ISO 8859-1 starting at 12 (up to 13 stored)|
+| Field                   | Source                                                                 |
+|-------------------------|------------------------------------------------------------------------|
+| `did.manufacturer_oui`  | Bytes 0–2 — IEEE OUI, 3 raw bytes (high byte first)                    |
+| `caps.product_code`     | LE uint16 at bytes 3–4                                                 |
+| `caps.serial_number`    | LE uint32 at bytes 5–8; `0` is treated as unspecified                  |
+| `caps.manufacture_date` | Bytes 9–10 (`year = byte + 2000`; week `0xFF` = model year)            |
+| `caps.display_name`     | Length byte at 11; ASCII / ISO 8859-1 starting at 12 (up to 13 stored) |
 
 Each field is written only when the payload is long enough to contain it. Names longer
 than 13 bytes are truncated to fit `MonitorString`.
@@ -79,11 +79,11 @@ than 13 bytes are truncated to fit `MonitorString`.
 
 Fields decoded into `DisplayCapabilities` and `DisplayIdCapabilities`:
 
-| Field                          | Source                                                                                |
-|--------------------------------|---------------------------------------------------------------------------------------|
-| `caps.preferred_image_size_mm` | Bytes 0–3, LE uint16 pairs; precision in 0.1 mm or 1 mm depending on revision bit 7   |
-| `caps.native_pixels`           | Bytes 4–7, LE uint16 pairs; `None` when either axis is `0`                            |
-| `caps.color_bit_depth`         | Byte 27 bits 2:0 (`1=6 bpc … 5=16 bpc`); 14 bpc is not representable in this encoding |
+| Field                          | Source                                                                                                                                                                    |
+|--------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `caps.preferred_image_size_mm` | Bytes 0–3, LE uint16 pairs; precision in 0.1 mm or 1 mm depending on revision bit 7                                                                                       |
+| `caps.native_pixels`           | Bytes 4–7, LE uint16 pairs; `None` when either axis is `0`                                                                                                                |
+| `caps.color_bit_depth`         | Byte 27 bits 2:0 (`1=6 bpc … 5=16 bpc`); 14 bpc is not representable in this encoding                                                                                     |
 | `did.display_params_v2`        | 12-bit chromaticities (3 primaries + white), max/10%/min luminance (binary16),         display technology, gamma, scan orientation, audio routing, CIE coordinate variant |
 
 The block is fixed at 29 bytes; shorter payloads are silently skipped.
@@ -92,30 +92,30 @@ The block is fixed at 29 bytes; shorter payloads are silently skipped.
 
 Fields decoded into `DisplayCapabilities` and `DisplayIdCapabilities`:
 
-| Field                          | Source                                                                                            |
-|--------------------------------|---------------------------------------------------------------------------------------------------|
-| `did.dynamic_timing_range`     | Min/max pixel clock (kHz, 24-bit LE), min/max vertical refresh (Hz; max widened to 10 bits on revision ≥ 1), VRR-supported flag |
-| `caps.max_pixel_clock_mhz`     | `did.dynamic_timing_range.max_pixel_clock_khz / 1000`, capped to `u16::MAX`                        |
-| `caps.min_v_rate`              | `did.dynamic_timing_range.min_v_rate_hz` (skipped when `0`)                                        |
-| `caps.max_v_rate`              | `did.dynamic_timing_range.max_v_rate_hz` (skipped when `0`)                                        |
+| Field                      | Source                                                                                                                          |
+|----------------------------|---------------------------------------------------------------------------------------------------------------------------------|
+| `did.dynamic_timing_range` | Min/max pixel clock (kHz, 24-bit LE), min/max vertical refresh (Hz; max widened to 10 bits on revision ≥ 1), VRR-supported flag |
+| `caps.max_pixel_clock_mhz` | `did.dynamic_timing_range.max_pixel_clock_khz / 1000`, capped to `u16::MAX`                                                     |
+| `caps.min_v_rate`          | `did.dynamic_timing_range.min_v_rate_hz` (skipped when `0`)                                                                     |
+| `caps.max_v_rate`          | `did.dynamic_timing_range.max_v_rate_hz` (skipped when `0`)                                                                     |
 
 Pixel clock is downconverted to MHz for `caps.max_pixel_clock_mhz`; sub-MHz precision
 is preserved on `did.dynamic_timing_range.max_pixel_clock_khz`.
 
 ### Display Interface Features Block (`0x26`)
 
-| Field                       | Source                                                                                                                                    |
-|-----------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
-| `did.interface_features`    | RGB / YCbCr 4:4:4 / 4:2:2 / 4:2:0 color depth bitmasks, minimum 4:2:0 pixel rate (in 74.25 MP/s units), audio capability flags, color space + EOTF combinations bitmask |
+| Field                    | Source                                                                                                                                                                  |
+|--------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `did.interface_features` | RGB / YCbCr 4:4:4 / 4:2:2 / 4:2:0 color depth bitmasks, minimum 4:2:0 pixel rate (in 74.25 MP/s units), audio capability flags, color space + EOTF combinations bitmask |
 
 The trailing custom-combination bytes (bytes 7–8) and any "additional bytes" extension
 are not currently decoded.
 
 ### Stereo Display Interface Block (`0x27`)
 
-| Field                       | Source                                                                                                                                    |
-|-----------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
-| `did.stereo_interface_v2`   | Method byte → `StereoViewingMethodV2` (Field Sequential, Side-by-Side, Pixel Interleaved, Dual Interface, Multi-View, Stacked Frame, Proprietary, or `Reserved(byte)`); timing scope from revision byte upper 2 bits |
+| Field                     | Source                                                                                                                                                                                                               |
+|---------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `did.stereo_interface_v2` | Method byte → `StereoViewingMethodV2` (Field Sequential, Side-by-Side, Pixel Interleaved, Dual Interface, Multi-View, Stacked Frame, Proprietary, or `Reserved(byte)`); timing scope from revision byte upper 2 bits |
 
 The optional inline timing-code list (when timing scope indicates per-method codes)
 is not currently decoded.
@@ -230,10 +230,10 @@ them. Field-level conflicts resolve as follows:
 
 ## Warnings
 
-| Variant                                                  | Meaning                                                                                                                                                  |
-|----------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `DisplayIdVersionUnknown(u8)`                            | Version byte is outside the known ranges (0x10–0x1F, 0x20). The block is skipped.                                                                        |
-| `UnsupportedV2BlockRevision { tag, revision }`           | A 2.x data block carries a revision byte the spec marks as reserved. The block is parsed anyway with the revision-0 wire format; values may be incorrect.|
+| Variant                                        | Meaning                                                                                                                                                   |
+|------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `DisplayIdVersionUnknown(u8)`                  | Version byte is outside the known ranges (0x10–0x1F, 0x20). The block is skipped.                                                                         |
+| `UnsupportedV2BlockRevision { tag, revision }` | A 2.x data block carries a revision byte the spec marks as reserved. The block is parsed anyway with the revision-0 wire format; values may be incorrect. |
 
 The section-level warnings (`DisplayIdExtensionCountMismatch`,
 `DisplayIdChecksumMismatch`, `DisplayIdSectionBytesOutOfRange`) are shared with 1.x —
