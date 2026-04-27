@@ -166,9 +166,11 @@ pub(super) fn decode_v2_product_id_block(
             let mut buf = [b' '; 13];
             let copy_len = name_bytes.len().min(13);
             buf[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
-            if !buf.contains(&0x0A) {
-                buf[copy_len.min(12)] = 0x0A;
-            }
+            // Names ≤ 12 bytes leave the tail space-padded; `MonitorString::as_str`
+            // strips trailing spaces. Names of exactly 13 bytes round-trip fully
+            // because `as_str` falls back to the full buffer when no `0x0A` is found.
+            // Names containing an embedded `0x0A` are truncated at the terminator
+            // by `as_str`, matching the V1 wire convention.
             caps.display_name = Some(MonitorString(buf));
         }
     }
@@ -1725,15 +1727,28 @@ mod tests {
 
     #[test]
     fn test_v2_product_id_long_name_truncated() {
-        // Names longer than MonitorString's 13-byte buffer are truncated. When the
-        // buffer is full and the name does not contain a `0x0A`, byte 12 is replaced
-        // with the terminator, costing the final character.
+        // Names longer than MonitorString's 13-byte buffer are tail-truncated to fit;
+        // all 13 bytes are kept (`MonitorString::as_str` falls back to the full buffer
+        // when no `0x0A` terminator is present).
         let name: &[u8] = b"Big Long Display Name";
         let payload = make_v2_product_id_payload([0x00, 0x1A, 0x7E], 0x0001, 0, 0, 24, Some(name));
         let mut caps = DisplayCapabilities::default();
         let mut did = DisplayIdCapabilities::new(0x20, 0);
         decode_v2_product_id_block(&payload, &mut caps, &mut did);
-        assert_eq!(caps.display_name.as_deref(), Some("Big Long Dis"));
+        assert_eq!(caps.display_name.as_deref(), Some("Big Long Disp"));
+    }
+
+    #[test]
+    fn test_v2_product_id_exact_13_byte_name_preserved() {
+        // Boundary: name is exactly 13 bytes, no embedded 0x0A. All 13 chars must
+        // survive — earlier code lost the last char to a forced terminator.
+        let name: &[u8] = b"ThirteenChars";
+        assert_eq!(name.len(), 13);
+        let payload = make_v2_product_id_payload([0x00, 0x1A, 0x7E], 0x0001, 0, 0, 24, Some(name));
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(caps.display_name.as_deref(), Some("ThirteenChars"));
     }
 
     #[test]
