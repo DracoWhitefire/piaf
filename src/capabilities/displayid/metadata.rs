@@ -193,12 +193,13 @@ const fn decode_v2_manufacture_date(week: u8, year: u8) -> ManufactureDate {
 
 /// Converts an IEEE 754-2008 binary16 (half-precision) value to `f32`.
 ///
-/// Returns `None` when `raw == 0x8000` (negative zero), which the DisplayID 2.x
-/// spec uses to mark a luminance field as "not used", or when the value decodes
-/// to `NaN` / infinity (out-of-range for cd/m² readings).
+/// Returns `None` for either zero (`0x8000` is the spec's "not used" sentinel; `0x0000`
+/// is accepted leniently because 0 cd/m² is degenerate for any of the three luminance
+/// fields and almost certainly indicates an EDID writer that confused the sign), or
+/// when the value decodes to `NaN` / infinity (out-of-range for cd/m² readings).
 #[cfg(any(feature = "alloc", feature = "std"))]
 fn decode_luminance_f16(raw: u16) -> Option<f32> {
-    if raw == 0x8000 {
+    if raw & 0x7FFF == 0 {
         return None;
     }
     let sign = u32::from((raw >> 15) & 0x1);
@@ -2027,6 +2028,32 @@ mod tests {
             0x8000, // -0 = unused
             0x8000,
             0x8000,
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        let params = did.display_params_v2.as_ref().unwrap();
+        assert_eq!(params.max_luminance_full, None);
+        assert_eq!(params.max_luminance_10pct, None);
+        assert_eq!(params.min_luminance, None);
+    }
+
+    #[test]
+    fn test_v2_display_params_positive_zero_luminance_is_unused() {
+        // +0 (0x0000) is not the spec's sentinel, but 0 cd/m² is degenerate for any
+        // luminance field — accept it leniently as "unused" rather than Some(0.0).
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x0000,
+            0x0000,
+            0x0000,
             0x00,
             0xFF,
         );

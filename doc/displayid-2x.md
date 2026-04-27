@@ -88,6 +88,11 @@ Fields decoded into `DisplayCapabilities` and `DisplayIdCapabilities`:
 
 The block is fixed at 29 bytes; shorter payloads are silently skipped.
 
+Luminance fields use the IEEE 754 binary16 encoding. The spec reserves `−0` (`0x8000`)
+as the "not used" sentinel; this decoder also treats `+0` (`0x0000`) as `None` because
+0 cd/m² is degenerate for any of the three luminance fields and is most likely an EDID
+writer that confused the sign bit. NaN and infinity decode to `None` as well.
+
 ### Dynamic Video Timing Range Limits Block (`0x25`)
 
 Fields decoded into `DisplayCapabilities` and `DisplayIdCapabilities`:
