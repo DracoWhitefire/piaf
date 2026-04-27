@@ -35,33 +35,37 @@ pub(super) fn process_data_blocks(payload: &[u8], version: u8, sink: &mut dyn Mo
     let is_v2 = version == DISPLAYID_V2;
     for_each_data_block(payload, |tag, revision, block_payload| {
         if is_v2 {
-            if tag == TAG_V2_TYPE_VIII_TIMING {
-                decode_type_viii_block(block_payload, revision, sink);
-                return;
-            }
-            if tag == TAG_V2_TYPE_VII_TIMING {
-                let mut i = 0;
-                while i + 20 <= block_payload.len() {
-                    let descriptor: &[u8; 20] = block_payload[i..i + 20]
-                        .try_into()
-                        .expect("slice length guaranteed by loop condition");
-                    decode_type_vii_descriptor(descriptor, sink);
-                    i += 20;
+            match tag {
+                TAG_V2_TYPE_VII_TIMING => {
+                    let mut i = 0;
+                    while i + 20 <= block_payload.len() {
+                        let descriptor: &[u8; 20] = block_payload[i..i + 20]
+                            .try_into()
+                            .expect("slice length guaranteed by loop condition");
+                        decode_type_vii_descriptor(descriptor, sink);
+                        i += 20;
+                    }
                 }
-            } else if tag == TAG_V2_TYPE_IX_TIMING {
-                let mut i = 0;
-                while i + 6 <= block_payload.len() {
-                    let descriptor: &[u8; 6] = block_payload[i..i + 6]
-                        .try_into()
-                        .expect("slice length guaranteed by loop condition");
-                    decode_type_ix_descriptor(descriptor, sink);
-                    i += 6;
+                TAG_V2_TYPE_VIII_TIMING => {
+                    decode_type_viii_block(block_payload, revision, sink);
                 }
-            } else if tag == TAG_V2_CTA_DISPLAYID {
-                // CTA DisplayID Block — payload is a CTA-861 data block collection.
-                // Mode-producing entries (VICs, VTB-EXT, T7/T8/T10VTDB, Y420) are emitted;
-                // CTA metadata is dropped on the static path.
-                cea861_collection_into_sink(block_payload, sink);
+                TAG_V2_TYPE_IX_TIMING => {
+                    let mut i = 0;
+                    while i + 6 <= block_payload.len() {
+                        let descriptor: &[u8; 6] = block_payload[i..i + 6]
+                            .try_into()
+                            .expect("slice length guaranteed by loop condition");
+                        decode_type_ix_descriptor(descriptor, sink);
+                        i += 6;
+                    }
+                }
+                TAG_V2_CTA_DISPLAYID => {
+                    // CTA DisplayID Block — payload is a CTA-861 data block collection.
+                    // Mode-producing entries (VICs, VTB-EXT, T7/T8/T10VTDB, Y420) are
+                    // emitted; CTA metadata is dropped on the static path.
+                    cea861_collection_into_sink(block_payload, sink);
+                }
+                _ => {}
             }
             return;
         }
