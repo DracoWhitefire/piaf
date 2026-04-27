@@ -31,6 +31,26 @@ dynamic-only.
 
 ## Planned
 
+### DisplayID 2.x follow-ups
+
+Several 2.x fields are intentionally not surfaced in the 0.4 release:
+
+- **Type IX (`0x24`) byte 0 options** — CVT algorithm selector (CVT-RB1/RB2/RB3, RB
+  with CVT-RB1/RB2), Y420 flag, and stereo bits are silently dropped. Reifying these
+  requires extending `DisplayParamsV2` (or a new dedicated record) to carry the CVT
+  algorithm tag so consumers can distinguish reduced-blanking variants.
+- **Stereo Display Interface (`0x27`) inline timing-code list** — when the revision
+  byte's timing scope indicates per-method codes, the descriptor is followed by a list
+  of DMT/VIC/HDMI-VIC code records that scope the stereo configuration to specific
+  timings. Currently ignored; needs a new field on `DisplayIdStereoInterfaceV2`.
+- **Display Interface Features (`0x26`) bytes 7–8** — custom color space + EOTF
+  combinations and the additional-bytes count are dropped. Needed once consumers care
+  about HDR10+/non-standard EOTFs beyond the defined-combinations bitmask.
+- **ContainerID (`0x29`) typed UUID wrapper** — the 16 bytes are exposed as `[u8; 16]`
+  so callers can interpret as either Microsoft mixed-endian GUID or RFC 4122 UUID. A
+  typed wrapper (likely behind a feature flag depending on `uuid` crate) would be more
+  ergonomic.
+
 ### Consistency validation
 
 Helpers to detect internally inconsistent EDIDs: modes whose pixel clock exceeds the
