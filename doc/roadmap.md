@@ -35,10 +35,12 @@ dynamic-only.
 
 Several 2.x fields are intentionally not surfaced in the 0.4 release:
 
-- **Type IX (`0x24`) byte 0 options** — CVT algorithm selector (CVT-RB1/RB2/RB3, RB
-  with CVT-RB1/RB2), Y420 flag, and stereo bits are silently dropped. Reifying these
-  requires extending `DisplayParamsV2` (or a new dedicated record) to carry the CVT
-  algorithm tag so consumers can distinguish reduced-blanking variants.
+- **Type IX (`0x24`) byte 0 options** — partial. CVT algorithm selector and Y420 flag
+  are reified onto `VideoMode` as `cvt_algorithm` and `y420`. Stereo bits (6:5) are
+  still dropped — need to confirm Type IX's stereo encoding (likely distinct from the
+  DTD `StereoMode` codes) before mapping. Once a stereo type is added, also evaluate
+  computing full CVT timing (pixel clock + blanking) from the `(width, height, refresh,
+  algorithm)` tuple — see the next-step "C" path discussed during 0.4 review.
 - **Stereo Display Interface (`0x27`) inline timing-code list** — when the revision
   byte's timing scope indicates per-method codes, the descriptor is followed by a list
   of DMT/VIC/HDMI-VIC code records that scope the stereo configuration to specific

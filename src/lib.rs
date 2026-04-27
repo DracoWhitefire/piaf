@@ -46,7 +46,7 @@ pub use model::ExtensionHandler;
 pub use model::ParseWarning;
 pub use model::{
     AnalogColorType, AnalogSyncLevel, BacklightType, Chromaticity, ChromaticityPoint,
-    ColorBitDepth, ColorManagementData, CvtAspectRatio, CvtAspectRatios, CvtScaling,
+    ColorBitDepth, ColorManagementData, CvtAlgorithm, CvtAspectRatio, CvtAspectRatios, CvtScaling,
     CvtSupportParams, DcmChannel, DigitalColorEncoding, DisplayCapabilities, DisplayFeatureFlags,
     DisplayGamma, DisplayIdInterface, DisplayIdStereoInterface, DisplayIdTiledTopology,
     DisplayInterfaceType, DisplayTechnology, EdidError, EdidSource, EdidVersion, EdidWarning,

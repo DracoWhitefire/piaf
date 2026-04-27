@@ -1,4 +1,4 @@
-use crate::model::capabilities::{ModeSink, VideoMode};
+use crate::model::capabilities::{CvtAlgorithm, ModeSink, VideoMode};
 
 /// Decodes one 3-byte Type III Short Video Timing descriptor and pushes a mode to `sink`.
 ///
@@ -79,9 +79,15 @@ pub(super) fn decode_type_v_descriptor(d: &[u8; 7], sink: &mut dyn ModeSink) {
 /// - Byte 5:    Vertical refresh rate — `byte + 1` Hz (range 1–256 Hz)
 ///
 /// The wire format mirrors Type V minus the trailing reserved byte. Like Type V,
-/// Type IX timings are progressive-only. The CVT algorithm is signalled but not
-/// reified into `VideoMode` (which doesn't carry blanking parameters for formula
-/// timings). Descriptors with zero width or height are silently skipped.
+/// Type IX timings are progressive-only.
+///
+/// The CVT algorithm and the Y420-only flag from byte 0 are reified onto `VideoMode`
+/// via [`with_cvt_algorithm`][VideoMode::with_cvt_algorithm] and
+/// [`with_y420`][VideoMode::with_y420]; consumers can apply the named CVT variant to
+/// derive blanking and pixel clock from `(width, height, refresh_rate)`. The stereo
+/// bits (byte 0 bits 6:5) are not yet decoded — see `doc/roadmap.md`.
+///
+/// Descriptors with zero width or height are silently skipped.
 pub(super) fn decode_type_ix_descriptor(d: &[u8; 6], sink: &mut dyn ModeSink) {
     let h_active = u16::from_le_bytes([d[1], d[2]]);
     let v_active = u16::from_le_bytes([d[3], d[4]]);
@@ -91,7 +97,14 @@ pub(super) fn decode_type_ix_descriptor(d: &[u8; 6], sink: &mut dyn ModeSink) {
         return;
     }
 
-    sink.push_mode(VideoMode::new(h_active, v_active, refresh_rate, false));
+    let cvt_algorithm = CvtAlgorithm::from_bits(d[0]);
+    let y420 = (d[0] >> 4) & 1 != 0;
+
+    sink.push_mode(
+        VideoMode::new(h_active, v_active, refresh_rate, false)
+            .with_cvt_algorithm(cvt_algorithm)
+            .with_y420(y420),
+    );
 }
 
 #[cfg(test)]
@@ -289,6 +302,55 @@ mod tests {
         assert_eq!(mode.height, 1080);
         assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
         assert!(!mode.interlaced);
+        // byte 0 is zero → CVT-RB1, no Y420.
+        assert_eq!(mode.cvt_algorithm, Some(CvtAlgorithm::CvtRb1));
+        assert!(!mode.y420);
+    }
+
+    #[test]
+    fn test_type_ix_byte0_cvt_algorithm_decoded() {
+        let cases = [
+            (0b000, CvtAlgorithm::CvtRb1),
+            (0b001, CvtAlgorithm::CvtRb2),
+            (0b010, CvtAlgorithm::CvtRb3),
+            (0b011, CvtAlgorithm::ReducedBlankingCvtRb1),
+            (0b100, CvtAlgorithm::ReducedBlankingCvtRb2),
+            (0b101, CvtAlgorithm::Reserved(5)),
+            (0b110, CvtAlgorithm::Reserved(6)),
+            (0b111, CvtAlgorithm::Reserved(7)),
+        ];
+        for (bits, expected) in cases {
+            let mut d = make_type_ix_descriptor(1920, 1080, 59);
+            d[0] = bits;
+            let mut caps = DisplayCapabilities::default();
+            decode_type_ix_descriptor(&d, &mut caps);
+            assert_eq!(caps.supported_modes.len(), 1);
+            assert_eq!(
+                caps.supported_modes[0].cvt_algorithm,
+                Some(expected),
+                "byte 0 = {bits:#b}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_type_ix_byte0_y420_flag_decoded() {
+        let mut d = make_type_ix_descriptor(3840, 2160, 59);
+        d[0] = 0x10; // bit 4 set = Y420
+        let mut caps = DisplayCapabilities::default();
+        decode_type_ix_descriptor(&d, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert!(caps.supported_modes[0].y420);
+    }
+
+    #[test]
+    fn test_type_ix_byte0_y420_off_when_bit_clear() {
+        let mut d = make_type_ix_descriptor(3840, 2160, 59);
+        d[0] = 0xEF; // every bit except bit 4 set; Y420 must remain off
+        let mut caps = DisplayCapabilities::default();
+        decode_type_ix_descriptor(&d, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert!(!caps.supported_modes[0].y420);
     }
 
     #[test]

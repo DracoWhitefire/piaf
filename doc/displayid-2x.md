@@ -216,9 +216,24 @@ sourced from the HDMI VIC table carry only `width`, `height`, `refresh_rate`).
 
 ### Type IX Formula-Based Timing Block (`0x24`)
 
-Each 6-byte descriptor encodes width, height, refresh rate, and a CVT formula
-selector (CVT-RB, CVT-RB v2, etc.). The decoder evaluates the requested formula and
-emits a `VideoMode` with derived `pixel_clock_khz` and blanking parameters.
+Each 6-byte descriptor encodes width, height, refresh rate, a CVT formula selector,
+and a YCbCr 4:2:0-only flag. Decoded into `VideoMode` as:
+
+| `VideoMode` field   | Source                                                    |
+|---------------------|-----------------------------------------------------------|
+| `width`, `height`   | Bytes 1–2 / 3–4 (LE uint16)                               |
+| `refresh_rate`      | Byte 5: `byte + 1` Hz (range 1–256 Hz)                    |
+| `cvt_algorithm`     | Byte 0 bits 2:0 → `CvtAlgorithm` (CVT-RB1/RB2/RB3, RB-with-CVT-RB1/RB2, or `Reserved(b)`) |
+| `y420`              | Byte 0 bit 4                                              |
+
+`pixel_clock_khz` and blanking parameters are **not** computed from the algorithm
+selector — consumers can derive them from `(width, height, refresh_rate,
+cvt_algorithm)` by applying the named CVT formula. Built-in formula evaluation is a
+roadmap item (see `doc/roadmap.md`).
+
+The stereo bits (byte 0 bits 6:5) are not yet decoded; the encoding is likely distinct
+from the DTD-derived `StereoMode` codes carried elsewhere on `VideoMode` and needs a
+separate type.
 
 ## Coexistence with DisplayID 1.x
 

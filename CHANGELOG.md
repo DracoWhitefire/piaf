@@ -9,12 +9,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking changes
 
-- **`VideoMode::new` refresh rate parameter is now `u16`**: `display-types` 0.3.0 widens the
-  `refresh_rate` argument of `VideoMode::new` from `u8` to `u16`. Callers passing a `u8` literal
-  will need an explicit `as u16` cast or a `u16` value.
+- **`VideoMode::refresh_rate` is now `Option<RefreshRate>`** (was `u16`). `VideoMode::new`
+  accepts `impl Into<RefreshRate>` and stores `Some(...)`; integer literals require a `u32`
+  suffix (e.g. `60u32`) or explicit `RefreshRate::integral(60)`. Reading `refresh_rate`
+  must handle the `None` case (default-constructed `VideoMode` and any code that previously
+  treated `0` as "unset"). Equality and ordering of refresh rates now go through
+  `RefreshRate`'s exact rational representation, so DMT 0x58 (4096×2160) is preserved as
+  `60000/1001` instead of the truncated `60`. Supersedes the prior `u8 → u16` widening
+  noted in earlier unreleased notes.
+- **`EdidWarning` new variant**: `UnsupportedV2BlockRevision { tag: u8, revision: u8 }`.
+  Exhaustive `match` arms on `EdidWarning` must be updated.
 
 ### Added
 
+- **DisplayID 2.x extension support** — full coverage of the 2.x tag space, decoded by the
+  same `DisplayIdHandler` as 1.x; dispatch is selected by the section header version byte:
+  - **`0x20`** Product Identification Block — `manufacturer_oui` on `DisplayIdCapabilities`;
+    `product_code`, `serial_number`, `manufacture_date`, `display_name` on
+    `DisplayCapabilities`. PNP-derived `manufacturer` is intentionally not populated.
+  - **`0x21`** Display Parameters Block — `display_params_v2` (chromaticity, luminance,
+    gamma, display technology, scan orientation, audio routing, CIE coordinate variant);
+    `preferred_image_size_mm`, `native_pixels`, `color_bit_depth` mirrored on
+    `DisplayCapabilities`.
+  - **`0x22`** Type VII Detailed Timing — `supported_modes` (20-byte descriptors with
+    24-bit pixel clock); decoder shared with the CTA T7VTDB path.
+  - **`0x23`** Type VIII Enumerated Timing Code — `supported_modes` via DMT/VIC/HDMI VIC
+    lookup, supporting both 1- and 2-byte code modes.
+  - **`0x24`** Type IX Formula-Based Timing — `supported_modes` with `cvt_algorithm`
+    (CVT-RB1/RB2/RB3, RB-with-CVT-RB1/RB2) and `y420` flag from byte 0; pixel clock and
+    blanking derivation deferred (see `doc/roadmap.md`).
+  - **`0x25`** Dynamic Video Timing Range Limits — `dynamic_timing_range` (kHz precision
+    pixel clock, 9-bit max v rate on rev ≥ 1, VRR flag); `max_pixel_clock_mhz`,
+    `min_v_rate`, `max_v_rate` mirrored.
+  - **`0x26`** Display Interface Features — `interface_features` (per-encoding color depth
+    bitmasks, audio flags, color space + EOTF combinations bitmask).
+  - **`0x27`** Stereo Display Interface — `stereo_interface_v2` (Field Sequential,
+    Side-by-Side, Pixel Interleaved, Dual Interface, Multi-View, Stacked Frame,
+    Proprietary, Reserved); timing scope decoded from revision bits 7:6.
+  - **`0x28`** Tiled Display Topology — `tiled_topology` (same wire format as 1.x `0x12`).
+  - **`0x29`** ContainerID — `container_id` (raw 16-byte UUID; mixed-endian vs RFC 4122
+    interpretation deferred to consumers).
+  - **`0x7E`** Vendor-Specific — `vendor_specific` (OUI + opaque payload, multiple records
+    per section in payload order).
+  - **`0x81`** CTA DisplayID — wraps a CTA-861 data block collection; merges into the
+    existing `Cea861Capabilities` (extension tag `0x02`) via take-mutate-restore so
+    `0x81`-derived data combines with a real CEA-861 extension regardless of processing
+    order. Mode-producing entries also reach the static pipeline.
+  - **2.x tag-space exhaustiveness test** mirrors the 1.x tag-coverage check.
+- **`RefreshRate`** re-exported from `piaf` (originating in `display-types`). Constructors
+  `integral(u32)`, `fractional(numer, denom)`, and `from_ratio(numer: u64, denom: u64)`
+  for computing rates from large intermediate products such as
+  `pixel_clock_hz / (h_total × v_total)`.
+- **`CvtAlgorithm`** re-exported from `piaf` — CVT formula selector for Type IX
+  descriptors. `Reserved(u8)` for spec-reserved encodings.
+- **Type VII Detailed Timing decoder shared between DisplayID 2.x (`0x22`) and the CTA
+  T7VTDB path** via `decode_type_vii_descriptor_to_mode`. The CTA wrapper remains parsed
+  inline; the 20-byte body decodes through the shared function.
+- **`parse_cea861_data_block_collection`** — `pub(crate)` helper extracted from the CEA-861
+  handler so the DisplayID 2.x `0x81` block reuses the same data-block collection parser.
+  Mode-producing entries still flow through `caps.supported_modes` with dedup; CTA-specific
+  state merges into `Cea861Capabilities`.
 - **SLSA Build Level 2 provenance** — release artifacts are attested via
   `actions/attest-build-provenance` and verified with
   `gh attestation verify <file> --repo DracoWhitefire/piaf`.
@@ -26,7 +80,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Updated `display-types` dependency from `0.2.0` to `0.3.1`.
+- Updated `display-types` dependency to track the V2 type set (new `RefreshRate`,
+  `CvtAlgorithm`, `DisplayParamsV2`, `DynamicTimingRange`, `DisplayInterfaceFeatures`,
+  `DisplayIdStereoInterfaceV2`, `DisplayIdVendorSpecific`, `ChromaticityPoint12`,
+  `Chromaticity12`, `ColorDepthsFull`, `ColorDepthsSubsampled`, `ScanOrientation`,
+  `StereoTimingScopeV2`, `StereoViewingMethodV2`, `StereoEye`, `DualInterfaceMirroring`,
+  and the `tag::V2_*` constants); `VideoMode` gains `cvt_algorithm` and `y420` fields.
 
 ### Internal
 
