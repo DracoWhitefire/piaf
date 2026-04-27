@@ -1,4 +1,5 @@
-use crate::model::capabilities::{CvtAlgorithm, ModeSink, VideoMode};
+use crate::model::capabilities::{CvtAlgorithm, ModeSink, RefreshRate, StereoMode, VideoMode};
+use display_types::compute_type_ix_timing;
 
 /// Decodes one 3-byte Type III Short Video Timing descriptor and pushes a mode to `sink`.
 ///
@@ -83,9 +84,13 @@ pub(super) fn decode_type_v_descriptor(d: &[u8; 7], sink: &mut dyn ModeSink) {
 ///
 /// The CVT algorithm and the Y420-only flag from byte 0 are reified onto `VideoMode`
 /// via [`with_cvt_algorithm`][VideoMode::with_cvt_algorithm] and
-/// [`with_y420`][VideoMode::with_y420]; consumers can apply the named CVT variant to
-/// derive blanking and pixel clock from `(width, height, refresh_rate)`. The stereo
-/// bits (byte 0 bits 6:5) are not yet decoded — see `doc/roadmap.md`.
+/// [`with_y420`][VideoMode::with_y420]. When the algorithm is one this crate can
+/// evaluate (currently only CVT-RB v1; see `doc/roadmap.md`) the descriptor is
+/// expanded to a full timing via [`compute_type_ix_timing`] and the resulting
+/// `pixel_clock_khz`, front porches, and sync widths are also populated. Algorithms
+/// not yet implemented produce a minimal `VideoMode` with only the algorithm/Y420
+/// metadata — consumers can apply the named formula themselves. The stereo bits
+/// (byte 0 bits 6:5) are not yet decoded — see `doc/roadmap.md`.
 ///
 /// Descriptors with zero width or height are silently skipped.
 pub(super) fn decode_type_ix_descriptor(d: &[u8; 6], sink: &mut dyn ModeSink) {
@@ -100,11 +105,30 @@ pub(super) fn decode_type_ix_descriptor(d: &[u8; 6], sink: &mut dyn ModeSink) {
     let cvt_algorithm = CvtAlgorithm::from_bits(d[0]);
     let y420 = (d[0] >> 4) & 1 != 0;
 
-    sink.push_mode(
-        VideoMode::new(h_active, v_active, refresh_rate, false)
-            .with_cvt_algorithm(cvt_algorithm)
-            .with_y420(y420),
-    );
+    let mut mode = VideoMode::new(h_active, v_active, refresh_rate, false)
+        .with_cvt_algorithm(cvt_algorithm)
+        .with_y420(y420);
+
+    if let Some(t) = compute_type_ix_timing(
+        h_active,
+        v_active,
+        RefreshRate::integral(u32::from(refresh_rate)),
+        cvt_algorithm,
+    ) {
+        mode = mode.with_detailed_timing(
+            t.pixel_clock_khz,
+            t.h_front_porch,
+            t.h_sync_width,
+            t.v_front_porch,
+            t.v_sync_width,
+            0,
+            0,
+            StereoMode::None,
+            None,
+        );
+    }
+
+    sink.push_mode(mode);
 }
 
 #[cfg(test)]
@@ -379,5 +403,38 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         decode_type_ix_descriptor(&d, &mut caps);
         assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_type_ix_cvt_rb_v1_populates_pixel_clock_and_blanking() {
+        // CVT-RB v1 1920×1080@60: VESA reference clock 138.500 MHz, blanking from RB v1 spec.
+        let d = make_type_ix_descriptor(1920, 1080, 59); // byte 0 = 0 → CVT-RB1
+        let mut caps = DisplayCapabilities::default();
+        decode_type_ix_descriptor(&d, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        let mode = &caps.supported_modes[0];
+        assert_eq!(mode.pixel_clock_khz, Some(138_500));
+        assert_eq!(mode.h_front_porch, 48);
+        assert_eq!(mode.h_sync_width, 32);
+        assert_eq!(mode.v_front_porch, 3);
+        assert_eq!(mode.v_sync_width, 4);
+    }
+
+    #[test]
+    fn test_type_ix_cvt_rb_v2_leaves_timing_unpopulated() {
+        // CVT-RB v2 evaluator not yet implemented — pixel_clock_khz and porches stay default.
+        let mut d = make_type_ix_descriptor(1920, 1080, 59);
+        d[0] = 0x01; // bits 2:0 = 1 → CVT-RB2
+        let mut caps = DisplayCapabilities::default();
+        decode_type_ix_descriptor(&d, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        let mode = &caps.supported_modes[0];
+        assert_eq!(mode.cvt_algorithm, Some(CvtAlgorithm::CvtRb2));
+        // Pixel clock and porches remain at defaults — consumer must apply the formula.
+        assert_eq!(mode.pixel_clock_khz, None);
+        assert_eq!(mode.h_front_porch, 0);
+        assert_eq!(mode.h_sync_width, 0);
+        assert_eq!(mode.v_front_porch, 0);
+        assert_eq!(mode.v_sync_width, 0);
     }
 }

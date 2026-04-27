@@ -36,8 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`0x23`** Type VIII Enumerated Timing Code — `supported_modes` via DMT/VIC/HDMI VIC
     lookup, supporting both 1- and 2-byte code modes.
   - **`0x24`** Type IX Formula-Based Timing — `supported_modes` with `cvt_algorithm`
-    (CVT-RB1/RB2/RB3, RB-with-CVT-RB1/RB2) and `y420` flag from byte 0; pixel clock and
-    blanking derivation deferred (see `doc/roadmap.md`).
+    (CVT-RB1/RB2/RB3, RB-with-CVT-RB1/RB2) and `y420` flag from byte 0. **CVT-RB v1**
+    descriptors are fully expanded: `pixel_clock_khz`, `h_front_porch`, `h_sync_width`,
+    `v_front_porch`, and `v_sync_width` are derived via
+    `display_types::compute_type_ix_timing` (VESA CVT 1.1 §3.4 reference). CVT-RB v2/v3
+    and the RB-with-CVT-RB1/RB2 variants currently emit only the metadata; consumers
+    can apply the formula themselves until full evaluation lands (see `doc/roadmap.md`).
   - **`0x25`** Dynamic Video Timing Range Limits — `dynamic_timing_range` (kHz precision
     pixel clock, 9-bit max v rate on rev ≥ 1, VRR flag); `max_pixel_clock_mhz`,
     `min_v_rate`, `max_v_rate` mirrored.

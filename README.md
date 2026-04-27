@@ -327,7 +327,7 @@ DisplayID 2.x sections (version byte `0x20`) use a disjoint tag space at `0x20`â
 | `0x21` | Display Parameters                 | `display_params_v2` (chromaticity, luminance, gamma, display technology, scan orientation, audio routing); `preferred_image_size_mm`, `native_pixels`, `color_bit_depth` mirrored on `DisplayCapabilities` |
 | `0x22` | Type VII Detailed Timing           | `supported_modes` (20-byte descriptors with 24-bit pixel clock)                                                                |
 | `0x23` | Type VIII Enumerated Timing Code   | `supported_modes` via DMT/VIC/HDMI VIC lookup                                                                                  |
-| `0x24` | Type IX Formula-Based Timing       | `supported_modes` with `cvt_algorithm` (CVT-RB1/RB2/RB3, RB-with-CVT-RB1/RB2) and `y420` flag from byte 0; pixel clock + blanking derivation deferred |
+| `0x24` | Type IX Formula-Based Timing       | `supported_modes` with `cvt_algorithm` (CVT-RB1/RB2/RB3, RB-with-CVT-RB1/RB2) and `y420` flag from byte 0; **CVT-RB v1** fully expanded to `pixel_clock_khz` + blanking via `display_types::compute_type_ix_timing` (RB v2/v3 pending) |
 | `0x25` | Dynamic Video Timing Range Limits  | `dynamic_timing_range` (kHz precision pixel clock, VRR flag); `max_pixel_clock_mhz`, `min_v_rate`, `max_v_rate` mirrored        |
 | `0x26` | Display Interface Features         | `interface_features` (per-encoding color depth bitmasks, audio flags, color space + EOTF)                                       |
 | `0x27` | Stereo Display Interface           | `stereo_interface_v2` (Field Sequential, Side-by-Side, Pixel Interleaved, Dual Interface, Multi-View, Stacked Frame, Proprietary) |
