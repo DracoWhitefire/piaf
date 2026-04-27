@@ -14,7 +14,7 @@ use crate::capabilities::cea861::parse_cea861_data_block_collection;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::color::{Chromaticity, ChromaticityPoint};
+use crate::model::color::{Chromaticity, ChromaticityPoint, ColorBitDepth};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -232,18 +232,19 @@ fn decode_luminance_f16(raw: u16) -> Option<f32> {
     Some(f32::from_bits(bits))
 }
 
-/// Maps the 3-bit DisplayID 2.x color depth field (block 0x21 byte 27, bits 2:0) to bpc.
+/// Maps the 3-bit DisplayID 2.x color depth field (block 0x21 byte 27, bits 2:0) to a
+/// `(bpc, ColorBitDepth)` pair, the two representations needed at the call site.
 ///
 /// Returns `None` for the "undefined" code (`0`) and for values reserved by the spec
 /// (`6`, `7`). The 2.x encoding skips 14 bpc (which 1.x supports), so `5` decodes to 16.
 #[cfg(any(feature = "alloc", feature = "std"))]
-const fn decode_v2_color_bit_depth(field: u8) -> Option<u8> {
+const fn decode_v2_color_bit_depth(field: u8) -> Option<(u8, ColorBitDepth)> {
     match field & 0x07 {
-        1 => Some(6),
-        2 => Some(8),
-        3 => Some(10),
-        4 => Some(12),
-        5 => Some(16),
+        1 => Some((6, ColorBitDepth::Depth6)),
+        2 => Some((8, ColorBitDepth::Depth8)),
+        3 => Some((10, ColorBitDepth::Depth10)),
+        4 => Some((12, ColorBitDepth::Depth12)),
+        5 => Some((16, ColorBitDepth::Depth16)),
         _ => None,
     }
 }
@@ -336,7 +337,8 @@ pub(super) fn decode_v2_display_params_block(
     let min_luminance = decode_luminance_f16(u16::from_le_bytes([payload[25], payload[26]]));
 
     let depth_tech_byte = payload[27];
-    let color_bit_depth = decode_v2_color_bit_depth(depth_tech_byte & 0x07);
+    let (color_bit_depth_bpc, color_bit_depth_enum) =
+        decode_v2_color_bit_depth(depth_tech_byte & 0x07).unzip();
     let display_technology = V2DisplayTechnology::from_byte((depth_tech_byte >> 4) & 0x07);
 
     let gamma_byte = payload[28];
@@ -346,15 +348,8 @@ pub(super) fn decode_v2_display_params_block(
         Some(f32::from(gamma_byte) / 100.0 + 1.0)
     };
 
-    if let Some(bpc) = color_bit_depth {
-        caps.color_bit_depth = match bpc {
-            6 => Some(crate::model::color::ColorBitDepth::Depth6),
-            8 => Some(crate::model::color::ColorBitDepth::Depth8),
-            10 => Some(crate::model::color::ColorBitDepth::Depth10),
-            12 => Some(crate::model::color::ColorBitDepth::Depth12),
-            16 => Some(crate::model::color::ColorBitDepth::Depth16),
-            _ => None,
-        };
+    if let Some(bpc_enum) = color_bit_depth_enum {
+        caps.color_bit_depth = Some(bpc_enum);
     }
 
     let mut params = DisplayParamsV2::default();
@@ -364,7 +359,7 @@ pub(super) fn decode_v2_display_params_block(
     params.max_luminance_10pct = max_luminance_10pct;
     params.min_luminance = min_luminance;
     params.luminance_guidance = luminance_guidance;
-    params.color_bit_depth = color_bit_depth;
+    params.color_bit_depth = color_bit_depth_bpc;
     params.display_technology = display_technology;
     params.gamma = gamma;
     params.scan_orientation = scan_orientation;
