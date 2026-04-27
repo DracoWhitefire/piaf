@@ -378,6 +378,7 @@ mod tests {
         block[127] = 0u8.wrapping_sub(edid_sum);
     }
 
+    #[allow(clippy::too_many_arguments)] // mirrors the wire-format field list
     fn make_type_i_descriptor(
         pixel_clock_10khz: u16,
         h_active: u16,
@@ -559,6 +560,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::identity_op)] // PNP letter-to-bits encoding: (c - 'A' + 1) for symmetry.
     fn test_product_id_and_timing_in_same_block() {
         // Product ID block followed by a Type I timing block — both must be decoded.
         let ca = (b'S' - b'A' + 1) as u16;

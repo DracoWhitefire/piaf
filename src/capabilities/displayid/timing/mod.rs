@@ -135,6 +135,7 @@ mod tests {
         DisplayCapabilities, RefreshRate, StaticContext, StaticDisplayCapabilities,
     };
 
+    #[allow(clippy::too_many_arguments)] // mirrors the wire-format field list
     fn make_type_i_descriptor(
         pixel_clock_10khz: u16,
         h_active: u16,

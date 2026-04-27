@@ -1866,6 +1866,7 @@ mod tests {
         raw.to_le_bytes()
     }
 
+    #[allow(clippy::too_many_arguments)] // mirrors the wire-format field list
     fn make_v2_display_params_payload(
         h_size: u16,
         v_size: u16,
@@ -2709,6 +2710,7 @@ mod tests {
     // Video Timing Range Limits Block (tag 0x09)
     // -----------------------------------------------------------------------
 
+    #[allow(clippy::too_many_arguments)] // mirrors the wire-format field list
     fn make_video_timing_range_payload(
         min_pixel_clock_10khz: u32,
         max_pixel_clock_10khz: u32,
@@ -3478,6 +3480,7 @@ mod tests {
     // Tiled Display Topology Data Block (tag 0x12)
     // -----------------------------------------------------------------------
 
+    #[allow(clippy::too_many_arguments)] // mirrors the wire-format field list
     fn make_tiled_topology_payload(
         single_enclosure: bool,
         has_bezel: bool,

@@ -163,6 +163,7 @@ fn test_static_warning_cap() {
 // output after the struct-literal → individual-assignment refactor.
 // ---------------------------------------------------------------------------
 #[test]
+#[allow(clippy::identity_op)] // PNP letter-to-bits encoding: (c - 'A' + 1) for symmetry.
 fn test_static_scalar_fields() {
     let mut bytes = minimal_base_edid();
     // Manufacturer "SAM" (Samsung):  each letter encodes as (c - 'A' + 1) in 5 bits.
