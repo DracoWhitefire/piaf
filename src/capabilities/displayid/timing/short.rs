@@ -85,12 +85,13 @@ pub(super) fn decode_type_v_descriptor(d: &[u8; 7], sink: &mut dyn ModeSink) {
 /// The CVT algorithm and the Y420-only flag from byte 0 are reified onto `VideoMode`
 /// via [`with_cvt_algorithm`][VideoMode::with_cvt_algorithm] and
 /// [`with_y420`][VideoMode::with_y420]. When the algorithm is one this crate can
-/// evaluate (currently only CVT-RB v1; see `doc/roadmap.md`) the descriptor is
-/// expanded to a full timing via [`compute_type_ix_timing`] and the resulting
-/// `pixel_clock_khz`, front porches, and sync widths are also populated. Algorithms
-/// not yet implemented produce a minimal `VideoMode` with only the algorithm/Y420
-/// metadata — consumers can apply the named formula themselves. The stereo bits
-/// (byte 0 bits 6:5) are not yet decoded — see `doc/roadmap.md`.
+/// evaluate (currently CVT-RB v1, v2, and v3; the "reduced blanking with CVT-RB1/RB2"
+/// variants are pending — see `doc/roadmap.md`) the descriptor is expanded to a full
+/// timing via [`compute_type_ix_timing`] and the resulting `pixel_clock_khz`, front
+/// porches, and sync widths are also populated. Algorithms not yet implemented produce
+/// a minimal `VideoMode` with only the algorithm/Y420 metadata — consumers can apply
+/// the named formula themselves. The stereo bits (byte 0 bits 6:5) are not yet
+/// decoded — see `doc/roadmap.md`.
 ///
 /// Descriptors with zero width or height are silently skipped.
 pub(super) fn decode_type_ix_descriptor(d: &[u8; 6], sink: &mut dyn ModeSink) {

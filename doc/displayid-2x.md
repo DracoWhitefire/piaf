@@ -219,12 +219,12 @@ sourced from the HDMI VIC table carry only `width`, `height`, `refresh_rate`).
 Each 6-byte descriptor encodes width, height, refresh rate, a CVT formula selector,
 and a YCbCr 4:2:0-only flag. Decoded into `VideoMode` as:
 
-| `VideoMode` field   | Source                                                    |
-|---------------------|-----------------------------------------------------------|
-| `width`, `height`   | Bytes 1–2 / 3–4 (LE uint16)                               |
-| `refresh_rate`      | Byte 5: `byte + 1` Hz (range 1–256 Hz)                    |
-| `cvt_algorithm`     | Byte 0 bits 2:0 → `CvtAlgorithm` (CVT-RB1/RB2/RB3, RB-with-CVT-RB1/RB2, or `Reserved(b)`) |
-| `y420`              | Byte 0 bit 4                                              |
+| `VideoMode` field | Source                                                                                    |
+|-------------------|-------------------------------------------------------------------------------------------|
+| `width`, `height` | Bytes 1–2 / 3–4 (LE uint16)                                                               |
+| `refresh_rate`    | Byte 5: `byte + 1` Hz (range 1–256 Hz)                                                    |
+| `cvt_algorithm`   | Byte 0 bits 2:0 → `CvtAlgorithm` (CVT-RB1/RB2/RB3, RB-with-CVT-RB1/RB2, or `Reserved(b)`) |
+| `y420`            | Byte 0 bit 4                                                                              |
 
 When the algorithm is **CVT-RB v1** (VESA CVT 1.1 §3.4), **CVT-RB v2** (VESA CVT 1.2
 §4), or **CVT-RB v3** (VESA CVT 2.0 §4.5), the descriptor is expanded to a full timing
