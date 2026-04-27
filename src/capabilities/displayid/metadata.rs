@@ -290,6 +290,10 @@ pub(super) fn decode_v2_display_params_block(
         return;
     }
 
+    // 0x21 repurposes bit 7 of the data-block revision byte as the image-size precision
+    // flag (in-band field, not part of the revision number). Other bits hold the
+    // revision number; only rev 0 is currently defined and unknown rev numbers are not
+    // surfaced as warnings here.
     let size_in_whole_mm = (revision >> 7) & 0x01 != 0;
     let h_size = u16::from_le_bytes([payload[0], payload[1]]);
     let v_size = u16::from_le_bytes([payload[2], payload[3]]);
@@ -406,8 +410,10 @@ pub(super) fn decode_v2_dynamic_timing_range_block(
     let max_v_lsb = payload[7];
     let flags = payload[8];
 
-    let block_revision = revision & 0x07;
-    let max_v_rate_hz: u16 = if block_revision >= 1 {
+    // 0x25 has no in-band fields in the data-block revision byte (unlike 0x21's bit 7
+    // and 0x27's bits 7:6); the whole byte is the revision number. Spec defines rev 0
+    // (8-bit max v rate) and rev 1 (9-bit max v rate using bits 1:0 of the flags byte).
+    let max_v_rate_hz: u16 = if revision >= 1 {
         u16::from(max_v_lsb) | (u16::from(flags & 0x03) << 8)
     } else {
         u16::from(max_v_lsb)
@@ -582,6 +588,9 @@ pub(super) fn decode_v2_stereo_interface_block(
         other => StereoViewingMethodV2::Reserved(other),
     };
 
+    // 0x27 repurposes bits 7:6 of the data-block revision byte as the timing scope
+    // (in-band field). The remaining bits hold the revision number; only rev 0 is
+    // currently defined and unknown rev numbers are not surfaced as warnings here.
     let mut record = DisplayIdStereoInterfaceV2::default();
     record.timing_scope = StereoTimingScopeV2::from_revision(revision);
     record.method = method;
