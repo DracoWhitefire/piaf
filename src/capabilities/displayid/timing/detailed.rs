@@ -2,55 +2,85 @@ use crate::model::capabilities::{ModeSink, RefreshRate, StereoMode, SyncDefiniti
 
 /// Decodes one 20-byte Type I Video Timing descriptor and pushes a mode to `sink`.
 ///
-/// Descriptor layout (DisplayID 1.x §4.4.2):
-/// - Byte 0: Options (reserved; bit 7 = preferred timing)
-/// - Bytes 1–2: Pixel clock in 10 kHz units (little-endian uint16)
-/// - Bytes 3–4: Horizontal Active in pixels (exact, little-endian uint16)
-/// - Bytes 5–6: Horizontal Blank in pixels (exact, little-endian uint16)
-/// - Bytes 7–8: Horizontal Front Porch in pixels (exact, little-endian uint16)
-/// - Bytes 9–10: Horizontal Sync Width in pixels (exact, little-endian uint16)
-/// - Bytes 11–12: Vertical Active in lines (exact, little-endian uint16)
-/// - Bytes 13–14: Vertical Blank in lines (exact, little-endian uint16)
-/// - Bytes 15–16: Vertical Front Porch in lines (exact, little-endian uint16)
-/// - Bytes 17–18: Vertical Sync Width in lines (exact, little-endian uint16)
-/// - Byte 19: Flags: [0]=interlaced, [2:1]=sync type, [3]=HS polarity, [4]=VS polarity
+/// Type I is "superseded by Type VII" (DisplayID 1.x §4.4.2 / 2.x §4.5.7) and shares
+/// Type VII's wire layout exactly except for the pixel-clock unit: Type I uses 10 kHz
+/// steps, Type VII uses 1 kHz. Every multi-byte field stores `value − 1` (the wire
+/// encoding can't represent the all-zero descriptor as a valid mode, so the spec
+/// reserves the all-zero state and shifts everything else down by one).
 ///
-/// Null descriptors (pixel clock = 0) are silently skipped; degenerate total sizes are skipped.
+/// Descriptor layout:
+/// - Bytes 0–2:   Pixel clock in 10 kHz units, 24-bit LE; stored as `value − 1`
+/// - Byte  3:     Options:
+///   - bits 3:0 = aspect ratio code (informational; not decoded here)
+///   - bit  4   = interlaced
+///   - bits 6:5 = stereo (mono / 3D / depends-on-user / reserved; not decoded here)
+///   - bit  7   = preferred (not decoded here)
+/// - Bytes 4–5:   H Active in pixels, LE; stored as `value − 1`
+/// - Bytes 6–7:   H Blank in pixels, LE; stored as `value − 1`
+/// - Bytes 8–9:   H Front Porch, bits 14:0 LE (`value − 1`); bit 15 = HSync polarity
+///   (`1` = positive)
+/// - Bytes 10–11: H Sync Width in pixels, LE; stored as `value − 1`
+/// - Bytes 12–13: V Active in lines, LE; stored as `value − 1`
+/// - Bytes 14–15: V Blank in lines, LE; stored as `value − 1`
+/// - Bytes 16–17: V Front Porch, bits 14:0 LE (`value − 1`); bit 15 = VSync polarity
+///   (`1` = positive)
+/// - Bytes 18–19: V Sync Width in lines, LE; stored as `value − 1`
+///
+/// Null descriptors (pixel clock = 0 raw, i.e. encoded value 1) are silently skipped;
+/// degenerate total sizes (h_active = 0 after the −1 offset, etc.) are skipped.
+/// Stereo, aspect ratio, and preferred are not yet surfaced — see
+/// `doc/displayid-decoder-findings.md`.
 pub(super) fn decode_type_i_descriptor(d: &[u8; 20], sink: &mut dyn ModeSink) {
-    let pixel_clock_10khz = u16::from_le_bytes([d[1], d[2]]);
-    if pixel_clock_10khz == 0 {
-        return; // null descriptor
+    if let Some(mode) = decode_type_1_7_descriptor_body(d, 10) {
+        sink.push_mode(mode);
     }
+}
 
-    let h_active = u16::from_le_bytes([d[3], d[4]]);
-    let h_blank = u16::from_le_bytes([d[5], d[6]]);
-    let h_front_porch = u16::from_le_bytes([d[7], d[8]]);
-    let h_sync_width = u16::from_le_bytes([d[9], d[10]]);
-    let v_active = u16::from_le_bytes([d[11], d[12]]);
-    let v_blank = u16::from_le_bytes([d[13], d[14]]);
-    let v_front_porch = u16::from_le_bytes([d[15], d[16]]);
-    let v_sync_width = u16::from_le_bytes([d[17], d[18]]);
-    let flags = d[19];
+/// Shared body decoder for Type I (10 kHz pixel-clock unit) and Type VII (1 kHz).
+///
+/// `pixel_clock_unit_khz` multiplies the 24-bit raw value (after the `+1` decode) to
+/// produce the final `pixel_clock_khz`. Pass `10` for Type I, `1` for Type VII.
+///
+/// Returns `None` for null descriptors (raw pixel clock = 0, before the +1 decode),
+/// for descriptors with zero active dimensions or zero blanking, or when the reduced
+/// refresh rate doesn't fit in [`RefreshRate`].
+fn decode_type_1_7_descriptor_body(d: &[u8; 20], pixel_clock_unit_khz: u32) -> Option<VideoMode> {
+    let pixel_clock_raw = u32::from(d[0]) | (u32::from(d[1]) << 8) | (u32::from(d[2]) << 16);
+    if pixel_clock_raw == 0 {
+        return None; // null descriptor
+    }
+    let pixel_clock_khz = (pixel_clock_raw + 1) * pixel_clock_unit_khz;
 
-    let h_total = h_active as u64 + h_blank as u64;
-    let v_total = v_active as u64 + v_blank as u64;
+    let options = d[3];
+    let interlaced = (options & 0x10) != 0;
+
+    let h_active = u16::from_le_bytes([d[4], d[5]]).checked_add(1)?;
+    let h_blank = u16::from_le_bytes([d[6], d[7]]).checked_add(1)?;
+    let h_fp_word = u16::from_le_bytes([d[8], d[9]]);
+    let h_front_porch = (h_fp_word & 0x7FFF) + 1;
+    let h_sync_positive = (h_fp_word >> 15) != 0;
+    let h_sync_width = u16::from_le_bytes([d[10], d[11]]).checked_add(1)?;
+
+    let v_active = u16::from_le_bytes([d[12], d[13]]).checked_add(1)?;
+    let v_blank = u16::from_le_bytes([d[14], d[15]]).checked_add(1)?;
+    let v_fp_word = u16::from_le_bytes([d[16], d[17]]);
+    let v_front_porch = (v_fp_word & 0x7FFF) + 1;
+    let v_sync_positive = (v_fp_word >> 15) != 0;
+    let v_sync_width = u16::from_le_bytes([d[18], d[19]]).checked_add(1)?;
+
+    let h_total = u64::from(h_active) + u64::from(h_blank);
+    let v_total = u64::from(v_active) + u64::from(v_blank);
     let total_pixels = h_total * v_total;
     if total_pixels == 0 {
-        return; // degenerate descriptor
+        return None;
     }
 
-    let pixel_clock_hz = pixel_clock_10khz as u64 * 10_000;
-    let Some(refresh_rate) = RefreshRate::from_ratio(pixel_clock_hz, total_pixels) else {
-        return; // ratio doesn't fit in u32 after reduction
-    };
+    let pixel_clock_hz = u64::from(pixel_clock_khz) * 1000;
+    let refresh_rate = RefreshRate::from_ratio(pixel_clock_hz, total_pixels)?;
 
-    let interlaced = (flags & 0x01) != 0;
-    let h_sync_positive = (flags & 0x08) != 0;
-    let v_sync_positive = (flags & 0x10) != 0;
-
-    sink.push_mode(
+    Some(
         VideoMode::new(h_active, v_active, refresh_rate, interlaced).with_detailed_timing(
-            pixel_clock_10khz as u32 * 10,
+            pixel_clock_khz,
             h_front_porch,
             h_sync_width,
             v_front_porch,
@@ -63,7 +93,7 @@ pub(super) fn decode_type_i_descriptor(d: &[u8; 20], sink: &mut dyn ModeSink) {
                 h_sync_positive,
             }),
         ),
-    );
+    )
 }
 
 /// Decodes one 11-byte Type II Video Timing descriptor and pushes a mode to `sink`.
@@ -306,9 +336,17 @@ mod tests {
     use super::*;
     use crate::model::capabilities::{DisplayCapabilities, RefreshRate, SyncDefinition};
 
+    /// Builds a Type I descriptor with human-readable field values; the helper
+    /// applies the wire-format `value − 1` encoding internally so call sites can
+    /// pass true active/blanking dimensions.
+    ///
+    /// `options_byte3` is written verbatim to byte 3 — set bit 4 (`0x10`) for
+    /// interlaced, bits 6:5 for stereo, bit 7 for preferred (rev < 2) or Y420
+    /// (rev ≥ 2). Polarity bits (bit 15 of bytes 8–9 / 16–17) are not currently
+    /// settable through this helper.
     #[allow(clippy::too_many_arguments)]
     fn make_type_i_descriptor(
-        pixel_clock_10khz: u16,
+        pixel_clock_10khz: u32,
         h_active: u16,
         h_blank: u16,
         h_fp: u16,
@@ -317,20 +355,22 @@ mod tests {
         v_blank: u16,
         v_fp: u16,
         v_sw: u16,
-        flags: u8,
+        options_byte3: u8,
     ) -> [u8; 20] {
         let mut d = [0u8; 20];
-        d[0] = 0x00;
-        d[1..3].copy_from_slice(&pixel_clock_10khz.to_le_bytes());
-        d[3..5].copy_from_slice(&h_active.to_le_bytes());
-        d[5..7].copy_from_slice(&h_blank.to_le_bytes());
-        d[7..9].copy_from_slice(&h_fp.to_le_bytes());
-        d[9..11].copy_from_slice(&h_sw.to_le_bytes());
-        d[11..13].copy_from_slice(&v_active.to_le_bytes());
-        d[13..15].copy_from_slice(&v_blank.to_le_bytes());
-        d[15..17].copy_from_slice(&v_fp.to_le_bytes());
-        d[17..19].copy_from_slice(&v_sw.to_le_bytes());
-        d[19] = flags;
+        let raw_pclk = pixel_clock_10khz - 1;
+        d[0] = (raw_pclk & 0xFF) as u8;
+        d[1] = ((raw_pclk >> 8) & 0xFF) as u8;
+        d[2] = ((raw_pclk >> 16) & 0xFF) as u8;
+        d[3] = options_byte3;
+        d[4..6].copy_from_slice(&(h_active - 1).to_le_bytes());
+        d[6..8].copy_from_slice(&(h_blank - 1).to_le_bytes());
+        d[8..10].copy_from_slice(&(h_fp - 1).to_le_bytes());
+        d[10..12].copy_from_slice(&(h_sw - 1).to_le_bytes());
+        d[12..14].copy_from_slice(&(v_active - 1).to_le_bytes());
+        d[14..16].copy_from_slice(&(v_blank - 1).to_le_bytes());
+        d[16..18].copy_from_slice(&(v_fp - 1).to_le_bytes());
+        d[18..20].copy_from_slice(&(v_sw - 1).to_le_bytes());
         d
     }
 
@@ -389,12 +429,49 @@ mod tests {
 
     #[test]
     fn test_type_i_interlaced_flag_decoded() {
-        // flags byte 19 bit 0 = interlaced
-        let d = make_type_i_descriptor(14850, 1920, 280, 88, 44, 1080, 45, 4, 5, 0x01);
+        // byte 3 bit 4 = interlaced
+        let d = make_type_i_descriptor(14850, 1920, 280, 88, 44, 1080, 45, 4, 5, 0x10);
         let mut caps = DisplayCapabilities::default();
         decode_type_i_descriptor(&d, &mut caps);
         assert_eq!(caps.supported_modes.len(), 1);
         assert!(caps.supported_modes[0].interlaced);
+    }
+
+    #[test]
+    fn test_type_i_sync_polarity_decoded_from_fp_high_bit() {
+        // Build a 1080p60 descriptor and set HSP/VSP polarity bits (bit 15 of bytes
+        // 8–9 / 16–17, the H/V Front Porch fields).
+        let mut d = make_type_i_descriptor(14850, 1920, 280, 88, 44, 1080, 45, 4, 5, 0x00);
+        d[9] |= 0x80; // HSP = positive (H FP word bit 15)
+        d[17] |= 0x80; // VSP = positive (V FP word bit 15)
+        let mut caps = DisplayCapabilities::default();
+        decode_type_i_descriptor(&d, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(
+            caps.supported_modes[0].sync,
+            Some(SyncDefinition::DigitalSeparate {
+                h_sync_positive: true,
+                v_sync_positive: true,
+            })
+        );
+        // Front porch decode must mask bit 15 — the polarity bit must not bleed in.
+        assert_eq!(caps.supported_modes[0].h_front_porch, 88);
+        assert_eq!(caps.supported_modes[0].v_front_porch, 4);
+    }
+
+    #[test]
+    fn test_type_i_negative_polarities_default() {
+        // Polarity bits clear → both negative.
+        let d = make_type_i_descriptor(14850, 1920, 280, 88, 44, 1080, 45, 4, 5, 0x00);
+        let mut caps = DisplayCapabilities::default();
+        decode_type_i_descriptor(&d, &mut caps);
+        assert_eq!(
+            caps.supported_modes[0].sync,
+            Some(SyncDefinition::DigitalSeparate {
+                h_sync_positive: false,
+                v_sync_positive: false,
+            })
+        );
     }
 
     // -----------------------------------------------------------------------

@@ -380,7 +380,7 @@ mod tests {
 
     #[allow(clippy::too_many_arguments)] // mirrors the wire-format field list
     fn make_type_i_descriptor(
-        pixel_clock_10khz: u16,
+        pixel_clock_10khz: u32,
         h_active: u16,
         h_blank: u16,
         h_fp: u16,
@@ -389,20 +389,22 @@ mod tests {
         v_blank: u16,
         v_fp: u16,
         v_sw: u16,
-        flags: u8,
+        options_byte3: u8,
     ) -> [u8; 20] {
         let mut d = [0u8; 20];
-        d[0] = 0x00;
-        d[1..3].copy_from_slice(&pixel_clock_10khz.to_le_bytes());
-        d[3..5].copy_from_slice(&h_active.to_le_bytes());
-        d[5..7].copy_from_slice(&h_blank.to_le_bytes());
-        d[7..9].copy_from_slice(&h_fp.to_le_bytes());
-        d[9..11].copy_from_slice(&h_sw.to_le_bytes());
-        d[11..13].copy_from_slice(&v_active.to_le_bytes());
-        d[13..15].copy_from_slice(&v_blank.to_le_bytes());
-        d[15..17].copy_from_slice(&v_fp.to_le_bytes());
-        d[17..19].copy_from_slice(&v_sw.to_le_bytes());
-        d[19] = flags;
+        let raw_pclk = pixel_clock_10khz - 1;
+        d[0] = (raw_pclk & 0xFF) as u8;
+        d[1] = ((raw_pclk >> 8) & 0xFF) as u8;
+        d[2] = ((raw_pclk >> 16) & 0xFF) as u8;
+        d[3] = options_byte3;
+        d[4..6].copy_from_slice(&(h_active - 1).to_le_bytes());
+        d[6..8].copy_from_slice(&(h_blank - 1).to_le_bytes());
+        d[8..10].copy_from_slice(&(h_fp - 1).to_le_bytes());
+        d[10..12].copy_from_slice(&(h_sw - 1).to_le_bytes());
+        d[12..14].copy_from_slice(&(v_active - 1).to_le_bytes());
+        d[14..16].copy_from_slice(&(v_blank - 1).to_le_bytes());
+        d[16..18].copy_from_slice(&(v_fp - 1).to_le_bytes());
+        d[18..20].copy_from_slice(&(v_sw - 1).to_le_bytes());
         d
     }
 
