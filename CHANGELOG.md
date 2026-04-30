@@ -92,6 +92,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `StereoTimingScopeV2`, `StereoViewingMethodV2`, `StereoEye`, `DualInterfaceMirroring`,
   and the `tag::V2_*` constants); `VideoMode` gains `cvt_algorithm` and `y420` fields.
 
+### Fixed
+
+- **DisplayID Type I (`0x03`) descriptor decoder was structurally wrong** — every
+  field was misread. The wire layout (per VESA DisplayID 1.x §4.4.2 and the
+  `edid-decode` `parse_displayid_type_1_7_timing` reference) is: bytes 0–2 carry a
+  24-bit pixel clock in 10 kHz units stored as `value − 1`; byte 3 carries options
+  (interlaced bit 4, aspect/stereo/preferred elsewhere); bytes 4–19 carry H/V
+  active/blank/front-porch/sync-width fields all stored as `value − 1`, with sync
+  polarity in bit 15 of the H/V Front Porch words. The previous decoder treated
+  byte 0 as options, bytes 1–2 as a 16-bit pixel clock, all subsequent fields
+  shifted by one byte, and byte 19 as a flags field — none of which matches the
+  spec. Type I has been rewritten to delegate to a shared
+  `decode_type_1_7_descriptor_body(d, pixel_clock_unit_khz)` helper that Type VII
+  also uses.
+- **DisplayID Type V (`0x11`), Type VII (`0x22`), Type IX (`0x24`) off-by-one** —
+  every multi-byte timing field (pixel clock, H/V active, H/V blank, H/V front
+  porch, H/V sync width) is encoded as `value − 1` on the wire (the all-zero
+  descriptor is reserved as "null"). The previous decoders read `value` raw,
+  producing widths/heights one short and pixel clocks one short. Type VII now
+  delegates to the shared `decode_type_1_7_descriptor_body(d, 1)` helper; Type V
+  and Type IX `h_active`/`v_active` read via `checked_add(1)?` so raw `0xFFFF` is
+  silently skipped instead of overflowing.
+
+  No fixture EDIDs in `testdata/` carry DisplayID extension blocks, so the prior
+  bug was masked by self-consistent synthetic tests; real-world EDIDs with Type
+  I/V/VII/IX descriptors would have produced wrong `width`/`height`/`pixel_clock_khz`.
+
+  Test helpers (`make_type_i_descriptor`, `make_type_v_descriptor`,
+  `make_type_vii_descriptor`, `make_type_ix_descriptor`) now accept human-readable
+  values and apply `value − 1` internally, so test assertions stay readable.
+  "Zero width/height skipped" tests were repurposed as "raw 0xFFFF overflow
+  skipped" since the wire format cannot represent value 0.
+
+  See `doc/displayid-decoder-findings.md` for the full cross-check against the
+  `edid-decode` reference implementation; remaining items (Type IX `CvtAlgorithm`
+  enum miscoding, Type IX bit 4 `y420` mislabel, Type IX/V stereo bits, Type VII
+  Y420 flag) are tracked there.
+
 ### Internal
 
 - Fixed coverage ratchet CI: added `LC_NUMERIC=C` to the baseline `printf` to prevent

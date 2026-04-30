@@ -347,11 +347,12 @@ mod tests {
 
     #[test]
     fn test_type_v_static_pipeline() {
-        // 1920×1080@60 Hz: h=1920 (LE), v=1080 (LE), refresh_raw=59→60 Hz
+        // 1920×1080@60 Hz. H/V active fields use the wire encoding `value − 1`:
+        // 1920 → raw 1919, 1080 → raw 1079. refresh_raw = 59 → decoded 60 Hz.
         let mut payload = vec![TAG_TYPE_V_TIMING, 0x00, 7];
         payload.extend_from_slice(&[0x00]); // options
-        payload.extend_from_slice(&1920u16.to_le_bytes()); // h_active
-        payload.extend_from_slice(&1080u16.to_le_bytes()); // v_active
+        payload.extend_from_slice(&(1920u16 - 1).to_le_bytes()); // h_active raw
+        payload.extend_from_slice(&(1080u16 - 1).to_le_bytes()); // v_active raw
         payload.push(59); // refresh_raw
         payload.push(0x00); // reserved
         let mut caps = StaticDisplayCapabilities::<16>::default();
@@ -366,20 +367,21 @@ mod tests {
 
     fn make_type_vii_descriptor_1080p60() -> [u8; 20] {
         // 1920×1080@60: pc=148_500 kHz, h_total=2200, v_total=1125 → exact 60 Hz.
+        // Type VII wire encoding stores every multi-byte field as `value − 1`.
         let mut d = [0u8; 20];
-        let pc: u32 = 148_500;
-        d[0] = (pc & 0xFF) as u8;
-        d[1] = ((pc >> 8) & 0xFF) as u8;
-        d[2] = ((pc >> 16) & 0xFF) as u8;
+        let raw_pc: u32 = 148_500 - 1;
+        d[0] = (raw_pc & 0xFF) as u8;
+        d[1] = ((raw_pc >> 8) & 0xFF) as u8;
+        d[2] = ((raw_pc >> 16) & 0xFF) as u8;
         d[3] = 0x00;
-        d[4..6].copy_from_slice(&1920u16.to_le_bytes());
-        d[6..8].copy_from_slice(&280u16.to_le_bytes());
-        d[8..10].copy_from_slice(&88u16.to_le_bytes());
-        d[10..12].copy_from_slice(&44u16.to_le_bytes());
-        d[12..14].copy_from_slice(&1080u16.to_le_bytes());
-        d[14..16].copy_from_slice(&45u16.to_le_bytes());
-        d[16..18].copy_from_slice(&4u16.to_le_bytes());
-        d[18..20].copy_from_slice(&5u16.to_le_bytes());
+        d[4..6].copy_from_slice(&(1920u16 - 1).to_le_bytes());
+        d[6..8].copy_from_slice(&(280u16 - 1).to_le_bytes());
+        d[8..10].copy_from_slice(&(88u16 - 1).to_le_bytes());
+        d[10..12].copy_from_slice(&(44u16 - 1).to_le_bytes());
+        d[12..14].copy_from_slice(&(1080u16 - 1).to_le_bytes());
+        d[14..16].copy_from_slice(&(45u16 - 1).to_le_bytes());
+        d[16..18].copy_from_slice(&(4u16 - 1).to_le_bytes());
+        d[18..20].copy_from_slice(&(5u16 - 1).to_le_bytes());
         d
     }
 
@@ -401,15 +403,16 @@ mod tests {
     fn test_type_vii_v2_block_with_two_descriptors() {
         let desc_1080p60 = make_type_vii_descriptor_1080p60();
         // Second descriptor: 1280×720@60, pc=74_250 kHz, h_total=1650, v_total=750.
+        // All multi-byte fields stored as `value − 1`.
         let mut desc_720p60 = [0u8; 20];
-        let pc: u32 = 74_250;
-        desc_720p60[0] = (pc & 0xFF) as u8;
-        desc_720p60[1] = ((pc >> 8) & 0xFF) as u8;
-        desc_720p60[2] = ((pc >> 16) & 0xFF) as u8;
-        desc_720p60[4..6].copy_from_slice(&1280u16.to_le_bytes());
-        desc_720p60[6..8].copy_from_slice(&370u16.to_le_bytes());
-        desc_720p60[12..14].copy_from_slice(&720u16.to_le_bytes());
-        desc_720p60[14..16].copy_from_slice(&30u16.to_le_bytes());
+        let raw_pc: u32 = 74_250 - 1;
+        desc_720p60[0] = (raw_pc & 0xFF) as u8;
+        desc_720p60[1] = ((raw_pc >> 8) & 0xFF) as u8;
+        desc_720p60[2] = ((raw_pc >> 16) & 0xFF) as u8;
+        desc_720p60[4..6].copy_from_slice(&(1280u16 - 1).to_le_bytes());
+        desc_720p60[6..8].copy_from_slice(&(370u16 - 1).to_le_bytes());
+        desc_720p60[12..14].copy_from_slice(&(720u16 - 1).to_le_bytes());
+        desc_720p60[14..16].copy_from_slice(&(30u16 - 1).to_le_bytes());
         let mut payload = vec![TAG_V2_TYPE_VII_TIMING, 0x00, 40];
         payload.extend_from_slice(&desc_1080p60);
         payload.extend_from_slice(&desc_720p60);
@@ -496,8 +499,9 @@ mod tests {
         // 1920×1080@60: refresh_raw = 59 → 60 Hz.
         let mut payload = vec![TAG_V2_TYPE_IX_TIMING, 0x00, 6];
         let mut d = [0u8; 6];
-        d[1..3].copy_from_slice(&1920u16.to_le_bytes());
-        d[3..5].copy_from_slice(&1080u16.to_le_bytes());
+        // Type IX wire encoding stores h_active and v_active as `value − 1`.
+        d[1..3].copy_from_slice(&(1920u16 - 1).to_le_bytes());
+        d[3..5].copy_from_slice(&(1080u16 - 1).to_le_bytes());
         d[5] = 59;
         payload.extend_from_slice(&d);
         let mut caps = DisplayCapabilities::default();
@@ -513,8 +517,9 @@ mod tests {
     fn test_type_ix_not_decoded_on_v1_section() {
         let mut payload = vec![TAG_V2_TYPE_IX_TIMING, 0x00, 6];
         let mut d = [0u8; 6];
-        d[1..3].copy_from_slice(&1920u16.to_le_bytes());
-        d[3..5].copy_from_slice(&1080u16.to_le_bytes());
+        // Type IX wire encoding stores h_active and v_active as `value − 1`.
+        d[1..3].copy_from_slice(&(1920u16 - 1).to_le_bytes());
+        d[3..5].copy_from_slice(&(1080u16 - 1).to_le_bytes());
         d[5] = 59;
         payload.extend_from_slice(&d);
         let mut caps = DisplayCapabilities::default();
@@ -526,8 +531,9 @@ mod tests {
     fn test_type_ix_v2_static_pipeline() {
         let mut payload = vec![TAG_V2_TYPE_IX_TIMING, 0x00, 6];
         let mut d = [0u8; 6];
-        d[1..3].copy_from_slice(&1920u16.to_le_bytes());
-        d[3..5].copy_from_slice(&1080u16.to_le_bytes());
+        // Type IX wire encoding stores h_active and v_active as `value − 1`.
+        d[1..3].copy_from_slice(&(1920u16 - 1).to_le_bytes());
+        d[3..5].copy_from_slice(&(1080u16 - 1).to_le_bytes());
         d[5] = 59;
         payload.extend_from_slice(&d);
         let mut caps = StaticDisplayCapabilities::<16>::default();

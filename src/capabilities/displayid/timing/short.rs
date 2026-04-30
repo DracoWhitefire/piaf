@@ -49,22 +49,28 @@ pub(super) fn decode_type_iii_descriptor(d: &[u8; 3], sink: &mut dyn ModeSink) {
 /// Decodes one 7-byte Type V Short Video Timing descriptor and pushes a mode to `sink`.
 ///
 /// Descriptor layout (DisplayID 1.x §4.6):
-/// - Byte 0:    Options: bits 1:0 = CVT algorithm (0=CVT-RB2, 1=CVT-RB); bit 4 = NTSC;
-///   bits 6:5 = stereo; bit 7 = preferred
-/// - Bytes 1–2: Horizontal active in pixels (exact, little-endian uint16)
-/// - Bytes 3–4: Vertical active in lines (exact, little-endian uint16)
+/// - Byte 0:    Options:
+///   - bits 2:0 = CVT algorithm (0 = CVT, 1 = CVT-RB, 2 = CVT-R2)
+///   - bit  4   = NTSC × (1000/1001) refresh supported
+///   - bits 6:5 = stereo (0 = mono, 1 = 3D, 2 = mono-or-3D-by-user, 3 = reserved)
+///   - bit  7   = preferred
+/// - Bytes 1–2: Horizontal active in pixels (LE; stored as `value − 1`)
+/// - Bytes 3–4: Vertical active in lines (LE; stored as `value − 1`)
 /// - Byte 5:    Vertical refresh rate — `byte + 1` Hz (range 1–256 Hz)
 /// - Byte 6:    Reserved
 ///
-/// Descriptors with zero width or height are silently skipped.
+/// Byte 0 fields beyond bit 4 (CVT algorithm, stereo, preferred) and the bit 4 NTSC
+/// flag are not yet surfaced — see `doc/displayid-decoder-findings.md`. Descriptors
+/// with raw `h_active = 0xFFFF` or `v_active = 0xFFFF` (which would overflow on `+1`)
+/// are silently skipped.
 pub(super) fn decode_type_v_descriptor(d: &[u8; 7], sink: &mut dyn ModeSink) {
-    let h_active = u16::from_le_bytes([d[1], d[2]]);
-    let v_active = u16::from_le_bytes([d[3], d[4]]);
-    let refresh_rate = (d[5] as u16) + 1;
-
-    if h_active == 0 || v_active == 0 {
+    let Some(h_active) = u16::from_le_bytes([d[1], d[2]]).checked_add(1) else {
         return;
-    }
+    };
+    let Some(v_active) = u16::from_le_bytes([d[3], d[4]]).checked_add(1) else {
+        return;
+    };
+    let refresh_rate = (d[5] as u16) + 1;
 
     sink.push_mode(VideoMode::new(h_active, v_active, refresh_rate, false)); // Type V: progressive only
 }
@@ -93,15 +99,16 @@ pub(super) fn decode_type_v_descriptor(d: &[u8; 7], sink: &mut dyn ModeSink) {
 /// the named formula themselves. The stereo bits (byte 0 bits 6:5) are not yet
 /// decoded — see `doc/roadmap.md`.
 ///
-/// Descriptors with zero width or height are silently skipped.
+/// Descriptors with raw `h_active = 0xFFFF` or `v_active = 0xFFFF` (which would
+/// overflow on `+1`) are silently skipped.
 pub(super) fn decode_type_ix_descriptor(d: &[u8; 6], sink: &mut dyn ModeSink) {
-    let h_active = u16::from_le_bytes([d[1], d[2]]);
-    let v_active = u16::from_le_bytes([d[3], d[4]]);
-    let refresh_rate = (d[5] as u16) + 1;
-
-    if h_active == 0 || v_active == 0 {
+    let Some(h_active) = u16::from_le_bytes([d[1], d[2]]).checked_add(1) else {
         return;
-    }
+    };
+    let Some(v_active) = u16::from_le_bytes([d[3], d[4]]).checked_add(1) else {
+        return;
+    };
+    let refresh_rate = (d[5] as u16) + 1;
 
     let cvt_algorithm = CvtAlgorithm::from_bits(d[0]);
     let y420 = (d[0] >> 4) & 1 != 0;
@@ -238,10 +245,13 @@ mod tests {
     // Type V Short Descriptor Video Timing (tag 0x11)
     // -----------------------------------------------------------------------
 
+    /// `h_active` and `v_active` take human-readable values; the helper applies
+    /// the wire-format `value − 1` encoding internally. `refresh_raw` is passed
+    /// through verbatim (the decoder applies `+1` itself).
     fn make_type_v_descriptor(h_active: u16, v_active: u16, refresh_raw: u8) -> [u8; 7] {
         let mut d = [0u8; 7];
-        d[1..3].copy_from_slice(&h_active.to_le_bytes());
-        d[3..5].copy_from_slice(&v_active.to_le_bytes());
+        d[1..3].copy_from_slice(&(h_active - 1).to_le_bytes());
+        d[3..5].copy_from_slice(&(v_active - 1).to_le_bytes());
         d[5] = refresh_raw;
         d
     }
@@ -274,19 +284,43 @@ mod tests {
     }
 
     #[test]
-    fn test_type_v_zero_width_skipped() {
-        let d = make_type_v_descriptor(0, 1080, 59);
+    fn test_type_v_h_active_overflow_skipped() {
+        // Raw `0xFFFF` would decode to 0x10000 (overflow on +1) — must be skipped.
+        let mut d = [0u8; 7];
+        d[1] = 0xFF;
+        d[2] = 0xFF;
+        d[3..5].copy_from_slice(&(1080u16 - 1).to_le_bytes());
+        d[5] = 59;
         let mut caps = DisplayCapabilities::default();
         decode_type_v_descriptor(&d, &mut caps);
         assert!(caps.supported_modes.is_empty());
     }
 
     #[test]
-    fn test_type_v_zero_height_skipped() {
-        let d = make_type_v_descriptor(1920, 0, 59);
+    fn test_type_v_v_active_overflow_skipped() {
+        let mut d = [0u8; 7];
+        d[1..3].copy_from_slice(&(1920u16 - 1).to_le_bytes());
+        d[3] = 0xFF;
+        d[4] = 0xFF;
+        d[5] = 59;
         let mut caps = DisplayCapabilities::default();
         decode_type_v_descriptor(&d, &mut caps);
         assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_type_v_minimum_active_dimensions() {
+        // Wire raw 0 → decoded 1×1. Smallest representable, not skipped.
+        let d = [0u8, 0, 0, 0, 0, 0, 0];
+        let mut caps = DisplayCapabilities::default();
+        decode_type_v_descriptor(&d, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 1);
+        assert_eq!(caps.supported_modes[0].height, 1);
+        assert_eq!(
+            caps.supported_modes[0].refresh_rate,
+            Some(RefreshRate::integral(1))
+        );
     }
 
     #[test]
@@ -308,10 +342,13 @@ mod tests {
     // Type IX Formula-Based Timing (DisplayID 2.x tag 0x24)
     // -----------------------------------------------------------------------
 
+    /// `h_active` and `v_active` take human-readable values; the helper applies
+    /// the wire-format `value − 1` encoding internally. `refresh_raw` is passed
+    /// through verbatim (the decoder applies `+1` itself).
     fn make_type_ix_descriptor(h_active: u16, v_active: u16, refresh_raw: u8) -> [u8; 6] {
         let mut d = [0u8; 6];
-        d[1..3].copy_from_slice(&h_active.to_le_bytes());
-        d[3..5].copy_from_slice(&v_active.to_le_bytes());
+        d[1..3].copy_from_slice(&(h_active - 1).to_le_bytes());
+        d[3..5].copy_from_slice(&(v_active - 1).to_le_bytes());
         d[5] = refresh_raw;
         d
     }
@@ -391,16 +428,25 @@ mod tests {
     }
 
     #[test]
-    fn test_type_ix_zero_width_skipped() {
-        let d = make_type_ix_descriptor(0, 1080, 59);
+    fn test_type_ix_h_active_overflow_skipped() {
+        // Raw `0xFFFF` would decode to 0x10000 (overflow on +1) — must be skipped.
+        let mut d = [0u8; 6];
+        d[1] = 0xFF;
+        d[2] = 0xFF;
+        d[3..5].copy_from_slice(&(1080u16 - 1).to_le_bytes());
+        d[5] = 59;
         let mut caps = DisplayCapabilities::default();
         decode_type_ix_descriptor(&d, &mut caps);
         assert!(caps.supported_modes.is_empty());
     }
 
     #[test]
-    fn test_type_ix_zero_height_skipped() {
-        let d = make_type_ix_descriptor(1920, 0, 59);
+    fn test_type_ix_v_active_overflow_skipped() {
+        let mut d = [0u8; 6];
+        d[1..3].copy_from_slice(&(1920u16 - 1).to_le_bytes());
+        d[3] = 0xFF;
+        d[4] = 0xFF;
+        d[5] = 59;
         let mut caps = DisplayCapabilities::default();
         decode_type_ix_descriptor(&d, &mut caps);
         assert!(caps.supported_modes.is_empty());

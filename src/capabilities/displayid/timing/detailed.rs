@@ -176,67 +176,16 @@ pub(super) fn decode_type_ii_descriptor(d: &[u8; 11], sink: &mut dyn ModeSink) {
 /// (`Block_Rev` / `T7Y420` / `T7HSP` / `T7VSP`) is **not** included; callers operating on
 /// a CTA T7VTDB must pass `&block_data[2..22]`.
 ///
-/// Descriptor layout (DisplayID 2.x §4.5.7, "Video Timing Mode Type 7"):
-/// - Bytes 0–2:   Pixel clock in kHz (24-bit little-endian)
-/// - Byte  3:     `3D_Support[7:6] | reserved[5] | T7IL[4] | T7_Aspect_Ratio[3:0]`
-/// - Bytes 4–5:   H Active in pixels (16-bit LE)
-/// - Bytes 6–7:   H Blank  in pixels (16-bit LE)
-/// - Bytes 8–9:   H Front Porch, bits 14:0 (16-bit LE); bit 15 = HSync polarity (1 = positive)
-/// - Bytes 10–11: H Sync Width in pixels (16-bit LE)
-/// - Bytes 12–13: V Active in lines  (16-bit LE)
-/// - Bytes 14–15: V Blank  in lines  (16-bit LE)
-/// - Bytes 16–17: V Front Porch, bits 14:0 (16-bit LE); bit 15 = VSync polarity (1 = positive)
-/// - Bytes 18–19: V Sync Width in lines (16-bit LE)
+/// Type VII shares its byte layout with Type I (DisplayID 1.x `0x03`); the only
+/// difference is the pixel-clock unit (Type VII = 1 kHz, Type I = 10 kHz). Decoding
+/// is delegated to [`decode_type_1_7_descriptor_body`]. See that function's
+/// documentation for the wire-format details (every multi-byte field is `value − 1`,
+/// polarity bits live in bit 15 of the H/V Front Porch words).
 ///
-/// Returns `None` for null descriptors (pixel clock = 0), zero-sized active/blank fields,
-/// or geometry whose reduced refresh rate doesn't fit in [`RefreshRate`].
+/// Returns `None` for null descriptors (raw pixel clock = 0), zero-sized active/blank
+/// fields, or geometry whose reduced refresh rate doesn't fit in [`RefreshRate`].
 pub(crate) fn decode_type_vii_descriptor_to_mode(d: &[u8; 20]) -> Option<VideoMode> {
-    let pixel_clock_khz = (d[0] as u32) | ((d[1] as u32) << 8) | ((d[2] as u32) << 16);
-    if pixel_clock_khz == 0 {
-        return None;
-    }
-
-    let interlaced = (d[3] >> 4) & 1 != 0;
-
-    let h_active = u16::from_le_bytes([d[4], d[5]]);
-    let h_blank = u16::from_le_bytes([d[6], d[7]]);
-    let h_fp_word = u16::from_le_bytes([d[8], d[9]]);
-    let h_front_porch = h_fp_word & 0x7FFF;
-    let h_sync_positive = (h_fp_word >> 15) != 0;
-    let h_sync_width = u16::from_le_bytes([d[10], d[11]]);
-
-    let v_active = u16::from_le_bytes([d[12], d[13]]);
-    let v_blank = u16::from_le_bytes([d[14], d[15]]);
-    let v_fp_word = u16::from_le_bytes([d[16], d[17]]);
-    let v_front_porch = v_fp_word & 0x7FFF;
-    let v_sync_positive = (v_fp_word >> 15) != 0;
-    let v_sync_width = u16::from_le_bytes([d[18], d[19]]);
-
-    if h_active == 0 || v_active == 0 || h_blank == 0 || v_blank == 0 {
-        return None;
-    }
-
-    let h_total = h_active as u64 + h_blank as u64;
-    let v_total = v_active as u64 + v_blank as u64;
-    let pixel_clock_hz = pixel_clock_khz as u64 * 1000;
-    let refresh_rate = RefreshRate::from_ratio(pixel_clock_hz, h_total * v_total)?;
-
-    Some(
-        VideoMode::new(h_active, v_active, refresh_rate, interlaced).with_detailed_timing(
-            pixel_clock_khz,
-            h_front_porch,
-            h_sync_width,
-            v_front_porch,
-            v_sync_width,
-            0,
-            0,
-            StereoMode::None,
-            Some(SyncDefinition::DigitalSeparate {
-                v_sync_positive,
-                h_sync_positive,
-            }),
-        ),
-    )
+    decode_type_1_7_descriptor_body(d, 1)
 }
 
 /// Decodes one Type VII descriptor and pushes the resulting mode to `sink`.
@@ -668,7 +617,9 @@ mod tests {
     // Type VII Detailed Timing (DisplayID 2.x tag 0x22)
     // -----------------------------------------------------------------------
 
-    /// Build a 20-byte Type VII descriptor body (no CTA wrapper bytes).
+    /// Build a 20-byte Type VII descriptor body (no CTA wrapper bytes). Field
+    /// arguments take human-readable values; the helper applies the wire-format
+    /// `value − 1` encoding internally.
     #[allow(clippy::too_many_arguments)]
     fn make_type_vii_descriptor(
         pixel_clock_khz: u32,
@@ -685,20 +636,21 @@ mod tests {
         interlaced: bool,
     ) -> [u8; 20] {
         let mut d = [0u8; 20];
-        d[0] = (pixel_clock_khz & 0xFF) as u8;
-        d[1] = ((pixel_clock_khz >> 8) & 0xFF) as u8;
-        d[2] = ((pixel_clock_khz >> 16) & 0xFF) as u8;
+        let raw_pclk = pixel_clock_khz - 1;
+        d[0] = (raw_pclk & 0xFF) as u8;
+        d[1] = ((raw_pclk >> 8) & 0xFF) as u8;
+        d[2] = ((raw_pclk >> 16) & 0xFF) as u8;
         d[3] = (interlaced as u8) << 4;
-        d[4..6].copy_from_slice(&h_active.to_le_bytes());
-        d[6..8].copy_from_slice(&h_blank.to_le_bytes());
-        let h_fp_word = (h_fp & 0x7FFF) | ((h_sync_positive as u16) << 15);
+        d[4..6].copy_from_slice(&(h_active - 1).to_le_bytes());
+        d[6..8].copy_from_slice(&(h_blank - 1).to_le_bytes());
+        let h_fp_word = ((h_fp - 1) & 0x7FFF) | ((h_sync_positive as u16) << 15);
         d[8..10].copy_from_slice(&h_fp_word.to_le_bytes());
-        d[10..12].copy_from_slice(&h_sw.to_le_bytes());
-        d[12..14].copy_from_slice(&v_active.to_le_bytes());
-        d[14..16].copy_from_slice(&v_blank.to_le_bytes());
-        let v_fp_word = (v_fp & 0x7FFF) | ((v_sync_positive as u16) << 15);
+        d[10..12].copy_from_slice(&(h_sw - 1).to_le_bytes());
+        d[12..14].copy_from_slice(&(v_active - 1).to_le_bytes());
+        d[14..16].copy_from_slice(&(v_blank - 1).to_le_bytes());
+        let v_fp_word = ((v_fp - 1) & 0x7FFF) | ((v_sync_positive as u16) << 15);
         d[16..18].copy_from_slice(&v_fp_word.to_le_bytes());
-        d[18..20].copy_from_slice(&v_sw.to_le_bytes());
+        d[18..20].copy_from_slice(&(v_sw - 1).to_le_bytes());
         d
     }
 
@@ -734,8 +686,9 @@ mod tests {
         // The kHz-precision pixel clock can't represent 60_000/1001 exactly, but the
         // decoder must preserve whatever rational ratio falls out of the inputs.
         // Synthesize an exact case: pc = 120_120 kHz, h_total = 1001, v_total = 2
-        // → 120_120_000 / 2002 = 60_000 Hz exact.
-        let d = make_type_vii_descriptor(120_120, 1000, 1, 0, false, 0, 1, 1, 0, false, 0, false);
+        // → 120_120_000 / 2002 = 60_000 Hz exact. Porch/sync values are irrelevant
+        // to the refresh derivation; pass `1` (the minimum representable on the wire).
+        let d = make_type_vii_descriptor(120_120, 1000, 1, 1, false, 1, 1, 1, 1, false, 1, false);
         let mut caps = DisplayCapabilities::default();
         decode_type_vii_descriptor(&d, &mut caps);
         assert_eq!(caps.supported_modes.len(), 1);
@@ -781,10 +734,15 @@ mod tests {
     }
 
     #[test]
-    fn test_type_vii_zero_active_skipped() {
-        // Pixel clock non-zero but h_active = 0 → degenerate, skipped.
-        let d =
-            make_type_vii_descriptor(148_500, 0, 280, 88, true, 44, 1080, 45, 4, true, 5, false);
+    fn test_type_vii_h_active_overflow_skipped() {
+        // Pixel clock non-zero but raw h_active = 0xFFFF would decode to 0x10000
+        // (overflow on +1) → descriptor must be skipped. (The wire encoding cannot
+        // represent value 0; the previous "zero active" semantics no longer apply.)
+        let mut d = make_type_vii_descriptor(
+            148_500, 1920, 280, 88, true, 44, 1080, 45, 4, true, 5, false,
+        );
+        d[4] = 0xFF;
+        d[5] = 0xFF;
         let mut caps = DisplayCapabilities::default();
         decode_type_vii_descriptor(&d, &mut caps);
         assert!(caps.supported_modes.is_empty());

@@ -1502,23 +1502,24 @@ mod tests {
         let mut d = [0u8; 22];
         d[0] = 0x02; // Block_Rev = 010b
         d[1] = 0x00; // T7Y420=0, T7HSP=0, T7VSP=0
-        // Pixel clock: 148500 kHz
-        d[2] = 0x14;
+        // All multi-byte timing fields use the wire encoding `value − 1`.
+        // Pixel clock 148500 kHz → raw 148499 = 0x024413 → LE [0x13, 0x44, 0x02].
+        d[2] = 0x13;
         d[3] = 0x44;
         d[4] = 0x02;
         d[5] = 0x00; // 3D_Support=00, T7IL=0, T7_Aspect_Ratio=0
-        // H Active: 1920
-        d[6] = 0x80;
+        // H Active 1920 → raw 1919 = 0x077F → LE [0x7F, 0x07].
+        d[6] = 0x7F;
         d[7] = 0x07;
-        // H Blank: 280
-        d[8] = 0x18;
+        // H Blank 280 → raw 279 = 0x0117 → LE [0x17, 0x01].
+        d[8] = 0x17;
         d[9] = 0x01;
-        // H Offset + H Sync: zeros (don't affect VideoMode)
-        // V Active: 1080
-        d[14] = 0x38;
+        // H Offset + H Sync: leave as raw 0 (decoded = 1; doesn't affect refresh).
+        // V Active 1080 → raw 1079 = 0x0437 → LE [0x37, 0x04].
+        d[14] = 0x37;
         d[15] = 0x04;
-        // V Blank: 45
-        d[16] = 0x2D;
+        // V Blank 45 → raw 44 = 0x002C → LE [0x2C, 0x00].
+        d[16] = 0x2C;
         d[17] = 0x00;
         d
     }
@@ -1567,35 +1568,38 @@ mod tests {
     }
 
     #[test]
-    fn test_t7vtdb_zero_hactive_returns_none() {
+    fn test_t7vtdb_h_active_overflow_returns_none() {
+        // Raw 0xFFFF on H active overflows the +1 decode → descriptor must be skipped.
+        // (The wire encoding cannot represent value 0; the previous "zero hactive"
+        // semantics no longer apply.)
         let mut d = t7_1080p60();
-        d[6] = 0;
-        d[7] = 0;
+        d[6] = 0xFF;
+        d[7] = 0xFF;
         assert!(parse_t7vtdb(&d).is_none());
     }
 
     #[test]
     fn test_t7vtdb_720p60() {
-        // 1280x720@60Hz: pixel_clock = 74250 kHz, H blank = 370, V blank = 30
-        // h_total = 1650, v_total = 750
-        // refresh = 74250000 / (1650 * 750) = 74250000 / 1237500 = 60 Hz
-        // 74250 = 0x1220A → LE [0x0A, 0x22, 0x01]
-        // 1280 = 0x0500 → [0x00, 0x05]
-        // 370  = 0x0172 → [0x72, 0x01]
-        // 720  = 0x02D0 → [0xD0, 0x02]
-        // 30   = 0x001E → [0x1E, 0x00]
+        // 1280×720@60: pixel_clock = 74250 kHz, H blank = 370, V blank = 30,
+        // h_total = 1650, v_total = 750 → 74250000 / 1237500 = 60 Hz.
+        // All multi-byte fields use the `value − 1` wire encoding.
+        // pclk 74250 → raw 74249 = 0x012209 → LE [0x09, 0x22, 0x01].
+        // h_active 1280 → raw 1279 = 0x04FF → LE [0xFF, 0x04].
+        // h_blank  370  → raw 369  = 0x0171 → LE [0x71, 0x01].
+        // v_active 720  → raw 719  = 0x02CF → LE [0xCF, 0x02].
+        // v_blank  30   → raw 29   = 0x001D → LE [0x1D, 0x00].
         let mut d = [0u8; 22];
         d[0] = 0x02;
-        d[2] = 0x0A;
+        d[2] = 0x09;
         d[3] = 0x22;
         d[4] = 0x01;
-        d[6] = 0x00;
-        d[7] = 0x05;
-        d[8] = 0x72;
+        d[6] = 0xFF;
+        d[7] = 0x04;
+        d[8] = 0x71;
         d[9] = 0x01;
-        d[14] = 0xD0;
+        d[14] = 0xCF;
         d[15] = 0x02;
-        d[16] = 0x1E;
+        d[16] = 0x1D;
         let t7 = parse_t7vtdb(&d).unwrap();
         assert_eq!(t7.mode.width, 1280);
         assert_eq!(t7.mode.height, 720);
