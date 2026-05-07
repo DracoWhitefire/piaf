@@ -39,9 +39,10 @@ use display_types::DisplayIdCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
 use display_types::displayid::{
     Chromaticity12, ChromaticityPoint12, ColorDepthsFull, ColorDepthsSubsampled,
-    DisplayIdStereoInterfaceV2, DisplayIdVendorSpecific, DisplayInterfaceFeatures, DisplayParamsV2,
-    DisplayTechnology as V2DisplayTechnology, DualInterfaceMirroring, DynamicTimingRange,
-    ScanOrientation, StereoEye, StereoTimingScopeV2, StereoViewingMethodV2,
+    CustomColorSpaceEotfCombo, DisplayIdStereoInterfaceV2, DisplayIdVendorSpecific,
+    DisplayInterfaceFeatures, DisplayParamsV2, DisplayTechnology as V2DisplayTechnology,
+    DualInterfaceMirroring, DynamicTimingRange, ScanOrientation, StereoEye,
+    StereoTimingScopeV2, StereoViewingMethodV2,
 };
 
 /// Decodes a Product Identification Block payload into `caps`.
@@ -437,7 +438,7 @@ pub(super) fn decode_v2_dynamic_timing_range_block(
 
 /// Decodes a DisplayID 2.x Display Interface Features Block payload (tag `0x26`).
 ///
-/// Payload layout (DisplayID 2.x §4.6, mandatory 9 bytes — only the first 7 are stored):
+/// Payload layout (DisplayID 2.x §4.6, mandatory 9 bytes):
 /// - Byte 0: RGB color depth bitmask
 ///   (bit 0 = 6 bpc, bit 1 = 8, bit 2 = 10, bit 3 = 12, bit 4 = 14, bit 5 = 16)
 /// - Byte 1: YCbCr 4:4:4 color depth bitmask (same bit layout as RGB)
@@ -448,7 +449,9 @@ pub(super) fn decode_v2_dynamic_timing_range_block(
 ///   (`0` = supported at all pixel rates)
 /// - Byte 5: Audio capability flags (bit 5 = 32 kHz, bit 6 = 44.1 kHz, bit 7 = 48 kHz)
 /// - Byte 6: Color space and EOTF defined-combinations bitmask
-/// - Bytes 7–8: Custom color space/EOTF combinations and additional-bytes count (not decoded)
+/// - Byte 7: Reserved (always 0; skipped)
+/// - Byte 8: Count N of custom color space/EOTF combinations (0–7)
+/// - Bytes 9–(8+N): N custom combo bytes (bits 7:4 = color space index, bits 3:0 = EOTF index)
 ///
 /// The decoded record is stored on `did.interface_features`. If the payload is shorter
 /// than the mandatory 9 bytes the block is skipped with no side effects.
@@ -466,6 +469,15 @@ pub(super) fn decode_v2_interface_features_block(payload: &[u8], did: &mut Displ
     features.min_ycbcr420_pixel_rate = payload[4];
     features.audio_flags = payload[5];
     features.color_space_eotf_combos = payload[6];
+    // payload[7] is reserved; payload[8] is the count of custom combos.
+    let count = (payload[8] as usize).min(7);
+    let available = payload.len().saturating_sub(9);
+    let n = count.min(available);
+    for i in 0..n {
+        features.custom_color_space_eotf_combos[i] =
+            CustomColorSpaceEotfCombo::new((payload[9 + i] >> 4) & 0x0F, payload[9 + i] & 0x0F);
+    }
+    features.custom_color_space_eotf_count = n as u8;
     did.interface_features = Some(features);
 }
 
@@ -2498,16 +2510,46 @@ mod tests {
     }
 
     #[test]
-    fn test_v2_interface_features_ignores_trailing_bytes() {
-        // Payload longer than the mandatory 9 bytes; only the first 7 fields are read.
-        let mut p =
-            make_v2_interface_features_payload(0x3E, 0x06, 0x07, 0x02, 0, 0x80, 0x01).to_vec();
-        p.extend_from_slice(&[0xAA, 0xBB, 0xCC, 0xDD]);
+    fn test_v2_interface_features_no_custom_combos_when_count_zero() {
+        // count = 0 → custom_color_space_eotf_count = 0.
+        let p = make_v2_interface_features_payload(0x3E, 0x06, 0x07, 0x02, 0, 0x80, 0x01);
         let mut did = DisplayIdCapabilities::new(0x20, 0);
         decode_v2_interface_features_block(&p, &mut did);
         let f = did.interface_features.unwrap();
-        assert_eq!(f.color_depth_rgb.bits(), 0x3E);
         assert_eq!(f.color_space_eotf_combos, 0x01);
+        assert_eq!(f.custom_color_space_eotf_count, 0);
+    }
+
+    #[test]
+    fn test_v2_interface_features_custom_combos_decoded() {
+        // count = 2; combo[0] = cs=6 (BT.2020), eotf=8 (ST 2084); combo[1] = cs=1 (sRGB), eotf=1.
+        let mut p = make_v2_interface_features_payload(0, 0, 0, 0, 0, 0, 0).to_vec();
+        p[7] = 0x00; // reserved
+        p[8] = 2;    // count
+        p.push((6 << 4) | 8); // BT.2020 / ST 2084
+        p.push((1 << 4) | 1); // sRGB / sRGB
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_interface_features_block(&p, &mut did);
+        let f = did.interface_features.unwrap();
+        assert_eq!(f.custom_color_space_eotf_count, 2);
+        assert_eq!(f.custom_color_space_eotf_combos[0].color_space, 6);
+        assert_eq!(f.custom_color_space_eotf_combos[0].eotf, 8);
+        assert_eq!(f.custom_color_space_eotf_combos[1].color_space, 1);
+        assert_eq!(f.custom_color_space_eotf_combos[1].eotf, 1);
+    }
+
+    #[test]
+    fn test_v2_interface_features_custom_combos_capped_at_7() {
+        // count = 9 (> 7 max); only 7 decoded.
+        let mut p = make_v2_interface_features_payload(0, 0, 0, 0, 0, 0, 0).to_vec();
+        p[8] = 9;
+        for _ in 0..9 {
+            p.push(0x11);
+        }
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_interface_features_block(&p, &mut did);
+        let f = did.interface_features.unwrap();
+        assert_eq!(f.custom_color_space_eotf_count, 7);
     }
 
     #[test]
