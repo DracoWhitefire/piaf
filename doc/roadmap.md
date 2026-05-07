@@ -35,20 +35,12 @@ dynamic-only.
 
 Several 2.x fields are intentionally not surfaced in the 0.4 release:
 
-- **Type IX (`0x24`) byte 0 options** — partial. CVT algorithm selector and Y420 flag
-  are reified onto `VideoMode` as `cvt_algorithm` and `y420`; CVT-RB v1 (VESA CVT 1.1
-  §3.4), CVT-RB v2 (VESA CVT 1.2 §4), and CVT-RB v3 (VESA CVT 2.0 §4.5; baseline
-  identical to v2 for fixed-rate descriptors) are fully evaluated to populate
-  `pixel_clock_khz` and blanking parameters via `display_types::compute_type_ix_timing`.
-  Still pending: the "reduced blanking with CVT-RB1/RB2" variants (encodings 3, 4) —
-  descriptors using these algorithms currently get only the metadata, not the derived
-  timing; spec wording is ambiguous about whether they mean standard CVT timing with
-  RB-derived active areas or a third blanking variant. Also pending: CVT-RB v3's
-  VRR-only additions (vertical blanking scaling, `ADDITIONAL_VBLANK_TIME` margin)
-  which don't apply to fixed-rate Type IX descriptors but would matter once dynamic
-  timing range data feeds into mode generation. Stereo bits (6:5) also still dropped —
-  need to confirm Type IX's stereo encoding (likely distinct from the DTD `StereoMode`
-  codes) before mapping.
+- **Type IX (`0x24`) byte 0 options** — fully decoded. CVT algorithm (`Cvt`, `CvtRb`,
+  `CvtR2`), NTSC fractional refresh flag, and stereo mode (mono/stereo/mono-or-stereo-by-user)
+  are all reified onto `VideoMode`. Standard CVT (`Cvt`) passes through as metadata only
+  (no evaluator); `CvtRb` and `CvtR2` are fully evaluated via
+  `display_types::compute_type_ix_timing`. Standard CVT timing evaluation is the primary
+  remaining gap — deferred until there is a real-world fixture to test against.
 - **Stereo Display Interface (`0x27`) inline timing-code list** — when the revision
   byte's timing scope indicates per-method codes, the descriptor is followed by a list
   of DMT/VIC/HDMI-VIC code records that scope the stereo configuration to specific
