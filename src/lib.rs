@@ -56,8 +56,8 @@ pub use model::{
     RefreshRate, RotationCapability, ScanDirection, ScreenSize, StaticContext,
     StaticDisplayCapabilities, StaticExtensionHandler, StereoMode, StereoSyncInterface,
     StereoViewingMode, SubpixelLayout, SyncDefinition, TileBezelInfo, TileTopologyBehavior,
-    TimingFormula, TransferPointEncoding, VideoInputFlags, VideoInterface, VideoMode, WhitePoint,
-    ZeroPixelLocation,
+    TimingFormula, TransferPointEncoding, TypeIxStereoMode, VideoInputFlags, VideoInterface,
+    VideoMode, WhitePoint, ZeroPixelLocation,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use model::{DisplayIdTransferCharacteristic, TransferCurve};

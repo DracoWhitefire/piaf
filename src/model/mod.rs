@@ -75,5 +75,5 @@ pub mod capabilities;
 pub use capabilities::ExtensionData;
 pub use capabilities::{
     CvtAlgorithm, DisplayCapabilities, ModeSink, RefreshRate, StaticContext,
-    StaticDisplayCapabilities, StereoMode, SyncDefinition, VideoMode,
+    StaticDisplayCapabilities, StereoMode, SyncDefinition, TypeIxStereoMode, VideoMode,
 };

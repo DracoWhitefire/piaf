@@ -2,7 +2,7 @@ use crate::model::diagnostics::EdidWarning;
 use crate::model::manufacture::{ManufacturerId, MonitorString};
 
 pub use display_types::{
-    CvtAlgorithm, ModeSource, RefreshRate, StereoMode, SyncDefinition, VideoMode,
+    CvtAlgorithm, ModeSource, RefreshRate, StereoMode, SyncDefinition, TypeIxStereoMode, VideoMode,
 };
 pub use display_types::{DisplayCapabilities, ExtensionData};
 
