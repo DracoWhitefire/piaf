@@ -62,7 +62,7 @@ pub(super) fn decode_type_iii_descriptor(d: &[u8; 3], sink: &mut dyn ModeSink) {
 /// Descriptor layout (DisplayID 1.x §4.6):
 /// - Byte 0:    Options:
 ///   - bits 2:0 = CVT algorithm (0 = CVT, 1 = CVT-RB, 2 = CVT-R2)
-///   - bit  4   = NTSC × (1000/1001) refresh supported
+///   - bit  3   = NTSC × (1000/1001) refresh supported
 ///   - bits 6:5 = stereo (0 = mono, 1 = 3D, 2 = mono-or-3D-by-user, 3 = reserved)
 ///   - bit  7   = preferred
 /// - Bytes 1–2: Horizontal active in pixels (LE; stored as `value − 1`)
@@ -82,7 +82,7 @@ pub(super) fn decode_type_v_descriptor(d: &[u8; 7], sink: &mut dyn ModeSink) {
     let refresh_rate = (d[5] as u16) + 1;
 
     let cvt_algorithm = CvtAlgorithm::from_bits(d[0]);
-    let ntsc_fractional_refresh = (d[0] >> 4) & 1 != 0;
+    let ntsc_fractional_refresh = (d[0] >> 3) & 1 != 0;
     let stereo = decode_type_v_ix_stereo(d[0]);
 
     sink.push_mode(
@@ -98,7 +98,7 @@ pub(super) fn decode_type_v_descriptor(d: &[u8; 7], sink: &mut dyn ModeSink) {
 /// Descriptor layout (DisplayID 2.x §4.5.9, "Video Timing Mode Type 9 — Formula-based"):
 /// - Byte 0:    Options:
 ///   - bits 2:0 = CVT algorithm (0 = CVT, 1 = CVT-RB v1, 2 = CVT-R2; 3–7 = reserved)
-///   - bit  4   = NTSC × (1000/1001) refresh supported
+///   - bit  3   = NTSC × (1000/1001) refresh supported
 ///   - bits 6:5 = stereo (0 = mono, 1 = 3D, 2 = mono-or-3D-by-user, 3 = reserved)
 /// - Bytes 1–2: Horizontal active in pixels (stored as `value − 1`, little-endian)
 /// - Bytes 3–4: Vertical active in lines (stored as `value − 1`, little-endian)
@@ -122,7 +122,7 @@ pub(super) fn decode_type_ix_descriptor(d: &[u8; 6], sink: &mut dyn ModeSink) {
     let refresh_rate = (d[5] as u16) + 1;
 
     let cvt_algorithm = CvtAlgorithm::from_bits(d[0]);
-    let ntsc_fractional_refresh = (d[0] >> 4) & 1 != 0;
+    let ntsc_fractional_refresh = (d[0] >> 3) & 1 != 0;
     let stereo = decode_type_v_ix_stereo(d[0]);
 
     let mut mode = VideoMode::new(h_active, v_active, refresh_rate, false)
@@ -413,7 +413,7 @@ mod tests {
     #[test]
     fn test_type_ix_byte0_ntsc_flag_decoded() {
         let mut d = make_type_ix_descriptor(3840, 2160, 59);
-        d[0] = 0x10; // bit 4 set = NTSC fractional refresh supported
+        d[0] = 0x08; // bit 3 set = NTSC fractional refresh supported
         let mut caps = DisplayCapabilities::default();
         decode_type_ix_descriptor(&d, &mut caps);
         assert_eq!(caps.supported_modes.len(), 1);
@@ -424,7 +424,7 @@ mod tests {
     #[test]
     fn test_type_ix_byte0_ntsc_off_when_bit_clear() {
         let mut d = make_type_ix_descriptor(3840, 2160, 59);
-        d[0] = 0xEF; // every bit except bit 4; NTSC must remain off
+        d[0] = 0xF7; // every bit except bit 3; NTSC must remain off
         let mut caps = DisplayCapabilities::default();
         decode_type_ix_descriptor(&d, &mut caps);
         assert_eq!(caps.supported_modes.len(), 1);
