@@ -41,8 +41,8 @@ use display_types::displayid::{
     Chromaticity12, ChromaticityPoint12, ColorDepthsFull, ColorDepthsSubsampled,
     CustomColorSpaceEotfCombo, DisplayIdStereoInterfaceV2, DisplayIdVendorSpecific,
     DisplayInterfaceFeatures, DisplayParamsV2, DisplayTechnology as V2DisplayTechnology,
-    DualInterfaceMirroring, DynamicTimingRange, ScanOrientation, StereoEye,
-    StereoTimingCode, StereoTimingCodeType, StereoTimingScopeV2, StereoViewingMethodV2,
+    DualInterfaceMirroring, DynamicTimingRange, ScanOrientation, StereoEye, StereoTimingCode,
+    StereoTimingCodeType, StereoTimingScopeV2, StereoViewingMethodV2,
 };
 
 /// Decodes a Product Identification Block payload into `caps`.
@@ -2550,7 +2550,7 @@ mod tests {
         // count = 2; combo[0] = cs=6 (BT.2020), eotf=8 (ST 2084); combo[1] = cs=1 (sRGB), eotf=1.
         let mut p = make_v2_interface_features_payload(0, 0, 0, 0, 0, 0, 0).to_vec();
         p[7] = 0x00; // reserved
-        p[8] = 2;    // count
+        p[8] = 2; // count
         p.push((6 << 4) | 8); // BT.2020 / ST 2084
         p.push((1 << 4) | 1); // sRGB / sRGB
         let mut did = DisplayIdCapabilities::new(0x20, 0);
@@ -2568,9 +2568,7 @@ mod tests {
         // count = 9 (> 7 max); only 7 decoded.
         let mut p = make_v2_interface_features_payload(0, 0, 0, 0, 0, 0, 0).to_vec();
         p[8] = 9;
-        for _ in 0..9 {
-            p.push(0x11);
-        }
+        p.extend(core::iter::repeat_n(0x11u8, 9));
         let mut did = DisplayIdCapabilities::new(0x20, 0);
         decode_v2_interface_features_block(&p, &mut did);
         let f = did.interface_features.unwrap();
@@ -4001,7 +3999,7 @@ mod tests {
         // Two records: one DMT (code 0x09), one HDMI VIC (code 1).
         let descriptor_len = 1u8;
         let mut p = vec![descriptor_len, 0xFF]; // Proprietary method, no args
-        p.push((0b00 << 6) | 1); // DMT, count=1
+        p.push(1); // DMT (0b00 << 6), count=1
         p.push(0x09);
         p.push((0b10 << 6) | 1); // HDMI VIC, count=1
         p.push(1);
