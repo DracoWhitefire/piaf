@@ -28,8 +28,7 @@ use crate::model::capabilities::{ModeSink, RefreshRate, StereoMode, SyncDefiniti
 ///
 /// Null descriptors (pixel clock = 0 raw, i.e. encoded value 1) are silently skipped;
 /// degenerate total sizes (h_active = 0 after the −1 offset, etc.) are skipped.
-/// Stereo, aspect ratio, and preferred are not yet surfaced — see
-/// `doc/displayid-decoder-findings.md`.
+/// Stereo, aspect ratio, and preferred bits (byte 3) are not yet surfaced.
 pub(super) fn decode_type_i_descriptor(d: &[u8; 20], sink: &mut dyn ModeSink) {
     if let Some(mode) = decode_type_1_7_descriptor_body(d, 10) {
         sink.push_mode(mode);
