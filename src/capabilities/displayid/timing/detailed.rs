@@ -184,16 +184,26 @@ pub(super) fn decode_type_ii_descriptor(d: &[u8; 11], sink: &mut dyn ModeSink) {
 ///
 /// Returns `None` for null descriptors (raw pixel clock = 0), zero-sized active/blank
 /// fields, or geometry whose reduced refresh rate doesn't fit in [`RefreshRate`].
-pub(crate) fn decode_type_vii_descriptor_to_mode(d: &[u8; 20]) -> Option<VideoMode> {
-    decode_type_1_7_descriptor_body(d, 1)
+///
+/// `revision` is the DisplayID block revision byte. When `revision >= 2`, byte 3 bit 7
+/// is decoded as `y420` (YCbCr 4:2:0 only). Pass `0` for CTA T7VTDB contexts where
+/// Y420 is carried at the block level rather than in the descriptor.
+pub(crate) fn decode_type_vii_descriptor_to_mode(d: &[u8; 20], revision: u8) -> Option<VideoMode> {
+    let mode = decode_type_1_7_descriptor_body(d, 1)?;
+    if revision >= 2 && (d[3] & 0x80) != 0 {
+        Some(mode.with_y420(true))
+    } else {
+        Some(mode)
+    }
 }
 
 /// Decodes one Type VII descriptor and pushes the resulting mode to `sink`.
 ///
+/// `revision` is the DisplayID 2.x block revision byte (from the block header).
 /// Thin wrapper around [`decode_type_vii_descriptor_to_mode`]; null/degenerate
 /// descriptors are silently dropped.
-pub(super) fn decode_type_vii_descriptor(d: &[u8; 20], sink: &mut dyn ModeSink) {
-    if let Some(mode) = decode_type_vii_descriptor_to_mode(d) {
+pub(super) fn decode_type_vii_descriptor(d: &[u8; 20], revision: u8, sink: &mut dyn ModeSink) {
+    if let Some(mode) = decode_type_vii_descriptor_to_mode(d, revision) {
         sink.push_mode(mode);
     }
 }
@@ -661,7 +671,7 @@ mod tests {
             148_500, 1920, 280, 88, true, 44, 1080, 45, 4, true, 5, false,
         );
         let mut caps = DisplayCapabilities::default();
-        decode_type_vii_descriptor(&d, &mut caps);
+        decode_type_vii_descriptor(&d, 0, &mut caps);
         assert_eq!(caps.supported_modes.len(), 1);
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.width, 1920);
@@ -690,7 +700,7 @@ mod tests {
         // to the refresh derivation; pass `1` (the minimum representable on the wire).
         let d = make_type_vii_descriptor(120_120, 1000, 1, 1, false, 1, 1, 1, 1, false, 1, false);
         let mut caps = DisplayCapabilities::default();
-        decode_type_vii_descriptor(&d, &mut caps);
+        decode_type_vii_descriptor(&d, 0, &mut caps);
         assert_eq!(caps.supported_modes.len(), 1);
         assert_eq!(
             caps.supported_modes[0].refresh_rate,
@@ -704,7 +714,7 @@ mod tests {
             148_500, 1920, 280, 88, false, 44, 1080, 45, 4, false, 5, false,
         );
         let mut caps = DisplayCapabilities::default();
-        decode_type_vii_descriptor(&d, &mut caps);
+        decode_type_vii_descriptor(&d, 0, &mut caps);
         assert_eq!(caps.supported_modes.len(), 1);
         assert_eq!(
             caps.supported_modes[0].sync,
@@ -720,7 +730,7 @@ mod tests {
         let d =
             make_type_vii_descriptor(148_500, 1920, 280, 88, true, 44, 1080, 45, 4, true, 5, true);
         let mut caps = DisplayCapabilities::default();
-        decode_type_vii_descriptor(&d, &mut caps);
+        decode_type_vii_descriptor(&d, 0, &mut caps);
         assert_eq!(caps.supported_modes.len(), 1);
         assert!(caps.supported_modes[0].interlaced);
     }
@@ -729,7 +739,7 @@ mod tests {
     fn test_type_vii_null_descriptor_skipped() {
         let d = [0u8; 20];
         let mut caps = DisplayCapabilities::default();
-        decode_type_vii_descriptor(&d, &mut caps);
+        decode_type_vii_descriptor(&d, 0, &mut caps);
         assert!(caps.supported_modes.is_empty());
     }
 
@@ -744,7 +754,7 @@ mod tests {
         d[4] = 0xFF;
         d[5] = 0xFF;
         let mut caps = DisplayCapabilities::default();
-        decode_type_vii_descriptor(&d, &mut caps);
+        decode_type_vii_descriptor(&d, 0, &mut caps);
         assert!(caps.supported_modes.is_empty());
     }
 }

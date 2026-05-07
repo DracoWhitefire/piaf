@@ -406,7 +406,7 @@ pub(super) fn parse_t7vtdb(block_data: &[u8]) -> Option<T7VtdbBlock> {
     let descriptor: &[u8; 20] = block_data[2..22]
         .try_into()
         .expect("slice length checked above");
-    let mode = decode_type_vii_descriptor_to_mode(descriptor)?;
+    let mode = decode_type_vii_descriptor_to_mode(descriptor, 0)?;
 
     Some(T7VtdbBlock::new(version, mode, y420))
 }

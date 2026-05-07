@@ -42,7 +42,7 @@ pub(super) fn process_data_blocks(payload: &[u8], version: u8, sink: &mut dyn Mo
                         let descriptor: &[u8; 20] = block_payload[i..i + 20]
                             .try_into()
                             .expect("slice length guaranteed by loop condition");
-                        decode_type_vii_descriptor(descriptor, sink);
+                        decode_type_vii_descriptor(descriptor, revision, sink);
                         i += 20;
                     }
                 }
