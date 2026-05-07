@@ -133,6 +133,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Internal
 
+- Updated `display-types` dependency from local path to published `0.4.0`.
+- Fixed two Clippy lints in tests (`same_item_push`, `identity_op`): repeated
+  `p.push(0x11)` in a loop replaced with `p.extend(core::iter::repeat_n(...))`;
+  `(0b00 << 6) | 1` simplified to `1`.
+- Added `release-prep` and `release-tag` GitHub Actions workflows. `release-prep`
+  (workflow dispatch, bump input) runs `cargo semver-checks` to validate or auto-detect
+  the required version bump, stamps `CHANGELOG.md`, regenerates `Cargo.lock` and
+  `fuzz/Cargo.lock`, and opens a release PR against `develop`. `release-tag` verifies
+  the release commit is on `develop` and CI is green, then merges to `main`, pushes the
+  version tag, and triggers the publish workflow.
 - Fixed coverage ratchet CI: added `LC_NUMERIC=C` to the baseline `printf` to prevent
   locale-dependent decimal separators from corrupting `.coverage-baseline` on non-C locales.
 
