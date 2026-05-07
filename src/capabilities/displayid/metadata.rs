@@ -42,7 +42,7 @@ use display_types::displayid::{
     CustomColorSpaceEotfCombo, DisplayIdStereoInterfaceV2, DisplayIdVendorSpecific,
     DisplayInterfaceFeatures, DisplayParamsV2, DisplayTechnology as V2DisplayTechnology,
     DualInterfaceMirroring, DynamicTimingRange, ScanOrientation, StereoEye,
-    StereoTimingScopeV2, StereoViewingMethodV2,
+    StereoTimingCode, StereoTimingCodeType, StereoTimingScopeV2, StereoViewingMethodV2,
 };
 
 /// Decodes a Product Identification Block payload into `caps`.
@@ -498,9 +498,9 @@ pub(super) fn decode_v2_interface_features_block(payload: &[u8], did: &mut Displ
 /// - Byte 2 onwards: Method-specific arguments (length depends on method).
 ///
 /// The `revision` byte's upper two bits encode the timing scope (see
-/// [`StereoTimingScopeV2::from_revision`]). When the scope indicates inline timing codes
-/// the payload also carries a list of DMT/VIC/HDMI-VIC code records after the stereo
-/// descriptor; that list is currently ignored.
+/// [`StereoTimingScopeV2::from_revision`]). When the scope indicates inline timing codes,
+/// the payload carries a list of DMT/VIC/HDMI-VIC code records after the stereo descriptor;
+/// those are decoded into [`DisplayIdStereoInterfaceV2::timing_codes`].
 ///
 /// The decoded record is stored on `did.stereo_interface_v2`. Payloads shorter than the
 /// declared descriptor length, or with method-specific argument bytes missing, are skipped.
@@ -598,9 +598,34 @@ pub(super) fn decode_v2_stereo_interface_block(
     // 0x27 repurposes bits 7:6 of the data-block revision byte as the timing scope
     // (in-band field). The remaining bits hold the revision number; only rev 0 is
     // currently defined and unknown rev numbers are not surfaced as warnings here.
+    let timing_scope = StereoTimingScopeV2::from_revision(revision);
+
+    let mut timing_codes = Vec::new();
+    if timing_scope.has_timing_codes() {
+        let mut remaining = &payload[1 + descriptor_len..];
+        while remaining.len() >= 2 {
+            let header = remaining[0];
+            let num_codes = (header & 0x1F) as usize;
+            let code_type = match header >> 6 {
+                0b00 => StereoTimingCodeType::Dmt,
+                0b01 => StereoTimingCodeType::Vic,
+                0b10 => StereoTimingCodeType::HdmiVic,
+                _ => StereoTimingCodeType::Reserved,
+            };
+            if remaining.len() < 1 + num_codes {
+                break;
+            }
+            for &code in &remaining[1..1 + num_codes] {
+                timing_codes.push(StereoTimingCode::new(code_type, code));
+            }
+            remaining = &remaining[1 + num_codes..];
+        }
+    }
+
     let mut record = DisplayIdStereoInterfaceV2::default();
-    record.timing_scope = StereoTimingScopeV2::from_revision(revision);
+    record.timing_scope = timing_scope;
     record.method = method;
+    record.timing_codes = timing_codes;
     did.stereo_interface_v2 = Some(record);
 }
 
@@ -3950,6 +3975,59 @@ mod tests {
 
     // -----------------------------------------------------------------------
     // V2 ContainerID Block (tag 0x29)
+    #[test]
+    fn test_v2_stereo_timing_codes_decoded() {
+        // ListedTimingCodesOnly scope (revision bits 7:6 = 0b11).
+        // Stereo descriptor: method 0x00 (FieldSequential), arg 0x01.
+        // Timing codes: one record with type=VIC (0b01), count=2, codes [97, 32].
+        let descriptor_len = 2u8; // method byte + 1 arg
+        let mut p = vec![descriptor_len, 0x00, 0x01]; // descriptor
+        // Header: bits 7:6 = 0b01 (VIC), bits 4:0 = 2 (count)
+        p.push((0b01 << 6) | 2);
+        p.push(97);
+        p.push(32);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0b1100_0000, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(r.timing_scope, StereoTimingScopeV2::ListedTimingCodesOnly);
+        assert_eq!(r.timing_codes.len(), 2);
+        assert_eq!(r.timing_codes[0].code_type, StereoTimingCodeType::Vic);
+        assert_eq!(r.timing_codes[0].code, 97);
+        assert_eq!(r.timing_codes[1].code, 32);
+    }
+
+    #[test]
+    fn test_v2_stereo_timing_codes_multiple_records() {
+        // Two records: one DMT (code 0x09), one HDMI VIC (code 1).
+        let descriptor_len = 1u8;
+        let mut p = vec![descriptor_len, 0xFF]; // Proprietary method, no args
+        p.push((0b00 << 6) | 1); // DMT, count=1
+        p.push(0x09);
+        p.push((0b10 << 6) | 1); // HDMI VIC, count=1
+        p.push(1);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0b0100_0000, &mut did); // ExplicitAndListedTimings
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(r.timing_codes.len(), 2);
+        assert_eq!(r.timing_codes[0].code_type, StereoTimingCodeType::Dmt);
+        assert_eq!(r.timing_codes[0].code, 0x09);
+        assert_eq!(r.timing_codes[1].code_type, StereoTimingCodeType::HdmiVic);
+        assert_eq!(r.timing_codes[1].code, 1);
+    }
+
+    #[test]
+    fn test_v2_stereo_no_timing_codes_when_scope_excludes_them() {
+        // ExplicitTimingsOnly (revision 0x00): no timing-code list even if bytes follow.
+        let descriptor_len = 1u8;
+        let mut p = vec![descriptor_len, 0xFF]; // Proprietary
+        p.push(0x41); // would be a record header if codes were parsed
+        p.push(99);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert!(r.timing_codes.is_empty());
+    }
+
     // -----------------------------------------------------------------------
 
     const SAMPLE_UUID: [u8; 16] = [
