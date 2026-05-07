@@ -15,6 +15,7 @@ use crate::model::prelude::{Arc, Vec};
 
 #[cfg(any(feature = "alloc", feature = "std"))]
 use metadata::scan_all_metadata_blocks;
+pub(crate) use timing::decode_type_vii_descriptor_to_mode;
 use timing::process_data_blocks;
 
 #[cfg(any(feature = "alloc", feature = "std"))]
@@ -57,6 +58,18 @@ const TAG_STEREO_DISPLAY_INTERFACE: u8 = tag::STEREO_DISPLAY_INTERFACE;
 const TAG_TYPE_V_TIMING: u8 = tag::TYPE_V_TIMING;
 const TAG_TILED_TOPOLOGY: u8 = tag::TILED_TOPOLOGY;
 const TAG_TYPE_VI_TIMING: u8 = tag::TYPE_VI_TIMING;
+const TAG_V2_PRODUCT_ID: u8 = tag::V2_PRODUCT_ID;
+const TAG_V2_DISPLAY_PARAMS: u8 = tag::V2_DISPLAY_PARAMS;
+const TAG_V2_TYPE_VII_TIMING: u8 = tag::V2_TYPE_VII_TIMING;
+const TAG_V2_TYPE_VIII_TIMING: u8 = tag::V2_TYPE_VIII_TIMING;
+const TAG_V2_TYPE_IX_TIMING: u8 = tag::V2_TYPE_IX_TIMING;
+const TAG_V2_DYNAMIC_TIMING_RANGE: u8 = tag::V2_DYNAMIC_TIMING_RANGE;
+const TAG_V2_INTERFACE_FEATURES: u8 = tag::V2_INTERFACE_FEATURES;
+const TAG_V2_STEREO_INTERFACE: u8 = tag::V2_STEREO_INTERFACE;
+const TAG_V2_TILED_TOPOLOGY: u8 = tag::V2_TILED_TOPOLOGY;
+const TAG_V2_CONTAINER_ID: u8 = tag::V2_CONTAINER_ID;
+const TAG_V2_VENDOR_SPECIFIC: u8 = tag::V2_VENDOR_SPECIFIC;
+const TAG_V2_CTA_DISPLAYID: u8 = tag::V2_CTA_DISPLAYID;
 
 /// Calls `f(tag, revision, block_payload)` for each well-formed data block in `payload`.
 ///
@@ -99,7 +112,7 @@ fn for_each_data_block(payload: &[u8], mut f: impl FnMut(u8, u8, &[u8])) {
 /// - `section_byte_count`: byte 2, count of data block bytes in this fragment
 /// - `product_type`: bits 2:0 of byte 3 (display product primary use case)
 /// - `extension_count`: bits 7:3 of byte 3 (number of continuation blocks after the first)
-fn parse_section_header(block: &[u8; 128]) -> (u8, u8, u8, u8) {
+const fn parse_section_header(block: &[u8; 128]) -> (u8, u8, u8, u8) {
     let version = block[1];
     let section_byte_count = block[2];
     let packed = block[3];
@@ -176,8 +189,10 @@ impl ExtensionHandler for DisplayIdHandler {
             }));
         }
 
-        // Store rich capabilities.
-        caps.set_extension_data(0x70, DisplayIdCapabilities::new(version, product_type));
+        // Build rich capabilities locally; metadata decoders may populate fields on it
+        // (e.g., `manufacturer_oui` from V2 block 0x20). Stored at the end so all fragments
+        // contribute before the immutable Arc is constructed.
+        let mut did = DisplayIdCapabilities::new(version, product_type);
 
         // Process data blocks from all fragments.
         for block in blocks {
@@ -185,9 +200,11 @@ impl ExtensionHandler for DisplayIdHandler {
                 warnings.push(Arc::new(w));
             }
             let payload = fragment_payload(block);
-            process_data_blocks(payload, caps);
-            scan_all_metadata_blocks(payload, caps);
+            process_data_blocks(payload, version, caps);
+            scan_all_metadata_blocks(payload, version, caps, &mut did, warnings);
         }
+
+        caps.set_extension_data(0x70, did);
     }
 }
 
@@ -228,7 +245,7 @@ impl StaticExtensionHandler for DisplayIdHandler {
             if let Some(w) = check_displayid_section(block) {
                 ctx.push_warning(w);
             }
-            process_data_blocks(fragment_payload(block), ctx);
+            process_data_blocks(fragment_payload(block), version, ctx);
         }
     }
 }
@@ -273,6 +290,40 @@ const DEFERRED_OR_RESERVED_TAG_RANGES: &[(u8, u8)] = &[
     (0x14, 0x7E), // Reserved for future use in DisplayID 1.x
     (0x7F, 0x7F), // Vendor-specific
     (0x80, 0xFF), // Undefined (outside the DisplayID 1.x tag space)
+];
+
+/// DisplayID 2.x data block tags decoded by this handler.
+///
+/// Tracked separately from [`IMPLEMENTED_BLOCK_TAGS`] because the 2.x tag space is
+/// disjoint from 1.x and dispatched via a separate `(is_v2, tag)` arm. Empty until
+/// Phase 2 of the 2.x rollout adds the first 2.x decoder.
+#[cfg(test)]
+const IMPLEMENTED_V2_BLOCK_TAGS: &[u8] = &[
+    TAG_V2_PRODUCT_ID,           // 0x20
+    TAG_V2_DISPLAY_PARAMS,       // 0x21
+    TAG_V2_TYPE_VII_TIMING,      // 0x22
+    TAG_V2_TYPE_VIII_TIMING,     // 0x23
+    TAG_V2_TYPE_IX_TIMING,       // 0x24
+    TAG_V2_DYNAMIC_TIMING_RANGE, // 0x25
+    TAG_V2_INTERFACE_FEATURES,   // 0x26
+    TAG_V2_STEREO_INTERFACE,     // 0x27
+    TAG_V2_TILED_TOPOLOGY,       // 0x28
+    TAG_V2_CONTAINER_ID,         // 0x29
+    TAG_V2_VENDOR_SPECIFIC,      // 0x7E
+    TAG_V2_CTA_DISPLAYID,        // 0x81
+];
+
+/// DisplayID 2.x block tags that are defined by the specification but not yet
+/// decoded, plus tag ranges reserved or unassigned in the 2.x tag space.
+///
+/// Each entry is an inclusive `(first, last)` range. When a new 2.x block type is
+/// implemented, remove its tag from here and add it to [`IMPLEMENTED_V2_BLOCK_TAGS`].
+#[cfg(test)]
+const DEFERRED_OR_RESERVED_V2_TAG_RANGES: &[(u8, u8)] = &[
+    (0x00, 0x1F), // Outside the DisplayID 2.x tag space (covers 1.x range)
+    (0x2A, 0x7D), // Reserved in DisplayID 2.x
+    (0x7F, 0x80), // Reserved in DisplayID 2.x
+    (0x82, 0xFF), // Reserved in DisplayID 2.x
 ];
 
 /// Pre-built static reference to the built-in DisplayID handler.
@@ -327,8 +378,9 @@ mod tests {
         block[127] = 0u8.wrapping_sub(edid_sum);
     }
 
+    #[allow(clippy::too_many_arguments)] // mirrors the wire-format field list
     fn make_type_i_descriptor(
-        pixel_clock_10khz: u16,
+        pixel_clock_10khz: u32,
         h_active: u16,
         h_blank: u16,
         h_fp: u16,
@@ -337,20 +389,22 @@ mod tests {
         v_blank: u16,
         v_fp: u16,
         v_sw: u16,
-        flags: u8,
+        options_byte3: u8,
     ) -> [u8; 20] {
         let mut d = [0u8; 20];
-        d[0] = 0x00;
-        d[1..3].copy_from_slice(&pixel_clock_10khz.to_le_bytes());
-        d[3..5].copy_from_slice(&h_active.to_le_bytes());
-        d[5..7].copy_from_slice(&h_blank.to_le_bytes());
-        d[7..9].copy_from_slice(&h_fp.to_le_bytes());
-        d[9..11].copy_from_slice(&h_sw.to_le_bytes());
-        d[11..13].copy_from_slice(&v_active.to_le_bytes());
-        d[13..15].copy_from_slice(&v_blank.to_le_bytes());
-        d[15..17].copy_from_slice(&v_fp.to_le_bytes());
-        d[17..19].copy_from_slice(&v_sw.to_le_bytes());
-        d[19] = flags;
+        let raw_pclk = pixel_clock_10khz - 1;
+        d[0] = (raw_pclk & 0xFF) as u8;
+        d[1] = ((raw_pclk >> 8) & 0xFF) as u8;
+        d[2] = ((raw_pclk >> 16) & 0xFF) as u8;
+        d[3] = options_byte3;
+        d[4..6].copy_from_slice(&(h_active - 1).to_le_bytes());
+        d[6..8].copy_from_slice(&(h_blank - 1).to_le_bytes());
+        d[8..10].copy_from_slice(&(h_fp - 1).to_le_bytes());
+        d[10..12].copy_from_slice(&(h_sw - 1).to_le_bytes());
+        d[12..14].copy_from_slice(&(v_active - 1).to_le_bytes());
+        d[14..16].copy_from_slice(&(v_blank - 1).to_le_bytes());
+        d[16..18].copy_from_slice(&(v_fp - 1).to_le_bytes());
+        d[18..20].copy_from_slice(&(v_sw - 1).to_le_bytes());
         d
     }
 
@@ -508,6 +562,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::identity_op)] // PNP letter-to-bits encoding: (c - 'A' + 1) for symmetry.
     fn test_product_id_and_timing_in_same_block() {
         // Product ID block followed by a Type I timing block — both must be decoded.
         let ca = (b'S' - b'A' + 1) as u16;
@@ -573,6 +628,38 @@ mod tests {
                 !in_deferred,
                 "DisplayID block tag 0x{:02X} appears in both IMPLEMENTED_BLOCK_TAGS \
                  and DEFERRED_OR_RESERVED_TAG_RANGES",
+                tag
+            );
+        }
+    }
+
+    #[test]
+    fn test_all_v2_block_tags_accounted_for() {
+        for tag in 0u16..=255 {
+            let tag = tag as u8;
+            let implemented = IMPLEMENTED_V2_BLOCK_TAGS.contains(&tag);
+            let deferred_or_reserved = DEFERRED_OR_RESERVED_V2_TAG_RANGES
+                .iter()
+                .any(|&(lo, hi)| tag >= lo && tag <= hi);
+            assert!(
+                implemented || deferred_or_reserved,
+                "DisplayID 2.x block tag 0x{:02X} is unaccounted for: \
+                 add it to IMPLEMENTED_V2_BLOCK_TAGS or DEFERRED_OR_RESERVED_V2_TAG_RANGES",
+                tag
+            );
+        }
+    }
+
+    #[test]
+    fn test_v2_implemented_and_deferred_are_disjoint() {
+        for &tag in IMPLEMENTED_V2_BLOCK_TAGS {
+            let in_deferred = DEFERRED_OR_RESERVED_V2_TAG_RANGES
+                .iter()
+                .any(|&(lo, hi)| tag >= lo && tag <= hi);
+            assert!(
+                !in_deferred,
+                "DisplayID 2.x block tag 0x{:02X} appears in both IMPLEMENTED_V2_BLOCK_TAGS \
+                 and DEFERRED_OR_RESERVED_V2_TAG_RANGES",
                 tag
             );
         }

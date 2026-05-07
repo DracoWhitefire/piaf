@@ -101,6 +101,17 @@ pub enum EdidWarning {
     /// reserved. The inner value is the raw 2-bit field. The block is skipped.
     #[error("DisplayID Transfer Characteristics block has reserved encoding byte: {0:#04x}")]
     UnknownTransferEncoding(u8),
+    /// A DisplayID 2.x data block carries a revision byte the spec marks as reserved.
+    ///
+    /// The block is parsed anyway with the fields defined for revision 0; consumers may
+    /// see incorrect values if the revision actually changed the wire format.
+    #[error("DisplayID 2.x block tag {tag:#04x} has unsupported revision {revision:#04x}")]
+    UnsupportedV2BlockRevision {
+        /// Block tag byte (first byte of the 3-byte data block header).
+        tag: u8,
+        /// Revision byte (second byte of the 3-byte data block header) as found.
+        revision: u8,
+    },
     /// The byte slice length does not match the size implied by the extension count.
     ///
     /// The EDID header declares `extension_count` extension blocks, so the expected

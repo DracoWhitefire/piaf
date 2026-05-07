@@ -173,7 +173,7 @@ pub(super) fn decode_descriptors_modes(base: &[u8; 128], sink: &mut dyn ModeSink
         // Established Timings III Descriptor: tag 0xF7
         // Byte 5 must be revision 0x0A. Bytes 6-11 are a 44-bit timing bitmap.
         if descriptor[0..5] == [0x00, 0x00, 0x00, 0xF7, 0x00] && descriptor[5] == 0x0A {
-            const ET3: &[(usize, u8, u16, u16, u8)] = &[
+            const ET3: &[(usize, u8, u16, u16, u16)] = &[
                 // Byte 6
                 (6, 0x80, 640, 350, 85),
                 (6, 0x40, 640, 400, 85),
@@ -266,7 +266,7 @@ pub(super) fn decode_descriptors_modes(base: &[u8; 128], sink: &mut dyn ModeSink
                 // Rate bits 4-0: 50Hz std, 60Hz std, 75Hz std, 85Hz std, 60Hz RB
                 // 60Hz RB deduplicates against 60Hz std since VideoMode has no RB flag.
                 for (mask, rate) in [
-                    (0x10u8, 50u8),
+                    (0x10u8, 50u16),
                     (0x08, 60),
                     (0x04, 75),
                     (0x02, 85),
@@ -299,7 +299,7 @@ pub(super) fn decode_descriptors_modes(base: &[u8; 128], sink: &mut dyn ModeSink
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod tests {
     use crate::capabilities::base::BaseBlockHandler;
-    use crate::model::capabilities::{DisplayCapabilities, VideoMode};
+    use crate::model::capabilities::{DisplayCapabilities, RefreshRate, VideoMode};
     use crate::model::color::{ChromaticityPoint, DisplayGamma};
     use crate::model::extension::ExtensionHandler;
     use crate::model::prelude::Vec;
@@ -422,19 +422,19 @@ mod tests {
 
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(1024, 768, 85, false))
+                .contains(&VideoMode::new(1024, 768, 85u32, false))
         );
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(1152, 864, 75, false))
+                .contains(&VideoMode::new(1152, 864, 75u32, false))
         );
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(1280, 1024, 60, false))
+                .contains(&VideoMode::new(1280, 1024, 60u32, false))
         );
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(1600, 1200, 60, false))
+                .contains(&VideoMode::new(1600, 1200, 60u32, false))
         );
         assert_eq!(caps.supported_modes.len(), 4);
     }
@@ -463,11 +463,11 @@ mod tests {
 
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(1920, 1080, 60, false))
+                .contains(&VideoMode::new(1920, 1080, 60u32, false))
         );
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(1280, 720, 60, false))
+                .contains(&VideoMode::new(1280, 720, 60u32, false))
         );
     }
 
@@ -676,17 +676,19 @@ mod tests {
 
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(1920, 1080, 60, false))
+                .contains(&VideoMode::new(1920, 1080, 60u32, false))
         );
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(1280, 720, 50, false))
+                .contains(&VideoMode::new(1280, 720, 50u32, false))
         );
         // 60 Hz RB (0x01 bit) deduplicates against preferred 60 Hz
         assert_eq!(
             caps.supported_modes
                 .iter()
-                .filter(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 60)
+                .filter(|m| m.width == 1920
+                    && m.height == 1080
+                    && m.refresh_rate == Some(RefreshRate::integral(60)))
                 .count(),
             1
         );

@@ -5,6 +5,149 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.4.1] - 2026-05-07
+
+### Breaking changes
+
+- **`VideoMode::refresh_rate` is now `Option<RefreshRate>`** (was `u16`). `VideoMode::new`
+  accepts `impl Into<RefreshRate>` and stores `Some(...)`; integer literals require a `u32`
+  suffix (e.g. `60u32`) or explicit `RefreshRate::integral(60)`. Reading `refresh_rate`
+  must handle the `None` case (default-constructed `VideoMode` and any code that previously
+  treated `0` as "unset"). Equality and ordering of refresh rates now go through
+  `RefreshRate`'s exact rational representation, so DMT 0x58 (4096×2160) is preserved as
+  `60000/1001` instead of the truncated `60`. Supersedes the prior `u8 → u16` widening
+  noted in earlier unreleased notes.
+- **`EdidWarning` new variant**: `UnsupportedV2BlockRevision { tag: u8, revision: u8 }`.
+  Exhaustive `match` arms on `EdidWarning` must be updated.
+
+### Added
+
+- **DisplayID 2.x extension support** — full coverage of the 2.x tag space, decoded by the
+  same `DisplayIdHandler` as 1.x; dispatch is selected by the section header version byte:
+  - **`0x20`** Product Identification Block — `manufacturer_oui` on `DisplayIdCapabilities`;
+    `product_code`, `serial_number`, `manufacture_date`, `display_name` on
+    `DisplayCapabilities`. PNP-derived `manufacturer` is intentionally not populated.
+  - **`0x21`** Display Parameters Block — `display_params_v2` (chromaticity, luminance,
+    gamma, display technology, scan orientation, audio routing, CIE coordinate variant);
+    `preferred_image_size_mm`, `native_pixels`, `color_bit_depth` mirrored on
+    `DisplayCapabilities`.
+  - **`0x22`** Type VII Detailed Timing — `supported_modes` (20-byte descriptors with
+    24-bit pixel clock); decoder shared with the CTA T7VTDB path.
+  - **`0x23`** Type VIII Enumerated Timing Code — `supported_modes` via DMT/VIC/HDMI VIC
+    lookup, supporting both 1- and 2-byte code modes.
+  - **`0x24`** Type IX Formula-Based Timing — `supported_modes` with `cvt_algorithm`
+    (CVT-RB1/RB2/RB3, RB-with-CVT-RB1/RB2) and `y420` flag from byte 0. **CVT-RB v1**
+    (VESA CVT 1.1 §3.4), **CVT-RB v2** (VESA CVT 1.2 §4), and **CVT-RB v3** (VESA CVT
+    2.0 §4.5; baseline identical to v2 for fixed-rate descriptors) are fully expanded:
+    `pixel_clock_khz`, `h_front_porch`, `h_sync_width`, `v_front_porch`, and
+    `v_sync_width` are derived via `display_types::compute_type_ix_timing`. The
+    RB-with-CVT-RB1/RB2 variants currently emit only the metadata; consumers can apply
+    the formula themselves until full evaluation lands (see `doc/roadmap.md`).
+  - **`0x25`** Dynamic Video Timing Range Limits — `dynamic_timing_range` (kHz precision
+    pixel clock, 9-bit max v rate on rev ≥ 1, VRR flag); `max_pixel_clock_mhz`,
+    `min_v_rate`, `max_v_rate` mirrored.
+  - **`0x26`** Display Interface Features — `interface_features` (per-encoding color depth
+    bitmasks, audio flags, color space + EOTF combinations bitmask).
+  - **`0x27`** Stereo Display Interface — `stereo_interface_v2` (Field Sequential,
+    Side-by-Side, Pixel Interleaved, Dual Interface, Multi-View, Stacked Frame,
+    Proprietary, Reserved); timing scope decoded from revision bits 7:6.
+  - **`0x28`** Tiled Display Topology — `tiled_topology` (same wire format as 1.x `0x12`).
+  - **`0x29`** ContainerID — `container_id` (raw 16-byte UUID; mixed-endian vs RFC 4122
+    interpretation deferred to consumers).
+  - **`0x7E`** Vendor-Specific — `vendor_specific` (OUI + opaque payload, multiple records
+    per section in payload order).
+  - **`0x81`** CTA DisplayID — wraps a CTA-861 data block collection; merges into the
+    existing `Cea861Capabilities` (extension tag `0x02`) via take-mutate-restore so
+    `0x81`-derived data combines with a real CEA-861 extension regardless of processing
+    order. Mode-producing entries also reach the static pipeline.
+  - **2.x tag-space exhaustiveness test** mirrors the 1.x tag-coverage check.
+- **`RefreshRate`** re-exported from `piaf` (originating in `display-types`). Constructors
+  `integral(u32)`, `fractional(numer, denom)`, and `from_ratio(numer: u64, denom: u64)`
+  for computing rates from large intermediate products such as
+  `pixel_clock_hz / (h_total × v_total)`.
+- **`CvtAlgorithm`** re-exported from `piaf` — CVT formula selector for Type IX
+  descriptors. `Reserved(u8)` for spec-reserved encodings.
+- **Type VII Detailed Timing decoder shared between DisplayID 2.x (`0x22`) and the CTA
+  T7VTDB path** via `decode_type_vii_descriptor_to_mode`. The CTA wrapper remains parsed
+  inline; the 20-byte body decodes through the shared function.
+- **`parse_cea861_data_block_collection`** — `pub(crate)` helper extracted from the CEA-861
+  handler so the DisplayID 2.x `0x81` block reuses the same data-block collection parser.
+  Mode-producing entries still flow through `caps.supported_modes` with dedup; CTA-specific
+  state merges into `Cea861Capabilities`.
+- **SLSA Build Level 2 provenance** — release artifacts are attested via
+  `actions/attest-build-provenance` and verified with
+  `gh attestation verify <file> --repo DracoWhitefire/piaf`.
+- **`ModeSource` now populated for DTDs**: `VideoMode::source` is set to
+  `ModeSource::DtdIndex(n)` (zero-based) for all Detailed Timing Descriptors decoded from
+  the EDID base block and CEA-861 extension blocks. VIC- and DMT-keyed modes already had their
+  source set automatically by `display-types`; this fills in the remaining gap.
+- **Dependency audit pipeline** - dependencies get checked on cargo manifest changes.
+
+### Changed
+
+- Updated `display-types` dependency to track the V2 type set (new `RefreshRate`,
+  `CvtAlgorithm`, `DisplayParamsV2`, `DynamicTimingRange`, `DisplayInterfaceFeatures`,
+  `DisplayIdStereoInterfaceV2`, `DisplayIdVendorSpecific`, `ChromaticityPoint12`,
+  `Chromaticity12`, `ColorDepthsFull`, `ColorDepthsSubsampled`, `ScanOrientation`,
+  `StereoTimingScopeV2`, `StereoViewingMethodV2`, `StereoEye`, `DualInterfaceMirroring`,
+  and the `tag::V2_*` constants); `VideoMode` gains `cvt_algorithm` and `y420` fields.
+
+### Fixed
+
+- **DisplayID Type I (`0x03`) descriptor decoder was structurally wrong** — every
+  field was misread. The wire layout (per VESA DisplayID 1.x §4.4.2 and the
+  `edid-decode` `parse_displayid_type_1_7_timing` reference) is: bytes 0–2 carry a
+  24-bit pixel clock in 10 kHz units stored as `value − 1`; byte 3 carries options
+  (interlaced bit 4, aspect/stereo/preferred elsewhere); bytes 4–19 carry H/V
+  active/blank/front-porch/sync-width fields all stored as `value − 1`, with sync
+  polarity in bit 15 of the H/V Front Porch words. The previous decoder treated
+  byte 0 as options, bytes 1–2 as a 16-bit pixel clock, all subsequent fields
+  shifted by one byte, and byte 19 as a flags field — none of which matches the
+  spec. Type I has been rewritten to delegate to a shared
+  `decode_type_1_7_descriptor_body(d, pixel_clock_unit_khz)` helper that Type VII
+  also uses.
+- **DisplayID Type V (`0x11`), Type VII (`0x22`), Type IX (`0x24`) off-by-one** —
+  every multi-byte timing field (pixel clock, H/V active, H/V blank, H/V front
+  porch, H/V sync width) is encoded as `value − 1` on the wire (the all-zero
+  descriptor is reserved as "null"). The previous decoders read `value` raw,
+  producing widths/heights one short and pixel clocks one short. Type VII now
+  delegates to the shared `decode_type_1_7_descriptor_body(d, 1)` helper; Type V
+  and Type IX `h_active`/`v_active` read via `checked_add(1)?` so raw `0xFFFF` is
+  silently skipped instead of overflowing.
+
+  No fixture EDIDs in `testdata/` carry DisplayID extension blocks, so the prior
+  bug was masked by self-consistent synthetic tests; real-world EDIDs with Type
+  I/V/VII/IX descriptors would have produced wrong `width`/`height`/`pixel_clock_khz`.
+
+  Test helpers (`make_type_i_descriptor`, `make_type_v_descriptor`,
+  `make_type_vii_descriptor`, `make_type_ix_descriptor`) now accept human-readable
+  values and apply `value − 1` internally, so test assertions stay readable.
+  "Zero width/height skipped" tests were repurposed as "raw 0xFFFF overflow
+  skipped" since the wire format cannot represent value 0.
+
+  All items identified in the cross-check against `edid-decode` have since been
+  resolved: `CvtAlgorithm` enum reshaped to spec-correct variants (`Cvt`/`CvtRb`/`CvtR2`);
+  Type IX/V byte 0 bit 3 decoded as `ntsc_fractional_refresh` (not bit 4, and not `y420`);
+  Type IX/V bits 6:5 decoded as `TypeIxStereoMode`; Type VII byte 3 bit 7 decoded as
+  `y420` (block revision ≥ 2).
+
+### Internal
+
+- Updated `display-types` dependency from local path to published `0.4.0`.
+- Fixed two Clippy lints in tests (`same_item_push`, `identity_op`): repeated
+  `p.push(0x11)` in a loop replaced with `p.extend(core::iter::repeat_n(...))`;
+  `(0b00 << 6) | 1` simplified to `1`.
+- Added `release-prep` and `release-tag` GitHub Actions workflows. `release-prep`
+  (workflow dispatch, bump input) runs `cargo semver-checks` to validate or auto-detect
+  the required version bump, stamps `CHANGELOG.md`, regenerates `Cargo.lock` and
+  `fuzz/Cargo.lock`, and opens a release PR against `develop`. `release-tag` verifies
+  the release commit is on `develop` and CI is green, then merges to `main`, pushes the
+  version tag, and triggers the publish workflow.
+- Fixed coverage ratchet CI: added `LC_NUMERIC=C` to the baseline `printf` to prevent
+  locale-dependent decimal separators from corrupting `.coverage-baseline` on non-C locales.
+
 ## [0.4.0] - 2026-03-25
 
 ### Breaking changes

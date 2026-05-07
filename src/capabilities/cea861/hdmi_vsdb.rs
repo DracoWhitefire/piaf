@@ -14,7 +14,7 @@ pub(super) const HDMI_OUI: [u8; 3] = {
 /// - `0` or `255` → `None` (not defined / unknown)
 /// - `1..=251` → `Some((value - 1) * 2)` milliseconds
 /// - `252..=254` → `None` (reserved)
-fn decode_latency(raw: u8) -> Option<u16> {
+const fn decode_latency(raw: u8) -> Option<u16> {
     match raw {
         1..=251 => Some((raw as u16 - 1) * 2),
         _ => None,

@@ -46,17 +46,20 @@ pub use model::ExtensionHandler;
 pub use model::ParseWarning;
 pub use model::{
     AnalogColorType, AnalogSyncLevel, BacklightType, Chromaticity, ChromaticityPoint,
-    ColorBitDepth, ColorManagementData, CvtAspectRatio, CvtAspectRatios, CvtScaling,
-    CvtSupportParams, DcmChannel, DigitalColorEncoding, DisplayCapabilities, DisplayFeatureFlags,
-    DisplayGamma, DisplayIdInterface, DisplayIdStereoInterface, DisplayIdTiledTopology,
-    DisplayInterfaceType, DisplayTechnology, EdidError, EdidSource, EdidVersion, EdidWarning,
-    ExtensionLibrary, ExtensionMetadata, ExtensionTagRegistry, GtfSecondaryParams,
-    InterfaceContentProtection, KnownExtensions, ManufactureDate, ManufacturerId, ModeSink,
-    MonitorString, OperatingMode, ParsedEdid, ParsedEdidRef, PhysicalOrientation, PowerSequencing,
-    RotationCapability, ScanDirection, ScreenSize, StaticContext, StaticDisplayCapabilities,
-    StaticExtensionHandler, StereoMode, StereoSyncInterface, StereoViewingMode, SubpixelLayout,
-    SyncDefinition, TileBezelInfo, TileTopologyBehavior, TimingFormula, TransferPointEncoding,
-    VideoInputFlags, VideoInterface, VideoMode, WhitePoint, ZeroPixelLocation,
+    ColorBitDepth, ColorManagementData, CustomColorSpaceEotfCombo, CvtAlgorithm, CvtAspectRatio,
+    CvtAspectRatios, CvtScaling, CvtSupportParams, DcmChannel, DigitalColorEncoding,
+    DisplayCapabilities, DisplayFeatureFlags, DisplayGamma, DisplayIdInterface,
+    DisplayIdStereoInterface, DisplayIdStereoInterfaceV2, DisplayIdTiledTopology,
+    DisplayInterfaceFeatures, DisplayInterfaceType, DisplayTechnology, EdidError, EdidSource,
+    EdidVersion, EdidWarning, ExtensionLibrary, ExtensionMetadata, ExtensionTagRegistry,
+    GtfSecondaryParams, InterfaceContentProtection, KnownExtensions, ManufactureDate,
+    ManufacturerId, ModeSink, MonitorString, OperatingMode, ParsedEdid, ParsedEdidRef,
+    PhysicalOrientation, PowerSequencing, RefreshRate, RotationCapability, ScanDirection,
+    ScreenSize, StaticContext, StaticDisplayCapabilities, StaticExtensionHandler, StereoMode,
+    StereoSyncInterface, StereoTimingCode, StereoTimingCodeType, StereoTimingScopeV2,
+    StereoViewingMode, SubpixelLayout, SyncDefinition, TileBezelInfo, TileTopologyBehavior,
+    TimingFormula, TransferPointEncoding, TypeIxStereoMode, VideoInputFlags, VideoInterface,
+    VideoMode, WhitePoint, ZeroPixelLocation,
 };
 #[cfg(any(feature = "alloc", feature = "std"))]
 pub use model::{DisplayIdTransferCharacteristic, TransferCurve};

@@ -1,19 +1,26 @@
 use super::{
-    TAG_ASCII_STRING, TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_DEVICE_DATA, TAG_DISPLAY_INTERFACE,
-    TAG_DISPLAY_PARAMS, TAG_POWER_SEQUENCING, TAG_PRODUCT_ID, TAG_SERIAL_NUMBER,
-    TAG_STEREO_DISPLAY_INTERFACE, TAG_TILED_TOPOLOGY, TAG_TRANSFER_CHARACTERISTICS,
-    TAG_VIDEO_TIMING_RANGE, for_each_data_block,
+    DISPLAYID_V2, TAG_ASCII_STRING, TAG_COLOR_CHARACTERISTICS, TAG_DISPLAY_DEVICE_DATA,
+    TAG_DISPLAY_INTERFACE, TAG_DISPLAY_PARAMS, TAG_POWER_SEQUENCING, TAG_PRODUCT_ID,
+    TAG_SERIAL_NUMBER, TAG_STEREO_DISPLAY_INTERFACE, TAG_TILED_TOPOLOGY,
+    TAG_TRANSFER_CHARACTERISTICS, TAG_V2_CONTAINER_ID, TAG_V2_CTA_DISPLAYID, TAG_V2_DISPLAY_PARAMS,
+    TAG_V2_DYNAMIC_TIMING_RANGE, TAG_V2_INTERFACE_FEATURES, TAG_V2_PRODUCT_ID,
+    TAG_V2_STEREO_INTERFACE, TAG_V2_TILED_TOPOLOGY, TAG_V2_VENDOR_SPECIFIC, TAG_VIDEO_TIMING_RANGE,
+    for_each_data_block,
 };
 
 use crate::capabilities::base::{decode_color_bit_depth, decode_manufacture_date};
 #[cfg(any(feature = "alloc", feature = "std"))]
+use crate::capabilities::cea861::parse_cea861_data_block_collection;
+#[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::capabilities::DisplayCapabilities;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::color::{Chromaticity, ChromaticityPoint};
+use crate::model::color::{Chromaticity, ChromaticityPoint, ColorBitDepth};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::diagnostics::EdidWarning;
 #[cfg(any(feature = "alloc", feature = "std"))]
-use crate::model::manufacture::{ManufacturerId, MonitorString};
+use crate::model::diagnostics::ParseWarning;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use crate::model::manufacture::{ManufactureDate, ManufacturerId, MonitorString};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::panel::{
     BacklightType, DisplayIdInterface, DisplayIdStereoInterface, DisplayIdTiledTopology,
@@ -26,6 +33,16 @@ use crate::model::prelude::{Arc, Vec};
 #[cfg(any(feature = "alloc", feature = "std"))]
 use crate::model::transfer::{
     DisplayIdTransferCharacteristic, TransferCurve, TransferPointEncoding,
+};
+#[cfg(any(feature = "alloc", feature = "std"))]
+use display_types::DisplayIdCapabilities;
+#[cfg(any(feature = "alloc", feature = "std"))]
+use display_types::displayid::{
+    Chromaticity12, ChromaticityPoint12, ColorDepthsFull, ColorDepthsSubsampled,
+    CustomColorSpaceEotfCombo, DisplayIdStereoInterfaceV2, DisplayIdVendorSpecific,
+    DisplayInterfaceFeatures, DisplayParamsV2, DisplayTechnology as V2DisplayTechnology,
+    DualInterfaceMirroring, DynamicTimingRange, ScanOrientation, StereoEye, StereoTimingCode,
+    StereoTimingCodeType, StereoTimingScopeV2, StereoViewingMethodV2,
 };
 
 /// Decodes a Product Identification Block payload into `caps`.
@@ -103,6 +120,594 @@ pub(super) fn scan_product_id_block(payload: &[u8], caps: &mut DisplayCapabiliti
             decode_product_id_block(block_payload, caps);
         }
     });
+}
+
+/// Decodes a DisplayID 2.x Product Identification Block payload (tag `0x20`).
+///
+/// Payload layout (DisplayID 2.x §4.1):
+/// - Bytes 0–2:   IEEE OUI (manufacturer identifier; 3 raw bytes — not PNP encoded)
+/// - Bytes 3–4:   Product code (little-endian uint16)
+/// - Bytes 5–8:   Serial number (little-endian uint32; `0` = not specified)
+/// - Byte  9:     Week of manufacture (`0` = unspecified, `0xFF` = model year)
+/// - Byte  10:    Year (`byte + 2000`; when week = `0xFF`, this is the model year)
+/// - Byte  11:    Product name length in bytes (`0` = no name; spec maximum 236)
+/// - Bytes 12+:   Product name (no termination; ASCII / ISO 8859-1)
+///
+/// The OUI is written to `did.manufacturer_oui`. The V1 PNP-derived `caps.manufacturer`
+/// field is intentionally left untouched — DisplayID 2.x identifies vendors by IEEE OUI,
+/// which does not map onto the 3-letter PNP namespace.
+///
+/// Each field is written only when the payload is long enough to contain it. The product
+/// name is truncated to fit `MonitorString`'s 13-byte buffer; longer names lose tail bytes.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_v2_product_id_block(
+    payload: &[u8],
+    caps: &mut DisplayCapabilities,
+    did: &mut DisplayIdCapabilities,
+) {
+    if payload.len() >= 3 {
+        did.manufacturer_oui = Some([payload[0], payload[1], payload[2]]);
+    }
+    if payload.len() >= 5 {
+        caps.product_code = Some(u16::from_le_bytes([payload[3], payload[4]]));
+    }
+    if payload.len() >= 9 {
+        let sn = u32::from_le_bytes([payload[5], payload[6], payload[7], payload[8]]);
+        if sn != 0 {
+            caps.serial_number = Some(sn);
+        }
+    }
+    if payload.len() >= 11 {
+        caps.manufacture_date = Some(decode_v2_manufacture_date(payload[9], payload[10]));
+    }
+    if payload.len() >= 12 {
+        let name_len = payload[11] as usize;
+        if name_len > 0 && payload.len() >= 12 + name_len {
+            let name_bytes = &payload[12..12 + name_len];
+            let mut buf = [b' '; 13];
+            let copy_len = name_bytes.len().min(13);
+            buf[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
+            // Names ≤ 12 bytes leave the tail space-padded; `MonitorString::as_str`
+            // strips trailing spaces. Names of exactly 13 bytes round-trip fully
+            // because `as_str` falls back to the full buffer when no `0x0A` is found.
+            // Names containing an embedded `0x0A` are truncated at the terminator
+            // by `as_str`, matching the V1 wire convention.
+            caps.display_name = Some(MonitorString(buf));
+        }
+    }
+}
+
+/// Decodes the DisplayID 2.x manufacture date encoding (year stored as `byte + 2000`).
+#[cfg(any(feature = "alloc", feature = "std"))]
+const fn decode_v2_manufacture_date(week: u8, year: u8) -> ManufactureDate {
+    let y = year as u16 + 2000;
+    match week {
+        0xFF => ManufactureDate::ModelYear(y),
+        0x00 => ManufactureDate::Manufactured {
+            week: None,
+            year: y,
+        },
+        w => ManufactureDate::Manufactured {
+            week: Some(w),
+            year: y,
+        },
+    }
+}
+
+/// Converts an IEEE 754-2008 binary16 (half-precision) value to `f32`.
+///
+/// Returns `None` for either zero (`0x8000` is the spec's "not used" sentinel; `0x0000`
+/// is accepted leniently because 0 cd/m² is degenerate for any of the three luminance
+/// fields and almost certainly indicates an EDID writer that confused the sign), or
+/// when the value decodes to `NaN` / infinity (out-of-range for cd/m² readings).
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn decode_luminance_f16(raw: u16) -> Option<f32> {
+    if raw & 0x7FFF == 0 {
+        return None;
+    }
+    let sign = u32::from((raw >> 15) & 0x1);
+    let exp = u32::from((raw >> 10) & 0x1F);
+    let mant = u32::from(raw & 0x3FF);
+
+    let bits: u32 = if exp == 0 && mant == 0 {
+        sign << 31
+    } else if exp == 31 {
+        // ±inf / NaN — not meaningful luminance.
+        return None;
+    } else if exp == 0 {
+        // Subnormal: renormalise into f32 normal range.
+        let mut m = mant;
+        let mut e: i32 = -14;
+        while (m & 0x400) == 0 {
+            m <<= 1;
+            e -= 1;
+        }
+        m &= 0x3FF;
+        let f32_exp = (e + 127) as u32;
+        (sign << 31) | (f32_exp << 23) | (m << 13)
+    } else {
+        let f32_exp = exp + 127 - 15;
+        (sign << 31) | (f32_exp << 23) | (mant << 13)
+    };
+
+    Some(f32::from_bits(bits))
+}
+
+/// Maps the 3-bit DisplayID 2.x color depth field (block 0x21 byte 27, bits 2:0) to a
+/// `(bpc, ColorBitDepth)` pair, the two representations needed at the call site.
+///
+/// Returns `None` for the "undefined" code (`0`) and for values reserved by the spec
+/// (`6`, `7`). The 2.x encoding skips 14 bpc (which 1.x supports), so `5` decodes to 16.
+#[cfg(any(feature = "alloc", feature = "std"))]
+const fn decode_v2_color_bit_depth(field: u8) -> Option<(u8, ColorBitDepth)> {
+    match field & 0x07 {
+        1 => Some((6, ColorBitDepth::Depth6)),
+        2 => Some((8, ColorBitDepth::Depth8)),
+        3 => Some((10, ColorBitDepth::Depth10)),
+        4 => Some((12, ColorBitDepth::Depth12)),
+        5 => Some((16, ColorBitDepth::Depth16)),
+        _ => None,
+    }
+}
+
+/// Decodes a DisplayID 2.x Display Parameters Block payload (tag `0x21`).
+///
+/// Payload layout (DisplayID 2.x §4.2, fixed 29 bytes):
+/// - Bytes  0–1: Horizontal image size (LE uint16; precision per revision bit 7)
+/// - Bytes  2–3: Vertical image size (LE uint16)
+/// - Bytes  4–5: Horizontal native pixel count (LE uint16; `0` = undefined)
+/// - Bytes  6–7: Vertical native pixel count (LE uint16; `0` = undefined)
+/// - Byte   8:   Feature support flags
+///   - bits 2:0  Scan orientation
+///   - bit  3    Luminance information: `0` = guaranteed minima, `1` = source guidance
+///   - bit  6    Color space coordinates: `0` = CIE 1931 (x,y), `1` = CIE 1976 (u',v')
+///   - bit  7    Audio output: `0` = integrated speakers, `1` = external jack
+/// - Bytes  9–11: Primary 1 (red) chromaticity, 12-bit packed
+/// - Bytes 12–14: Primary 2 (green) chromaticity
+/// - Bytes 15–17: Primary 3 (blue) chromaticity
+/// - Bytes 18–20: White point chromaticity
+/// - Bytes 21–22: Max luminance, full coverage (IEEE 754 binary16; `0x8000` = unused)
+/// - Bytes 23–24: Max luminance, 10% coverage (binary16)
+/// - Bytes 25–26: Min luminance (binary16)
+/// - Byte  27:    Color depth (bits 2:0) and display technology (bits 6:4)
+/// - Byte  28:    Gamma EOTF, stored as `(γ − 1) × 100`; `0xFF` = unspecified
+///
+/// Image size precision is signalled by bit 7 of the data-block revision byte:
+/// `0` = 0.1 mm units (default), `1` = 1 mm units. Sizes are normalised to whole
+/// millimetres before being written to `caps.preferred_image_size_mm`.
+///
+/// Chromaticity, luminance, gamma, color depth, display technology, scan orientation,
+/// audio routing, and the CIE-coordinate variant are stored on
+/// `did.display_params_v2`. Native pixel count and image size are mirrored onto
+/// `caps.native_pixels` and `caps.preferred_image_size_mm` respectively, alongside
+/// `caps.color_bit_depth` (when defined). Short payloads are silently ignored.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_v2_display_params_block(
+    payload: &[u8],
+    revision: u8,
+    caps: &mut DisplayCapabilities,
+    did: &mut DisplayIdCapabilities,
+) {
+    if payload.len() < 29 {
+        return;
+    }
+
+    // 0x21 repurposes bit 7 of the data-block revision byte as the image-size precision
+    // flag (in-band field, not part of the revision number). Other bits hold the
+    // revision number; only rev 0 is currently defined and unknown rev numbers are not
+    // surfaced as warnings here.
+    let size_in_whole_mm = (revision >> 7) & 0x01 != 0;
+    let h_size = u16::from_le_bytes([payload[0], payload[1]]);
+    let v_size = u16::from_le_bytes([payload[2], payload[3]]);
+    if h_size != 0 && v_size != 0 {
+        let mm = if size_in_whole_mm {
+            (h_size, v_size)
+        } else {
+            // 0.1 mm units — convert to whole mm to match the field's documented unit.
+            (h_size / 10, v_size / 10)
+        };
+        caps.preferred_image_size_mm = Some(mm);
+    }
+
+    let h_px = u16::from_le_bytes([payload[4], payload[5]]);
+    let v_px = u16::from_le_bytes([payload[6], payload[7]]);
+    if h_px != 0 && v_px != 0 {
+        caps.native_pixels = Some((h_px, v_px));
+    }
+
+    let flags = payload[8];
+    let scan_orientation = ScanOrientation::from_bits(flags);
+    let luminance_guidance = (flags >> 3) & 0x01 != 0;
+    let color_space_cie1976 = (flags >> 6) & 0x01 != 0;
+    let audio_external = (flags >> 7) & 0x01 != 0;
+
+    let read_chromaticity_point = |offset: usize| ChromaticityPoint12 {
+        x_raw: u16::from(payload[offset]) | ((u16::from(payload[offset + 1]) & 0x0F) << 8),
+        y_raw: ((u16::from(payload[offset + 1]) >> 4) & 0x0F)
+            | (u16::from(payload[offset + 2]) << 4),
+    };
+    let chromaticity = Chromaticity12 {
+        primary1: read_chromaticity_point(9),
+        primary2: read_chromaticity_point(12),
+        primary3: read_chromaticity_point(15),
+        white: read_chromaticity_point(18),
+    };
+
+    let max_luminance_full = decode_luminance_f16(u16::from_le_bytes([payload[21], payload[22]]));
+    let max_luminance_10pct = decode_luminance_f16(u16::from_le_bytes([payload[23], payload[24]]));
+    let min_luminance = decode_luminance_f16(u16::from_le_bytes([payload[25], payload[26]]));
+
+    let depth_tech_byte = payload[27];
+    let (color_bit_depth_bpc, color_bit_depth_enum) =
+        decode_v2_color_bit_depth(depth_tech_byte & 0x07).unzip();
+    let display_technology = V2DisplayTechnology::from_byte((depth_tech_byte >> 4) & 0x07);
+
+    let gamma_byte = payload[28];
+    let gamma = if gamma_byte == 0xFF {
+        None
+    } else {
+        Some(f32::from(gamma_byte) / 100.0 + 1.0)
+    };
+
+    if let Some(bpc_enum) = color_bit_depth_enum {
+        caps.color_bit_depth = Some(bpc_enum);
+    }
+
+    let mut params = DisplayParamsV2::default();
+    params.chromaticity = chromaticity;
+    params.color_space_cie1976 = color_space_cie1976;
+    params.max_luminance_full = max_luminance_full;
+    params.max_luminance_10pct = max_luminance_10pct;
+    params.min_luminance = min_luminance;
+    params.luminance_guidance = luminance_guidance;
+    params.color_bit_depth = color_bit_depth_bpc;
+    params.display_technology = display_technology;
+    params.gamma = gamma;
+    params.scan_orientation = scan_orientation;
+    params.audio_external = audio_external;
+    did.display_params_v2 = Some(params);
+}
+
+/// Decodes a DisplayID 2.x Dynamic Video Timing Range Limits Block payload (tag `0x25`).
+///
+/// Payload layout (DisplayID 2.x §4.3, fixed 9 bytes):
+/// - Bytes 0–2:  Minimum pixel clock in kHz (24-bit LE)
+/// - Bytes 3–5:  Maximum pixel clock in kHz (24-bit LE)
+/// - Byte  6:    Minimum vertical refresh rate in Hz
+/// - Byte  7:    Maximum vertical refresh rate, low 8 bits
+/// - Byte  8:    Support flags
+///   - Bits 1:0  Maximum vertical refresh rate, high 2 bits (block revision ≥ 1; gives a 9-bit max)
+///   - Bit  7    Seamless variable refresh rate: `0` = unsupported, `1` = supported
+///     (fixed horizontal pixel rate, dynamic vertical blanking)
+///
+/// On block revision 0 the upper 2 bits of byte 8 are reserved; the max vertical refresh
+/// rate is the 8-bit value from byte 7 alone.
+///
+/// The decoded record is stored on `did.dynamic_timing_range`. For interoperability with
+/// the V1 0x09 path, `caps.max_pixel_clock_mhz` and `caps.min_v_rate` / `caps.max_v_rate`
+/// are also populated. Pixel clock is converted from kHz to MHz, losing sub-MHz precision
+/// in the unified field — callers needing kHz precision must read `did.dynamic_timing_range`.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_v2_dynamic_timing_range_block(
+    payload: &[u8],
+    revision: u8,
+    caps: &mut DisplayCapabilities,
+    did: &mut DisplayIdCapabilities,
+) {
+    if payload.len() < 9 {
+        return;
+    }
+
+    let min_pixel_clock_khz =
+        u32::from(payload[0]) | (u32::from(payload[1]) << 8) | (u32::from(payload[2]) << 16);
+    let max_pixel_clock_khz =
+        u32::from(payload[3]) | (u32::from(payload[4]) << 8) | (u32::from(payload[5]) << 16);
+    let min_v_rate_hz = payload[6];
+    let max_v_lsb = payload[7];
+    let flags = payload[8];
+
+    // 0x25 has no in-band fields in the data-block revision byte (unlike 0x21's bit 7
+    // and 0x27's bits 7:6); the whole byte is the revision number. Spec defines rev 0
+    // (8-bit max v rate) and rev 1 (9-bit max v rate using bits 1:0 of the flags byte).
+    let max_v_rate_hz: u16 = if revision >= 1 {
+        u16::from(max_v_lsb) | (u16::from(flags & 0x03) << 8)
+    } else {
+        u16::from(max_v_lsb)
+    };
+    let vrr_supported = (flags >> 7) & 0x01 != 0;
+
+    let mut range = DynamicTimingRange::default();
+    range.min_pixel_clock_khz = min_pixel_clock_khz;
+    range.max_pixel_clock_khz = max_pixel_clock_khz;
+    range.min_v_rate_hz = min_v_rate_hz;
+    range.max_v_rate_hz = max_v_rate_hz;
+    range.vrr_supported = vrr_supported;
+    did.dynamic_timing_range = Some(range);
+
+    if max_pixel_clock_khz != 0 {
+        caps.max_pixel_clock_mhz =
+            Some((max_pixel_clock_khz / 1000).min(u32::from(u16::MAX)) as u16);
+    }
+    if min_v_rate_hz != 0 {
+        caps.min_v_rate = Some(u16::from(min_v_rate_hz));
+    }
+    if max_v_rate_hz != 0 {
+        caps.max_v_rate = Some(max_v_rate_hz);
+    }
+}
+
+/// Decodes a DisplayID 2.x Display Interface Features Block payload (tag `0x26`).
+///
+/// Payload layout (DisplayID 2.x §4.6, mandatory 9 bytes):
+/// - Byte 0: RGB color depth bitmask
+///   (bit 0 = 6 bpc, bit 1 = 8, bit 2 = 10, bit 3 = 12, bit 4 = 14, bit 5 = 16)
+/// - Byte 1: YCbCr 4:4:4 color depth bitmask (same bit layout as RGB)
+/// - Byte 2: YCbCr 4:2:2 color depth bitmask
+///   (bit 0 = 8 bpc, bit 1 = 10, bit 2 = 12, bit 3 = 14, bit 4 = 16)
+/// - Byte 3: YCbCr 4:2:0 color depth bitmask (same bit layout as 4:2:2)
+/// - Byte 4: Minimum pixel rate at which YCbCr 4:2:0 is supported, in 74.25 MP/s units
+///   (`0` = supported at all pixel rates)
+/// - Byte 5: Audio capability flags (bit 5 = 32 kHz, bit 6 = 44.1 kHz, bit 7 = 48 kHz)
+/// - Byte 6: Color space and EOTF defined-combinations bitmask
+/// - Byte 7: Reserved (always 0; skipped)
+/// - Byte 8: Count N of custom color space/EOTF combinations (0–7)
+/// - Bytes 9–(8+N): N custom combo bytes (bits 7:4 = color space index, bits 3:0 = EOTF index)
+///
+/// The decoded record is stored on `did.interface_features`. If the payload is shorter
+/// than the mandatory 9 bytes the block is skipped with no side effects.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_v2_interface_features_block(payload: &[u8], did: &mut DisplayIdCapabilities) {
+    if payload.len() < 9 {
+        return;
+    }
+
+    let mut features = DisplayInterfaceFeatures::default();
+    features.color_depth_rgb = ColorDepthsFull::from_bits_truncate(payload[0]);
+    features.color_depth_ycbcr444 = ColorDepthsFull::from_bits_truncate(payload[1]);
+    features.color_depth_ycbcr422 = ColorDepthsSubsampled::from_bits_truncate(payload[2]);
+    features.color_depth_ycbcr420 = ColorDepthsSubsampled::from_bits_truncate(payload[3]);
+    features.min_ycbcr420_pixel_rate = payload[4];
+    features.audio_flags = payload[5];
+    features.color_space_eotf_combos = payload[6];
+    // payload[7] is reserved; payload[8] is the count of custom combos.
+    let count = (payload[8] as usize).min(7);
+    let available = payload.len().saturating_sub(9);
+    let n = count.min(available);
+    for i in 0..n {
+        features.custom_color_space_eotf_combos[i] =
+            CustomColorSpaceEotfCombo::new((payload[9 + i] >> 4) & 0x0F, payload[9 + i] & 0x0F);
+    }
+    features.custom_color_space_eotf_count = n as u8;
+    did.interface_features = Some(features);
+}
+
+/// Decodes a DisplayID 2.x Stereo Display Interface Block payload (tag `0x27`).
+///
+/// Payload layout (DisplayID 2.x §4.7, variable length):
+/// - Byte 0: Length of the stereo descriptor that follows (in bytes; ≥ 1, includes the
+///   method byte). The full descriptor occupies `payload[1..1 + payload[0]]`.
+/// - Byte 1: Stereo viewing method
+///   - `0x00` Field Sequential
+///   - `0x01` Side-by-Side
+///   - `0x02` Pixel Interleaved
+///   - `0x03` Dual Interface
+///   - `0x04` Multi-View
+///   - `0x05` Stacked Frame
+///   - `0xFF` Proprietary
+///   - other  Reserved (surfaced as [`StereoViewingMethodV2::Reserved`])
+/// - Byte 2 onwards: Method-specific arguments (length depends on method).
+///
+/// The `revision` byte's upper two bits encode the timing scope (see
+/// [`StereoTimingScopeV2::from_revision`]). When the scope indicates inline timing codes,
+/// the payload carries a list of DMT/VIC/HDMI-VIC code records after the stereo descriptor;
+/// those are decoded into [`DisplayIdStereoInterfaceV2::timing_codes`].
+///
+/// The decoded record is stored on `did.stereo_interface_v2`. Payloads shorter than the
+/// declared descriptor length, or with method-specific argument bytes missing, are skipped.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_v2_stereo_interface_block(
+    payload: &[u8],
+    revision: u8,
+    did: &mut DisplayIdCapabilities,
+) {
+    if payload.len() < 2 {
+        return;
+    }
+    let descriptor_len = payload[0] as usize;
+    if descriptor_len < 1 || payload.len() < 1 + descriptor_len {
+        return;
+    }
+    let method_byte = payload[1];
+    let args = &payload[2..1 + descriptor_len];
+
+    let method = match method_byte {
+        0x00 => {
+            if args.is_empty() {
+                return;
+            }
+            StereoViewingMethodV2::FieldSequential {
+                eye_on_high_half: if (args[0] & 0x01) != 0 {
+                    StereoEye::Right
+                } else {
+                    StereoEye::Left
+                },
+            }
+        }
+        0x01 => {
+            if args.is_empty() {
+                return;
+            }
+            StereoViewingMethodV2::SideBySide {
+                left_half: if (args[0] & 0x01) != 0 {
+                    StereoEye::Right
+                } else {
+                    StereoEye::Left
+                },
+            }
+        }
+        0x02 => {
+            if args.len() < 8 {
+                return;
+            }
+            let mut pattern = [0u8; 8];
+            pattern.copy_from_slice(&args[..8]);
+            StereoViewingMethodV2::PixelInterleaved { pattern }
+        }
+        0x03 => {
+            if args.is_empty() {
+                return;
+            }
+            let eye = if (args[0] & 0x01) != 0 {
+                StereoEye::Right
+            } else {
+                StereoEye::Left
+            };
+            let mirroring = match (args[0] >> 1) & 0x03 {
+                0b00 => DualInterfaceMirroring::None,
+                0b01 => DualInterfaceMirroring::LeftRight,
+                0b10 => DualInterfaceMirroring::TopBottom,
+                _ => DualInterfaceMirroring::Reserved,
+            };
+            StereoViewingMethodV2::DualInterface { eye, mirroring }
+        }
+        0x04 => {
+            if args.len() < 2 {
+                return;
+            }
+            StereoViewingMethodV2::MultiView {
+                view_count: args[0],
+                interleaving_method_code: args[1],
+            }
+        }
+        0x05 => {
+            if args.is_empty() {
+                return;
+            }
+            StereoViewingMethodV2::StackedFrame {
+                top_half: if (args[0] & 0x01) != 0 {
+                    StereoEye::Right
+                } else {
+                    StereoEye::Left
+                },
+            }
+        }
+        0xFF => StereoViewingMethodV2::Proprietary,
+        other => StereoViewingMethodV2::Reserved(other),
+    };
+
+    // 0x27 repurposes bits 7:6 of the data-block revision byte as the timing scope
+    // (in-band field). The remaining bits hold the revision number; only rev 0 is
+    // currently defined and unknown rev numbers are not surfaced as warnings here.
+    let timing_scope = StereoTimingScopeV2::from_revision(revision);
+
+    let mut timing_codes = Vec::new();
+    if timing_scope.has_timing_codes() {
+        let mut remaining = &payload[1 + descriptor_len..];
+        while remaining.len() >= 2 {
+            let header = remaining[0];
+            let num_codes = (header & 0x1F) as usize;
+            let code_type = match header >> 6 {
+                0b00 => StereoTimingCodeType::Dmt,
+                0b01 => StereoTimingCodeType::Vic,
+                0b10 => StereoTimingCodeType::HdmiVic,
+                _ => StereoTimingCodeType::Reserved,
+            };
+            if remaining.len() < 1 + num_codes {
+                break;
+            }
+            for &code in &remaining[1..1 + num_codes] {
+                timing_codes.push(StereoTimingCode::new(code_type, code));
+            }
+            remaining = &remaining[1 + num_codes..];
+        }
+    }
+
+    let mut record = DisplayIdStereoInterfaceV2::default();
+    record.timing_scope = timing_scope;
+    record.method = method;
+    record.timing_codes = timing_codes;
+    did.stereo_interface_v2 = Some(record);
+}
+
+/// Decodes a DisplayID 2.x ContainerID Block payload (tag `0x29`).
+///
+/// Payload layout (DisplayID 2.x §4.9, fixed 16 bytes):
+/// - Bytes 0–15: 128-bit UUID identifying the physical display container
+///   (typically a Microsoft-style ContainerID GUID, used by the OS to group
+///   related interfaces such as a tiled monitor's individual tile EDIDs).
+///
+/// The raw 16-byte buffer is stored on `did.container_id`. Endianness is
+/// preserved as-is — byte ordering interpretation (mixed-endian for the
+/// classic GUID layout vs. big-endian for RFC 4122) is left to consumers.
+/// Payloads shorter than 16 bytes are skipped with no side effects.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_v2_container_id_block(payload: &[u8], did: &mut DisplayIdCapabilities) {
+    if payload.len() < 16 {
+        return;
+    }
+    let mut uuid = [0u8; 16];
+    uuid.copy_from_slice(&payload[..16]);
+    did.container_id = Some(uuid);
+}
+
+/// Decodes a DisplayID 2.x Vendor-Specific Block payload (tag `0x7E`).
+///
+/// Payload layout (DisplayID 2.x §4.10, minimum 3 bytes):
+/// - Bytes 0–2: 3-byte IEEE OUI identifying the vendor (high-order byte first).
+/// - Bytes 3+:  Opaque vendor-defined data; semantics are not interpreted here.
+///
+/// The decoded record is appended to `did.vendor_specific`. Multiple 0x7E blocks
+/// are allowed in a single section — each is recorded in payload order. Payloads
+/// shorter than 3 bytes (no complete OUI) are skipped.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_v2_vendor_specific_block(payload: &[u8], did: &mut DisplayIdCapabilities) {
+    if payload.len() < 3 {
+        return;
+    }
+    let mut record = DisplayIdVendorSpecific::default();
+    record.oui = [payload[0], payload[1], payload[2]];
+    record.data = payload[3..].to_vec();
+    did.vendor_specific.push(record);
+}
+
+/// Decodes a DisplayID 2.x CTA DisplayID Block payload (tag `0x81`).
+///
+/// The payload is a CTA-861 data block collection — the same structure that follows
+/// byte 4 of a CEA-861 extension block, but without DTDs or section flags. Each block
+/// starts with a 1-byte header (`tag << 5 | length`) followed by `length` payload
+/// bytes; a zero header byte terminates scanning.
+///
+/// Decoding is delegated to [`parse_cea861_data_block_collection`]. The resulting
+/// CTA-861 capability state is merged into the sink's existing `Cea861Capabilities`
+/// entry (extension tag `0x02`) under a take-mutate-restore pattern, so
+/// 0x81-derived data combines with any data parsed from a real CEA-861 extension
+/// block on the same EDID — regardless of which extension was processed first.
+///
+/// Spec marks revision 0 as the only defined value; non-zero revisions emit
+/// [`EdidWarning::UnsupportedV2BlockRevision`] and the payload is parsed anyway
+/// using the revision-0 wire format.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(super) fn decode_v2_cta_displayid_block(
+    payload: &[u8],
+    revision: u8,
+    caps: &mut DisplayCapabilities,
+    warnings: &mut Vec<ParseWarning>,
+) {
+    if revision != 0 {
+        warnings.push(Arc::new(EdidWarning::UnsupportedV2BlockRevision {
+            tag: TAG_V2_CTA_DISPLAYID,
+            revision,
+        }));
+    }
+    let mut cea_caps = caps
+        .take_extension_data::<crate::capabilities::cea861::Cea861Capabilities>(0x02)
+        .unwrap_or_else(|| {
+            crate::capabilities::cea861::Cea861Capabilities::new(
+                crate::capabilities::cea861::Cea861Flags::empty(),
+            )
+        });
+    parse_cea861_data_block_collection(payload, caps, &mut cea_caps, warnings);
+    caps.set_extension_data(0x02, cea_caps);
 }
 
 /// Decodes a Display Parameters Block payload into `caps`.
@@ -785,7 +1390,7 @@ pub(super) fn scan_tiled_topology_block(payload: &[u8], caps: &mut DisplayCapabi
     });
 }
 
-/// Scans all DisplayID 1.x metadata blocks in a single pass.
+/// Scans all DisplayID metadata blocks in a single pass.
 ///
 /// Calls [`for_each_data_block`] once over `payload` and dispatches every
 /// recognised metadata tag to the appropriate `decode_*` function. Single-
@@ -794,8 +1399,65 @@ pub(super) fn scan_tiled_topology_block(payload: &[u8], caps: &mut DisplayCapabi
 ///
 /// This replaces the individual `scan_*` calls in the alloc pipeline and
 /// reduces the number of passes over the payload from one-per-tag to one.
+///
+/// `version` is the DisplayID version byte from the section header. The decoder
+/// dispatches to the V1 or V2 metadata block tags based on `version`. The V2 path
+/// also writes into `did` (e.g., `manufacturer_oui` from block 0x20).
 #[cfg(any(feature = "alloc", feature = "std"))]
-pub(super) fn scan_all_metadata_blocks(payload: &[u8], caps: &mut DisplayCapabilities) {
+pub(super) fn scan_all_metadata_blocks(
+    payload: &[u8],
+    version: u8,
+    caps: &mut DisplayCapabilities,
+    did: &mut DisplayIdCapabilities,
+    warnings: &mut Vec<ParseWarning>,
+) {
+    if version == DISPLAYID_V2 {
+        let mut found_v2_product_id = false;
+        let mut found_v2_display_params = false;
+        let mut found_v2_dynamic_timing_range = false;
+        let mut found_v2_interface_features = false;
+        let mut found_v2_stereo_interface = false;
+        let mut found_v2_tiled_topology = false;
+        let mut found_v2_container_id = false;
+        for_each_data_block(payload, |tag, revision, block_payload| match tag {
+            TAG_V2_PRODUCT_ID if !found_v2_product_id => {
+                found_v2_product_id = true;
+                decode_v2_product_id_block(block_payload, caps, did);
+            }
+            TAG_V2_DISPLAY_PARAMS if !found_v2_display_params => {
+                found_v2_display_params = true;
+                decode_v2_display_params_block(block_payload, revision, caps, did);
+            }
+            TAG_V2_DYNAMIC_TIMING_RANGE if !found_v2_dynamic_timing_range => {
+                found_v2_dynamic_timing_range = true;
+                decode_v2_dynamic_timing_range_block(block_payload, revision, caps, did);
+            }
+            TAG_V2_INTERFACE_FEATURES if !found_v2_interface_features => {
+                found_v2_interface_features = true;
+                decode_v2_interface_features_block(block_payload, did);
+            }
+            TAG_V2_STEREO_INTERFACE if !found_v2_stereo_interface => {
+                found_v2_stereo_interface = true;
+                decode_v2_stereo_interface_block(block_payload, revision, did);
+            }
+            TAG_V2_TILED_TOPOLOGY if !found_v2_tiled_topology => {
+                found_v2_tiled_topology = true;
+                decode_tiled_topology_block(block_payload, caps);
+            }
+            TAG_V2_CONTAINER_ID if !found_v2_container_id => {
+                found_v2_container_id = true;
+                decode_v2_container_id_block(block_payload, did);
+            }
+            TAG_V2_VENDOR_SPECIFIC => {
+                decode_v2_vendor_specific_block(block_payload, did);
+            }
+            TAG_V2_CTA_DISPLAYID => {
+                decode_v2_cta_displayid_block(block_payload, revision, caps, warnings);
+            }
+            _ => {}
+        });
+        return;
+    }
     let mut found_product_id = false;
     let mut found_display_params = false;
     let mut found_color_characteristics = false;
@@ -1006,6 +1668,970 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // V2 Product Identification Block (tag 0x20)
+    // -----------------------------------------------------------------------
+
+    fn make_v2_product_id_payload(
+        oui: [u8; 3],
+        product_code: u16,
+        serial: u32,
+        week: u8,
+        year_offset: u8, // actual year = offset + 2000
+        name: Option<&[u8]>,
+    ) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&oui);
+        v.extend_from_slice(&product_code.to_le_bytes());
+        v.extend_from_slice(&serial.to_le_bytes());
+        v.push(week);
+        v.push(year_offset);
+        match name {
+            Some(n) => {
+                v.push(n.len() as u8);
+                v.extend_from_slice(n);
+            }
+            None => v.push(0),
+        }
+        v
+    }
+
+    #[test]
+    fn test_v2_product_id_oui_and_product_code() {
+        // 00-1A-7E is the LG Electronics OUI.
+        let payload = make_v2_product_id_payload([0x00, 0x1A, 0x7E], 0x1234, 0, 0, 0, None);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(did.manufacturer_oui, Some([0x00, 0x1A, 0x7E]));
+        assert_eq!(caps.product_code, Some(0x1234));
+        // V2 must not populate the V1 PNP-encoded manufacturer field.
+        assert_eq!(caps.manufacturer, None);
+    }
+
+    #[test]
+    fn test_v2_product_id_serial_number() {
+        let payload =
+            make_v2_product_id_payload([0xAA, 0xBB, 0xCC], 0x0001, 0xDEAD_BEEF, 0, 0, None);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(caps.serial_number, Some(0xDEAD_BEEF));
+    }
+
+    #[test]
+    fn test_v2_product_id_zero_serial_not_stored() {
+        let payload = make_v2_product_id_payload([0xAA, 0xBB, 0xCC], 0x0001, 0, 0, 0, None);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(caps.serial_number, None);
+    }
+
+    #[test]
+    fn test_v2_product_id_year_uses_2000_offset() {
+        // Week 10, year 2024 → year_byte = 2024 - 2000 = 24.
+        let payload = make_v2_product_id_payload([0x00, 0x1A, 0x7E], 0x0001, 0, 10, 24, None);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(
+            caps.manufacture_date,
+            Some(ManufactureDate::Manufactured {
+                week: Some(10),
+                year: 2024,
+            })
+        );
+    }
+
+    #[test]
+    fn test_v2_product_id_model_year() {
+        // week = 0xFF marks the year as a model year.
+        let payload = make_v2_product_id_payload([0x00, 0x1A, 0x7E], 0x0001, 0, 0xFF, 25, None);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(
+            caps.manufacture_date,
+            Some(ManufactureDate::ModelYear(2025))
+        );
+    }
+
+    #[test]
+    fn test_v2_product_id_display_name() {
+        let name: &[u8] = b"UltraGear";
+        let payload = make_v2_product_id_payload([0x00, 0x1A, 0x7E], 0x0042, 0, 0, 24, Some(name));
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(caps.display_name.as_deref(), Some("UltraGear"));
+    }
+
+    #[test]
+    fn test_v2_product_id_long_name_truncated() {
+        // Names longer than MonitorString's 13-byte buffer are tail-truncated to fit;
+        // all 13 bytes are kept (`MonitorString::as_str` falls back to the full buffer
+        // when no `0x0A` terminator is present).
+        let name: &[u8] = b"Big Long Display Name";
+        let payload = make_v2_product_id_payload([0x00, 0x1A, 0x7E], 0x0001, 0, 0, 24, Some(name));
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(caps.display_name.as_deref(), Some("Big Long Disp"));
+    }
+
+    #[test]
+    fn test_v2_product_id_exact_13_byte_name_preserved() {
+        // Boundary: name is exactly 13 bytes, no embedded 0x0A. All 13 chars must
+        // survive — earlier code lost the last char to a forced terminator.
+        let name: &[u8] = b"ThirteenChars";
+        assert_eq!(name.len(), 13);
+        let payload = make_v2_product_id_payload([0x00, 0x1A, 0x7E], 0x0001, 0, 0, 24, Some(name));
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(caps.display_name.as_deref(), Some("ThirteenChars"));
+    }
+
+    #[test]
+    fn test_v2_product_id_zero_length_name_skipped() {
+        let payload = make_v2_product_id_payload([0x00, 0x1A, 0x7E], 0x0001, 0, 0, 24, None);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(caps.display_name, None);
+    }
+
+    #[test]
+    fn test_v2_product_id_truncated_name_payload_skipped() {
+        // Length byte declares 20 bytes but only 4 follow — name field must be ignored.
+        let mut payload =
+            make_v2_product_id_payload([0x00, 0x1A, 0x7E], 0x0001, 0, 0, 24, Some(b"abcd"));
+        // Overwrite the name length byte at offset 11 to 20.
+        payload[11] = 20;
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(caps.display_name, None);
+        // Other fields still decoded.
+        assert_eq!(did.manufacturer_oui, Some([0x00, 0x1A, 0x7E]));
+    }
+
+    #[test]
+    fn test_v2_product_id_too_short_does_not_panic() {
+        // Two bytes — not even enough for the OUI.
+        let payload = [0x00u8, 0x1A];
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_product_id_block(&payload, &mut caps, &mut did);
+        assert_eq!(did.manufacturer_oui, None);
+        assert_eq!(caps.product_code, None);
+    }
+
+    #[test]
+    fn test_v2_product_id_dispatched_only_for_v2_section() {
+        // A 0x20 block that, on a V1 section, would parse as garbage. On a V1 section,
+        // 0x20 is outside the V1 metadata tag space and the V2 decoder must not run.
+        let body = make_v2_product_id_payload([0x00, 0x1A, 0x7E], 0xAAAA, 0, 0, 24, None);
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_V2_PRODUCT_ID); // tag
+        block_payload.push(0x00); // revision
+        block_payload.push(body.len() as u8); // length
+        block_payload.extend_from_slice(&body);
+
+        // V1 section: nothing should be decoded.
+        let mut caps_v1 = DisplayCapabilities::default();
+        let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
+        scan_all_metadata_blocks(
+            &block_payload,
+            0x13,
+            &mut caps_v1,
+            &mut did_v1,
+            &mut Vec::new(),
+        );
+        assert_eq!(did_v1.manufacturer_oui, None);
+        assert_eq!(caps_v1.product_code, None);
+
+        // V2 section: decoder runs.
+        let mut caps_v2 = DisplayCapabilities::default();
+        let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(
+            &block_payload,
+            DISPLAYID_V2,
+            &mut caps_v2,
+            &mut did_v2,
+            &mut Vec::new(),
+        );
+        assert_eq!(did_v2.manufacturer_oui, Some([0x00, 0x1A, 0x7E]));
+        assert_eq!(caps_v2.product_code, Some(0xAAAA));
+    }
+
+    // -----------------------------------------------------------------------
+    // V2 Display Parameters Block (tag 0x21)
+    // -----------------------------------------------------------------------
+
+    /// Encodes a 12-bit (x_raw, y_raw) chromaticity pair into the 24-bit packed layout
+    /// used by DisplayID 2.x block 0x21 primaries / white point.
+    fn pack_chromaticity12(x: u16, y: u16) -> [u8; 3] {
+        let x = x & 0x0FFF;
+        let y = y & 0x0FFF;
+        [
+            (x & 0xFF) as u8,
+            (((x >> 8) & 0x0F) | ((y & 0x0F) << 4)) as u8,
+            ((y >> 4) & 0xFF) as u8,
+        ]
+    }
+
+    /// Encodes an `f32` luminance value (cd/m²) into IEEE 754 binary16 little-endian.
+    /// Limited to positive normals — this is enough for the cd/m² values used in tests.
+    fn encode_luminance_f16(v: f32) -> [u8; 2] {
+        let bits = v.to_bits();
+        let sign = (bits >> 31) & 0x1;
+        let exp_f32 = ((bits >> 23) & 0xFF) as i32;
+        let mant_f32 = bits & 0x7F_FFFF;
+        let exp_f16 = exp_f32 - 127 + 15;
+        assert!(
+            (1..=30).contains(&exp_f16),
+            "encode_luminance_f16 only supports normal binary16 values"
+        );
+        let mant_f16 = (mant_f32 >> 13) & 0x3FF;
+        let raw = ((sign as u16) << 15) | ((exp_f16 as u16) << 10) | (mant_f16 as u16);
+        raw.to_le_bytes()
+    }
+
+    #[allow(clippy::too_many_arguments)] // mirrors the wire-format field list
+    fn make_v2_display_params_payload(
+        h_size: u16,
+        v_size: u16,
+        h_pixels: u16,
+        v_pixels: u16,
+        flags: u8,
+        chromaticity: (u16, u16, u16, u16, u16, u16, u16, u16), // r, g, b, w (x,y) interleaved
+        max_lum_full: u16,                                      // raw f16 LE bits
+        max_lum_10pct: u16,
+        min_lum: u16,
+        depth_tech_byte: u8,
+        gamma_byte: u8,
+    ) -> [u8; 29] {
+        let mut p = [0u8; 29];
+        p[0..2].copy_from_slice(&h_size.to_le_bytes());
+        p[2..4].copy_from_slice(&v_size.to_le_bytes());
+        p[4..6].copy_from_slice(&h_pixels.to_le_bytes());
+        p[6..8].copy_from_slice(&v_pixels.to_le_bytes());
+        p[8] = flags;
+        p[9..12].copy_from_slice(&pack_chromaticity12(chromaticity.0, chromaticity.1));
+        p[12..15].copy_from_slice(&pack_chromaticity12(chromaticity.2, chromaticity.3));
+        p[15..18].copy_from_slice(&pack_chromaticity12(chromaticity.4, chromaticity.5));
+        p[18..21].copy_from_slice(&pack_chromaticity12(chromaticity.6, chromaticity.7));
+        p[21..23].copy_from_slice(&max_lum_full.to_le_bytes());
+        p[23..25].copy_from_slice(&max_lum_10pct.to_le_bytes());
+        p[25..27].copy_from_slice(&min_lum.to_le_bytes());
+        p[27] = depth_tech_byte;
+        p[28] = gamma_byte;
+        p
+    }
+
+    #[test]
+    fn test_v2_display_params_image_size_tenths() {
+        // Revision bit 7 = 0: 0.1 mm units. 5970×3360 → 597×336 mm.
+        let p = make_v2_display_params_payload(
+            5970,
+            3360,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x00, &mut caps, &mut did);
+        assert_eq!(caps.preferred_image_size_mm, Some((597, 336)));
+    }
+
+    #[test]
+    fn test_v2_display_params_image_size_whole_mm() {
+        // Revision bit 7 = 1: 1 mm units. 597×336 → 597×336 mm.
+        let p = make_v2_display_params_payload(
+            597,
+            336,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        assert_eq!(caps.preferred_image_size_mm, Some((597, 336)));
+    }
+
+    #[test]
+    fn test_v2_display_params_zero_size_not_stored() {
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        assert_eq!(caps.preferred_image_size_mm, None);
+    }
+
+    #[test]
+    fn test_v2_display_params_native_pixels() {
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            3840,
+            2160,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        assert_eq!(caps.native_pixels, Some((3840, 2160)));
+    }
+
+    #[test]
+    fn test_v2_display_params_chromaticity_round_trip() {
+        // sRGB primaries (12-bit raw values, each ≈ original × 4096).
+        let r = (2867, 1474); // (0.700, 0.360)
+        let g = (1228, 2867); // (0.300, 0.700)
+        let b = (614, 245); // (0.150, 0.060)
+        let w = (1294, 1347); // (0.316, 0.329)
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (r.0, r.1, g.0, g.1, b.0, b.1, w.0, w.1),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        let chrom = did.display_params_v2.as_ref().unwrap().chromaticity;
+        assert_eq!((chrom.primary1.x_raw, chrom.primary1.y_raw), r);
+        assert_eq!((chrom.primary2.x_raw, chrom.primary2.y_raw), g);
+        assert_eq!((chrom.primary3.x_raw, chrom.primary3.y_raw), b);
+        assert_eq!((chrom.white.x_raw, chrom.white.y_raw), w);
+    }
+
+    #[test]
+    fn test_v2_display_params_luminance_decoded() {
+        let max_full = encode_luminance_f16(1000.0);
+        let max_10pct = encode_luminance_f16(1500.0);
+        let min = encode_luminance_f16(0.05);
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            u16::from_le_bytes(max_full),
+            u16::from_le_bytes(max_10pct),
+            u16::from_le_bytes(min),
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        let params = did.display_params_v2.as_ref().unwrap();
+        assert!((params.max_luminance_full.unwrap() - 1000.0).abs() < 1.0);
+        assert!((params.max_luminance_10pct.unwrap() - 1500.0).abs() < 1.0);
+        assert!((params.min_luminance.unwrap() - 0.05).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_v2_display_params_negative_zero_luminance_is_unused() {
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000, // -0 = unused
+            0x8000,
+            0x8000,
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        let params = did.display_params_v2.as_ref().unwrap();
+        assert_eq!(params.max_luminance_full, None);
+        assert_eq!(params.max_luminance_10pct, None);
+        assert_eq!(params.min_luminance, None);
+    }
+
+    #[test]
+    fn test_v2_display_params_positive_zero_luminance_is_unused() {
+        // +0 (0x0000) is not the spec's sentinel, but 0 cd/m² is degenerate for any
+        // luminance field — accept it leniently as "unused" rather than Some(0.0).
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x0000,
+            0x0000,
+            0x0000,
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        let params = did.display_params_v2.as_ref().unwrap();
+        assert_eq!(params.max_luminance_full, None);
+        assert_eq!(params.max_luminance_10pct, None);
+        assert_eq!(params.min_luminance, None);
+    }
+
+    #[test]
+    fn test_v2_display_params_color_depth_decoded() {
+        // Bits 2:0 = 3 → 10 bpc.
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x03,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        let params = did.display_params_v2.as_ref().unwrap();
+        assert_eq!(params.color_bit_depth, Some(10));
+        assert_eq!(caps.color_bit_depth, Some(ColorBitDepth::Depth10));
+    }
+
+    #[test]
+    fn test_v2_display_params_color_depth_5_decodes_to_16() {
+        // Bits 2:0 = 5 → 16 bpc (DisplayID 2.x has no 14 bpc encoding).
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x05,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        assert_eq!(
+            did.display_params_v2.as_ref().unwrap().color_bit_depth,
+            Some(16)
+        );
+        assert_eq!(caps.color_bit_depth, Some(ColorBitDepth::Depth16));
+    }
+
+    #[test]
+    fn test_v2_display_params_display_technology_decoded() {
+        // Bits 6:4 = 2 → AMOLED.
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x20,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        assert_eq!(
+            did.display_params_v2.as_ref().unwrap().display_technology,
+            V2DisplayTechnology::Amoled
+        );
+    }
+
+    #[test]
+    fn test_v2_display_params_gamma_decoded() {
+        // gamma_byte = 120 → (120/100) + 1 = 2.20.
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x00,
+            120,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        let g = did.display_params_v2.as_ref().unwrap().gamma.unwrap();
+        assert!((g - 2.20).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_v2_display_params_gamma_unspecified() {
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        assert_eq!(did.display_params_v2.as_ref().unwrap().gamma, None);
+    }
+
+    #[test]
+    fn test_v2_display_params_feature_flags_decoded() {
+        // bit 3 = luminance guidance, bit 6 = CIE 1976, bit 7 = external audio,
+        // bits 2:0 = 0b101 = LeftRightBottomTop scan.
+        let flags = 0b1100_1101;
+        let p = make_v2_display_params_payload(
+            0,
+            0,
+            0,
+            0,
+            flags,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x00,
+            0xFF,
+        );
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&p, 0x80, &mut caps, &mut did);
+        let params = did.display_params_v2.as_ref().unwrap();
+        assert!(params.luminance_guidance);
+        assert!(params.color_space_cie1976);
+        assert!(params.audio_external);
+        assert_eq!(params.scan_orientation, ScanOrientation::LeftRightBottomTop);
+    }
+
+    #[test]
+    fn test_v2_display_params_short_payload_skipped() {
+        let short = [0u8; 28];
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_display_params_block(&short, 0x80, &mut caps, &mut did);
+        assert!(did.display_params_v2.is_none());
+    }
+
+    #[test]
+    fn test_v2_display_params_dispatched_only_for_v2_section() {
+        let body = make_v2_display_params_payload(
+            597,
+            336,
+            3840,
+            2160,
+            0,
+            (0, 0, 0, 0, 0, 0, 0, 0),
+            0x8000,
+            0x8000,
+            0x8000,
+            0x03,
+            0xFF,
+        );
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_V2_DISPLAY_PARAMS); // tag
+        block_payload.push(0x80); // revision (image-size precision = 1 mm)
+        block_payload.push(body.len() as u8); // length
+        block_payload.extend_from_slice(&body);
+
+        // V1 section: should not decode V2 0x21.
+        let mut caps_v1 = DisplayCapabilities::default();
+        let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
+        scan_all_metadata_blocks(
+            &block_payload,
+            0x13,
+            &mut caps_v1,
+            &mut did_v1,
+            &mut Vec::new(),
+        );
+        assert!(did_v1.display_params_v2.is_none());
+
+        // V2 section: decoder runs.
+        let mut caps_v2 = DisplayCapabilities::default();
+        let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(
+            &block_payload,
+            DISPLAYID_V2,
+            &mut caps_v2,
+            &mut did_v2,
+            &mut Vec::new(),
+        );
+        assert!(did_v2.display_params_v2.is_some());
+        assert_eq!(caps_v2.preferred_image_size_mm, Some((597, 336)));
+        assert_eq!(caps_v2.native_pixels, Some((3840, 2160)));
+    }
+
+    // -----------------------------------------------------------------------
+    // V2 Dynamic Video Timing Range Limits Block (tag 0x25)
+    // -----------------------------------------------------------------------
+
+    fn make_v2_dynamic_timing_range_payload(
+        min_pclk_khz: u32,
+        max_pclk_khz: u32,
+        min_v_hz: u8,
+        max_v_hz: u16,
+        vrr: bool,
+    ) -> [u8; 9] {
+        let mut p = [0u8; 9];
+        p[0] = (min_pclk_khz & 0xFF) as u8;
+        p[1] = ((min_pclk_khz >> 8) & 0xFF) as u8;
+        p[2] = ((min_pclk_khz >> 16) & 0xFF) as u8;
+        p[3] = (max_pclk_khz & 0xFF) as u8;
+        p[4] = ((max_pclk_khz >> 8) & 0xFF) as u8;
+        p[5] = ((max_pclk_khz >> 16) & 0xFF) as u8;
+        p[6] = min_v_hz;
+        p[7] = (max_v_hz & 0xFF) as u8;
+        let mut flags = ((max_v_hz >> 8) & 0x03) as u8;
+        if vrr {
+            flags |= 0x80;
+        }
+        p[8] = flags;
+        p
+    }
+
+    #[test]
+    fn test_v2_dynamic_timing_range_basic() {
+        // 25 MHz–600 MHz, 24–60 Hz, no VRR. Block revision 0 (8-bit max v rate).
+        let p = make_v2_dynamic_timing_range_payload(25_000, 600_000, 24, 60, false);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_dynamic_timing_range_block(&p, 0x00, &mut caps, &mut did);
+        let r = did.dynamic_timing_range.unwrap();
+        assert_eq!(r.min_pixel_clock_khz, 25_000);
+        assert_eq!(r.max_pixel_clock_khz, 600_000);
+        assert_eq!(r.min_v_rate_hz, 24);
+        assert_eq!(r.max_v_rate_hz, 60);
+        assert!(!r.vrr_supported);
+        assert_eq!(caps.max_pixel_clock_mhz, Some(600));
+        assert_eq!(caps.min_v_rate, Some(24));
+        assert_eq!(caps.max_v_rate, Some(60));
+    }
+
+    #[test]
+    fn test_v2_dynamic_timing_range_vrr_flag() {
+        let p = make_v2_dynamic_timing_range_payload(25_000, 600_000, 30, 144, true);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_dynamic_timing_range_block(&p, 0x01, &mut caps, &mut did);
+        assert!(did.dynamic_timing_range.unwrap().vrr_supported);
+    }
+
+    #[test]
+    fn test_v2_dynamic_timing_range_revision_1_uses_9_bit_max_v_rate() {
+        // Max v rate = 480 Hz (0x1E0). Low 8 bits = 0xE0 in byte 7; high 2 bits = 0b01 in flags[1:0].
+        let p = make_v2_dynamic_timing_range_payload(25_000, 600_000, 24, 480, false);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_dynamic_timing_range_block(&p, 0x01, &mut caps, &mut did);
+        assert_eq!(did.dynamic_timing_range.unwrap().max_v_rate_hz, 480);
+        assert_eq!(caps.max_v_rate, Some(480));
+    }
+
+    #[test]
+    fn test_v2_dynamic_timing_range_revision_0_ignores_high_bits() {
+        // Encode a 9-bit max_v_rate (480 Hz) but pass revision 0 — the high 2 bits
+        // are reserved on revision 0, so only the low 8 bits should decode (0xE0 = 224).
+        let p = make_v2_dynamic_timing_range_payload(25_000, 600_000, 24, 480, false);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_dynamic_timing_range_block(&p, 0x00, &mut caps, &mut did);
+        assert_eq!(did.dynamic_timing_range.unwrap().max_v_rate_hz, 0xE0);
+    }
+
+    #[test]
+    fn test_v2_dynamic_timing_range_pixel_clock_khz_precision_preserved() {
+        // 148_500 kHz = 148.5 MHz; the kHz precision is preserved on did.dynamic_timing_range
+        // even though the unified caps field rounds down to 148 MHz.
+        let p = make_v2_dynamic_timing_range_payload(25_000, 148_500, 24, 60, false);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_dynamic_timing_range_block(&p, 0x00, &mut caps, &mut did);
+        assert_eq!(
+            did.dynamic_timing_range.unwrap().max_pixel_clock_khz,
+            148_500
+        );
+        assert_eq!(caps.max_pixel_clock_mhz, Some(148));
+    }
+
+    #[test]
+    fn test_v2_dynamic_timing_range_short_payload_skipped() {
+        let short = [0u8; 8];
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_dynamic_timing_range_block(&short, 0x01, &mut caps, &mut did);
+        assert!(did.dynamic_timing_range.is_none());
+    }
+
+    #[test]
+    fn test_v2_dynamic_timing_range_dispatched_only_for_v2_section() {
+        let body = make_v2_dynamic_timing_range_payload(25_000, 600_000, 24, 60, true);
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_V2_DYNAMIC_TIMING_RANGE);
+        block_payload.push(0x01); // revision 1
+        block_payload.push(body.len() as u8);
+        block_payload.extend_from_slice(&body);
+
+        // V1 section: must not decode.
+        let mut caps_v1 = DisplayCapabilities::default();
+        let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
+        scan_all_metadata_blocks(
+            &block_payload,
+            0x13,
+            &mut caps_v1,
+            &mut did_v1,
+            &mut Vec::new(),
+        );
+        assert!(did_v1.dynamic_timing_range.is_none());
+
+        // V2 section: decoder runs.
+        let mut caps_v2 = DisplayCapabilities::default();
+        let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(
+            &block_payload,
+            DISPLAYID_V2,
+            &mut caps_v2,
+            &mut did_v2,
+            &mut Vec::new(),
+        );
+        let r = did_v2.dynamic_timing_range.unwrap();
+        assert_eq!(r.max_pixel_clock_khz, 600_000);
+        assert!(r.vrr_supported);
+    }
+
+    // -----------------------------------------------------------------------
+    // V2 Display Interface Features Block (tag 0x26)
+    // -----------------------------------------------------------------------
+
+    fn make_v2_interface_features_payload(
+        rgb: u8,
+        ycbcr444: u8,
+        ycbcr422: u8,
+        ycbcr420: u8,
+        min_420_rate: u8,
+        audio: u8,
+        cs_eotf_1: u8,
+    ) -> [u8; 9] {
+        [
+            rgb,
+            ycbcr444,
+            ycbcr422,
+            ycbcr420,
+            min_420_rate,
+            audio,
+            cs_eotf_1,
+            0x00,
+            0x00,
+        ]
+    }
+
+    #[test]
+    fn test_v2_interface_features_basic() {
+        // RGB: 8/10/12 bpc; YCbCr 4:4:4: 8/10; YCbCr 4:2:2: 8/10/12;
+        // YCbCr 4:2:0: 10; min 4:2:0 rate at 74.25 MP/s; 48 kHz audio; default colorspace.
+        let p = make_v2_interface_features_payload(
+            0b0000_1110,
+            0b0000_0110,
+            0b0000_0111,
+            0b0000_0010,
+            1,
+            0b1000_0000,
+            0b0000_0001,
+        );
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_interface_features_block(&p, &mut did);
+        let f = did.interface_features.unwrap();
+        assert_eq!(f.color_depth_rgb.bits(), 0b0000_1110);
+        assert_eq!(f.color_depth_ycbcr444.bits(), 0b0000_0110);
+        assert_eq!(f.color_depth_ycbcr422.bits(), 0b0000_0111);
+        assert_eq!(f.color_depth_ycbcr420.bits(), 0b0000_0010);
+        assert_eq!(f.min_ycbcr420_pixel_rate, 1);
+        assert_eq!(f.audio_flags, 0b1000_0000);
+        assert_eq!(f.color_space_eotf_combos, 0b0000_0001);
+    }
+
+    #[test]
+    fn test_v2_interface_features_all_zero_payload() {
+        let p = make_v2_interface_features_payload(0, 0, 0, 0, 0, 0, 0);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_interface_features_block(&p, &mut did);
+        // Even fully-zero (no formats supported) is a valid decoded record.
+        let f = did.interface_features.unwrap();
+        assert_eq!(f.color_depth_rgb.bits(), 0);
+        assert_eq!(f.audio_flags, 0);
+    }
+
+    #[test]
+    fn test_v2_interface_features_short_payload_skipped() {
+        let short = [0x3E, 0x06, 0x07, 0x02, 0x00, 0x80, 0x01, 0x00]; // 8 bytes
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_interface_features_block(&short, &mut did);
+        assert!(did.interface_features.is_none());
+    }
+
+    #[test]
+    fn test_v2_interface_features_no_custom_combos_when_count_zero() {
+        // count = 0 → custom_color_space_eotf_count = 0.
+        let p = make_v2_interface_features_payload(0x3E, 0x06, 0x07, 0x02, 0, 0x80, 0x01);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_interface_features_block(&p, &mut did);
+        let f = did.interface_features.unwrap();
+        assert_eq!(f.color_space_eotf_combos, 0x01);
+        assert_eq!(f.custom_color_space_eotf_count, 0);
+    }
+
+    #[test]
+    fn test_v2_interface_features_custom_combos_decoded() {
+        // count = 2; combo[0] = cs=6 (BT.2020), eotf=8 (ST 2084); combo[1] = cs=1 (sRGB), eotf=1.
+        let mut p = make_v2_interface_features_payload(0, 0, 0, 0, 0, 0, 0).to_vec();
+        p[7] = 0x00; // reserved
+        p[8] = 2; // count
+        p.push((6 << 4) | 8); // BT.2020 / ST 2084
+        p.push((1 << 4) | 1); // sRGB / sRGB
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_interface_features_block(&p, &mut did);
+        let f = did.interface_features.unwrap();
+        assert_eq!(f.custom_color_space_eotf_count, 2);
+        assert_eq!(f.custom_color_space_eotf_combos[0].color_space, 6);
+        assert_eq!(f.custom_color_space_eotf_combos[0].eotf, 8);
+        assert_eq!(f.custom_color_space_eotf_combos[1].color_space, 1);
+        assert_eq!(f.custom_color_space_eotf_combos[1].eotf, 1);
+    }
+
+    #[test]
+    fn test_v2_interface_features_custom_combos_capped_at_7() {
+        // count = 9 (> 7 max); only 7 decoded.
+        let mut p = make_v2_interface_features_payload(0, 0, 0, 0, 0, 0, 0).to_vec();
+        p[8] = 9;
+        p.extend(core::iter::repeat_n(0x11u8, 9));
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_interface_features_block(&p, &mut did);
+        let f = did.interface_features.unwrap();
+        assert_eq!(f.custom_color_space_eotf_count, 7);
+    }
+
+    #[test]
+    fn test_v2_interface_features_dispatched_only_for_v2_section() {
+        let body = make_v2_interface_features_payload(0x3E, 0x06, 0x07, 0x02, 0, 0x80, 0x01);
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_V2_INTERFACE_FEATURES);
+        block_payload.push(0x00); // revision
+        block_payload.push(body.len() as u8);
+        block_payload.extend_from_slice(&body);
+
+        // V1 section: must not decode.
+        let mut caps_v1 = DisplayCapabilities::default();
+        let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
+        scan_all_metadata_blocks(
+            &block_payload,
+            0x13,
+            &mut caps_v1,
+            &mut did_v1,
+            &mut Vec::new(),
+        );
+        assert!(did_v1.interface_features.is_none());
+
+        // V2 section: decoder runs.
+        let mut caps_v2 = DisplayCapabilities::default();
+        let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(
+            &block_payload,
+            DISPLAYID_V2,
+            &mut caps_v2,
+            &mut did_v2,
+            &mut Vec::new(),
+        );
+        let f = did_v2.interface_features.unwrap();
+        assert_eq!(f.color_depth_rgb.bits(), 0x3E);
+        assert_eq!(f.audio_flags, 0x80);
+    }
+
+    #[test]
+    fn test_v2_interface_features_only_first_block_decoded() {
+        // Two 0x26 blocks back-to-back: the second must be ignored.
+        let first = make_v2_interface_features_payload(0x3E, 0x06, 0x07, 0x02, 0, 0x80, 0x01);
+        let second = make_v2_interface_features_payload(0xFF, 0xFF, 0xFF, 0xFF, 9, 0xE0, 0xFF);
+        let mut payload = Vec::new();
+        for body in [first, second] {
+            payload.push(TAG_V2_INTERFACE_FEATURES);
+            payload.push(0x00);
+            payload.push(body.len() as u8);
+            payload.extend_from_slice(&body);
+        }
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut Vec::new());
+        let f = did.interface_features.unwrap();
+        assert_eq!(f.color_depth_rgb.bits(), 0x3E);
+        assert_eq!(f.audio_flags, 0x80);
+    }
+
+    // -----------------------------------------------------------------------
     // Display Parameters Block (tag 0x01)
     // -----------------------------------------------------------------------
 
@@ -1144,6 +2770,7 @@ mod tests {
     // Video Timing Range Limits Block (tag 0x09)
     // -----------------------------------------------------------------------
 
+    #[allow(clippy::too_many_arguments)] // mirrors the wire-format field list
     fn make_video_timing_range_payload(
         min_pixel_clock_10khz: u32,
         max_pixel_clock_10khz: u32,
@@ -1913,6 +3540,7 @@ mod tests {
     // Tiled Display Topology Data Block (tag 0x12)
     // -----------------------------------------------------------------------
 
+    #[allow(clippy::too_many_arguments)] // mirrors the wire-format field list
     fn make_tiled_topology_payload(
         single_enclosure: bool,
         has_bezel: bool,
@@ -2020,6 +3648,568 @@ mod tests {
         let mut caps = DisplayCapabilities::default();
         decode_tiled_topology_block(&[], &mut caps);
         assert_eq!(caps.tiled_topology, None);
+    }
+
+    // -----------------------------------------------------------------------
+    // V2 Tiled Display Topology Data Block (tag 0x28)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_v2_tiled_topology_dispatched_for_v2_section() {
+        let body = make_tiled_topology_payload(true, false, 1, 1, 1, 0, 0, 1920, 1080, None);
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_V2_TILED_TOPOLOGY);
+        block_payload.push(0x00);
+        block_payload.push(body.len() as u8);
+        block_payload.extend_from_slice(&body);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(
+            &block_payload,
+            DISPLAYID_V2,
+            &mut caps,
+            &mut did,
+            &mut Vec::new(),
+        );
+        let t = caps
+            .tiled_topology
+            .expect("V2 0x28 should populate tiled_topology");
+        assert_eq!(t.h_tile_count, 2);
+        assert_eq!(t.v_tile_count, 2);
+    }
+
+    #[test]
+    fn test_v2_tiled_topology_v1_tag_ignored_in_v2_section() {
+        // 1.x tag 0x12 must not decode under a V2 section header.
+        let body = make_tiled_topology_payload(true, false, 1, 1, 1, 0, 0, 1920, 1080, None);
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_TILED_TOPOLOGY); // 0x12 (V1 tag)
+        block_payload.push(0x00);
+        block_payload.push(body.len() as u8);
+        block_payload.extend_from_slice(&body);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(
+            &block_payload,
+            DISPLAYID_V2,
+            &mut caps,
+            &mut did,
+            &mut Vec::new(),
+        );
+        assert!(caps.tiled_topology.is_none());
+    }
+
+    #[test]
+    fn test_v2_tiled_topology_v2_tag_ignored_in_v1_section() {
+        // 2.x tag 0x28 must not decode under a V1 section header.
+        let body = make_tiled_topology_payload(true, false, 1, 1, 1, 0, 0, 1920, 1080, None);
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_V2_TILED_TOPOLOGY); // 0x28
+        block_payload.push(0x00);
+        block_payload.push(body.len() as u8);
+        block_payload.extend_from_slice(&body);
+
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x13, 0);
+        scan_all_metadata_blocks(&block_payload, 0x13, &mut caps, &mut did, &mut Vec::new());
+        assert!(caps.tiled_topology.is_none());
+    }
+
+    #[test]
+    fn test_v2_tiled_topology_first_wins() {
+        let first = make_tiled_topology_payload(true, false, 1, 1, 1, 0, 0, 1920, 1080, None);
+        let second = make_tiled_topology_payload(false, false, 0, 3, 3, 1, 1, 800, 600, None);
+        let mut payload = Vec::new();
+        for body in [first, second] {
+            payload.push(TAG_V2_TILED_TOPOLOGY);
+            payload.push(0x00);
+            payload.push(body.len() as u8);
+            payload.extend_from_slice(&body);
+        }
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut Vec::new());
+        let t = caps
+            .tiled_topology
+            .expect("first 0x28 should populate tiled_topology");
+        assert_eq!(t.h_tile_count, 2);
+        assert_eq!(t.v_tile_count, 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // V2 Stereo Display Interface Block (tag 0x27)
+    // -----------------------------------------------------------------------
+
+    fn make_v2_stereo_payload(method: u8, args: &[u8]) -> Vec<u8> {
+        // payload[0] = descriptor length (1 method byte + args), [1] = method, [2..] = args.
+        let mut v = Vec::with_capacity(2 + args.len());
+        v.push(1 + args.len() as u8);
+        v.push(method);
+        v.extend_from_slice(args);
+        v
+    }
+
+    #[test]
+    fn test_v2_stereo_field_sequential() {
+        let p = make_v2_stereo_payload(0x00, &[0x01]); // polarity bit set
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(r.timing_scope, StereoTimingScopeV2::ExplicitTimingsOnly);
+        assert!(matches!(
+            r.method,
+            StereoViewingMethodV2::FieldSequential {
+                eye_on_high_half: StereoEye::Right
+            }
+        ));
+    }
+
+    #[test]
+    fn test_v2_stereo_side_by_side_left_eye_in_left_half() {
+        let p = make_v2_stereo_payload(0x01, &[0x00]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(
+            r.method,
+            StereoViewingMethodV2::SideBySide {
+                left_half: StereoEye::Left
+            }
+        );
+    }
+
+    #[test]
+    fn test_v2_stereo_side_by_side_right_eye_in_left_half() {
+        let p = make_v2_stereo_payload(0x01, &[0x01]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(
+            r.method,
+            StereoViewingMethodV2::SideBySide {
+                left_half: StereoEye::Right
+            }
+        );
+    }
+
+    #[test]
+    fn test_v2_stereo_pixel_interleaved() {
+        let pattern = [0xAA, 0x55, 0xF0, 0x0F, 0xCC, 0x33, 0xFF, 0x00];
+        let p = make_v2_stereo_payload(0x02, &pattern);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(
+            r.method,
+            StereoViewingMethodV2::PixelInterleaved { pattern }
+        );
+    }
+
+    #[test]
+    fn test_v2_stereo_dual_interface_left_no_mirror() {
+        let p = make_v2_stereo_payload(0x03, &[0x00]); // eye=L, mirror=00
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(
+            r.method,
+            StereoViewingMethodV2::DualInterface {
+                eye: StereoEye::Left,
+                mirroring: DualInterfaceMirroring::None
+            }
+        );
+    }
+
+    #[test]
+    fn test_v2_stereo_dual_interface_right_top_bottom_mirror() {
+        // bit0=1 (Right), bits2:1=10 (TopBottom)
+        let p = make_v2_stereo_payload(0x03, &[0b0000_0101]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(
+            r.method,
+            StereoViewingMethodV2::DualInterface {
+                eye: StereoEye::Right,
+                mirroring: DualInterfaceMirroring::TopBottom
+            }
+        );
+    }
+
+    #[test]
+    fn test_v2_stereo_multi_view() {
+        let p = make_v2_stereo_payload(0x04, &[8, 0x42]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(
+            r.method,
+            StereoViewingMethodV2::MultiView {
+                view_count: 8,
+                interleaving_method_code: 0x42
+            }
+        );
+    }
+
+    #[test]
+    fn test_v2_stereo_stacked_frame_top_is_right() {
+        let p = make_v2_stereo_payload(0x05, &[0x01]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(
+            r.method,
+            StereoViewingMethodV2::StackedFrame {
+                top_half: StereoEye::Right
+            }
+        );
+    }
+
+    #[test]
+    fn test_v2_stereo_proprietary() {
+        let p = make_v2_stereo_payload(0xFF, &[]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(r.method, StereoViewingMethodV2::Proprietary);
+    }
+
+    #[test]
+    fn test_v2_stereo_reserved_method() {
+        let p = make_v2_stereo_payload(0x42, &[0x00]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(r.method, StereoViewingMethodV2::Reserved(0x42));
+    }
+
+    #[test]
+    fn test_v2_stereo_timing_scope_decoded_from_revision() {
+        // Revision bits 7:6 = 0b11 → ListedTimingCodesOnly
+        let p = make_v2_stereo_payload(0x00, &[0x00]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0b1100_0000, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(r.timing_scope, StereoTimingScopeV2::ListedTimingCodesOnly);
+        assert!(r.has_timing_codes());
+    }
+
+    #[test]
+    fn test_v2_stereo_short_payload_skipped() {
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&[0x02], 0x00, &mut did);
+        assert!(did.stereo_interface_v2.is_none());
+    }
+
+    #[test]
+    fn test_v2_stereo_method_args_truncated_skipped() {
+        // method 0x02 (pixel interleaved) needs 8 arg bytes; descriptor claims 9 bytes total
+        // but payload only carries 4. Decoder must skip without panicking.
+        let p = vec![0x09, 0x02, 0xAA, 0x55, 0xF0]; // 1 + 1 + 3 args, claim 9
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        assert!(did.stereo_interface_v2.is_none());
+    }
+
+    #[test]
+    fn test_v2_stereo_dispatched_only_for_v2_section() {
+        let body = make_v2_stereo_payload(0x01, &[0x00]);
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_V2_STEREO_INTERFACE);
+        block_payload.push(0x00); // revision
+        block_payload.push(body.len() as u8);
+        block_payload.extend_from_slice(&body);
+
+        // V1 section: must not decode.
+        let mut caps_v1 = DisplayCapabilities::default();
+        let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
+        scan_all_metadata_blocks(
+            &block_payload,
+            0x13,
+            &mut caps_v1,
+            &mut did_v1,
+            &mut Vec::new(),
+        );
+        assert!(did_v1.stereo_interface_v2.is_none());
+
+        // V2 section: decoder runs.
+        let mut caps_v2 = DisplayCapabilities::default();
+        let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(
+            &block_payload,
+            DISPLAYID_V2,
+            &mut caps_v2,
+            &mut did_v2,
+            &mut Vec::new(),
+        );
+        let r = did_v2.stereo_interface_v2.unwrap();
+        assert_eq!(
+            r.method,
+            StereoViewingMethodV2::SideBySide {
+                left_half: StereoEye::Left
+            }
+        );
+    }
+
+    #[test]
+    fn test_v2_stereo_first_wins() {
+        let first = make_v2_stereo_payload(0x01, &[0x00]); // SideBySide left=L
+        let second = make_v2_stereo_payload(0x05, &[0x01]); // StackedFrame top=R
+        let mut payload = Vec::new();
+        for body in [first, second] {
+            payload.push(TAG_V2_STEREO_INTERFACE);
+            payload.push(0x00);
+            payload.push(body.len() as u8);
+            payload.extend_from_slice(&body);
+        }
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut Vec::new());
+        let r = did.stereo_interface_v2.unwrap();
+        assert!(matches!(r.method, StereoViewingMethodV2::SideBySide { .. }));
+    }
+
+    // -----------------------------------------------------------------------
+    // V2 ContainerID Block (tag 0x29)
+    #[test]
+    fn test_v2_stereo_timing_codes_decoded() {
+        // ListedTimingCodesOnly scope (revision bits 7:6 = 0b11).
+        // Stereo descriptor: method 0x00 (FieldSequential), arg 0x01.
+        // Timing codes: one record with type=VIC (0b01), count=2, codes [97, 32].
+        let descriptor_len = 2u8; // method byte + 1 arg
+        let mut p = vec![descriptor_len, 0x00, 0x01]; // descriptor
+        // Header: bits 7:6 = 0b01 (VIC), bits 4:0 = 2 (count)
+        p.push((0b01 << 6) | 2);
+        p.push(97);
+        p.push(32);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0b1100_0000, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(r.timing_scope, StereoTimingScopeV2::ListedTimingCodesOnly);
+        assert_eq!(r.timing_codes.len(), 2);
+        assert_eq!(r.timing_codes[0].code_type, StereoTimingCodeType::Vic);
+        assert_eq!(r.timing_codes[0].code, 97);
+        assert_eq!(r.timing_codes[1].code, 32);
+    }
+
+    #[test]
+    fn test_v2_stereo_timing_codes_multiple_records() {
+        // Two records: one DMT (code 0x09), one HDMI VIC (code 1).
+        let descriptor_len = 1u8;
+        let mut p = vec![descriptor_len, 0xFF]; // Proprietary method, no args
+        p.push(1); // DMT (0b00 << 6), count=1
+        p.push(0x09);
+        p.push((0b10 << 6) | 1); // HDMI VIC, count=1
+        p.push(1);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0b0100_0000, &mut did); // ExplicitAndListedTimings
+        let r = did.stereo_interface_v2.unwrap();
+        assert_eq!(r.timing_codes.len(), 2);
+        assert_eq!(r.timing_codes[0].code_type, StereoTimingCodeType::Dmt);
+        assert_eq!(r.timing_codes[0].code, 0x09);
+        assert_eq!(r.timing_codes[1].code_type, StereoTimingCodeType::HdmiVic);
+        assert_eq!(r.timing_codes[1].code, 1);
+    }
+
+    #[test]
+    fn test_v2_stereo_no_timing_codes_when_scope_excludes_them() {
+        // ExplicitTimingsOnly (revision 0x00): no timing-code list even if bytes follow.
+        let descriptor_len = 1u8;
+        let mut p = vec![descriptor_len, 0xFF]; // Proprietary
+        p.push(0x41); // would be a record header if codes were parsed
+        p.push(99);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_stereo_interface_block(&p, 0x00, &mut did);
+        let r = did.stereo_interface_v2.unwrap();
+        assert!(r.timing_codes.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+
+    const SAMPLE_UUID: [u8; 16] = [
+        0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+        0x88,
+    ];
+
+    #[test]
+    fn test_v2_container_id_basic() {
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_container_id_block(&SAMPLE_UUID, &mut did);
+        assert_eq!(did.container_id, Some(SAMPLE_UUID));
+    }
+
+    #[test]
+    fn test_v2_container_id_short_payload_skipped() {
+        let short = [0u8; 15];
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_container_id_block(&short, &mut did);
+        assert!(did.container_id.is_none());
+    }
+
+    #[test]
+    fn test_v2_container_id_ignores_trailing_bytes() {
+        let mut payload = SAMPLE_UUID.to_vec();
+        payload.extend_from_slice(&[0xAA; 8]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_container_id_block(&payload, &mut did);
+        assert_eq!(did.container_id, Some(SAMPLE_UUID));
+    }
+
+    #[test]
+    fn test_v2_container_id_dispatched_only_for_v2_section() {
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_V2_CONTAINER_ID);
+        block_payload.push(0x00);
+        block_payload.push(SAMPLE_UUID.len() as u8);
+        block_payload.extend_from_slice(&SAMPLE_UUID);
+
+        // V1 section: must not decode.
+        let mut caps_v1 = DisplayCapabilities::default();
+        let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
+        scan_all_metadata_blocks(
+            &block_payload,
+            0x13,
+            &mut caps_v1,
+            &mut did_v1,
+            &mut Vec::new(),
+        );
+        assert!(did_v1.container_id.is_none());
+
+        // V2 section: decoder runs.
+        let mut caps_v2 = DisplayCapabilities::default();
+        let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(
+            &block_payload,
+            DISPLAYID_V2,
+            &mut caps_v2,
+            &mut did_v2,
+            &mut Vec::new(),
+        );
+        assert_eq!(did_v2.container_id, Some(SAMPLE_UUID));
+    }
+
+    #[test]
+    fn test_v2_container_id_first_wins() {
+        let second = [0xFFu8; 16];
+        let mut payload = Vec::new();
+        for body in [SAMPLE_UUID, second] {
+            payload.push(TAG_V2_CONTAINER_ID);
+            payload.push(0x00);
+            payload.push(body.len() as u8);
+            payload.extend_from_slice(&body);
+        }
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut Vec::new());
+        assert_eq!(did.container_id, Some(SAMPLE_UUID));
+    }
+
+    // -----------------------------------------------------------------------
+    // V2 Vendor-Specific Block (tag 0x7E)
+    // -----------------------------------------------------------------------
+
+    const DOLBY_OUI: [u8; 3] = [0x00, 0xD0, 0x46];
+    const MICROSOFT_OUI: [u8; 3] = [0xCA, 0x12, 0x5C];
+
+    #[test]
+    fn test_v2_vendor_specific_basic() {
+        let mut payload = DOLBY_OUI.to_vec();
+        payload.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_vendor_specific_block(&payload, &mut did);
+        assert_eq!(did.vendor_specific.len(), 1);
+        assert_eq!(did.vendor_specific[0].oui, DOLBY_OUI);
+        assert_eq!(
+            did.vendor_specific[0].data.as_slice(),
+            &[0xDE, 0xAD, 0xBE, 0xEF]
+        );
+    }
+
+    #[test]
+    fn test_v2_vendor_specific_oui_only_no_data() {
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_vendor_specific_block(&DOLBY_OUI, &mut did);
+        assert_eq!(did.vendor_specific.len(), 1);
+        assert_eq!(did.vendor_specific[0].oui, DOLBY_OUI);
+        assert!(did.vendor_specific[0].data.is_empty());
+    }
+
+    #[test]
+    fn test_v2_vendor_specific_short_payload_skipped() {
+        let short = [0x00, 0xD0]; // 2 bytes, no full OUI
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        decode_v2_vendor_specific_block(&short, &mut did);
+        assert!(did.vendor_specific.is_empty());
+    }
+
+    #[test]
+    fn test_v2_vendor_specific_dispatched_only_for_v2_section() {
+        let body = {
+            let mut v = DOLBY_OUI.to_vec();
+            v.extend_from_slice(&[0x01, 0x02]);
+            v
+        };
+        let mut block_payload = Vec::new();
+        block_payload.push(TAG_V2_VENDOR_SPECIFIC);
+        block_payload.push(0x00);
+        block_payload.push(body.len() as u8);
+        block_payload.extend_from_slice(&body);
+
+        // V1 section: 0x7E is not a 1.x tag — must not decode.
+        let mut caps_v1 = DisplayCapabilities::default();
+        let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
+        scan_all_metadata_blocks(
+            &block_payload,
+            0x13,
+            &mut caps_v1,
+            &mut did_v1,
+            &mut Vec::new(),
+        );
+        assert!(did_v1.vendor_specific.is_empty());
+
+        // V2 section: decoder runs.
+        let mut caps_v2 = DisplayCapabilities::default();
+        let mut did_v2 = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(
+            &block_payload,
+            DISPLAYID_V2,
+            &mut caps_v2,
+            &mut did_v2,
+            &mut Vec::new(),
+        );
+        assert_eq!(did_v2.vendor_specific.len(), 1);
+        assert_eq!(did_v2.vendor_specific[0].oui, DOLBY_OUI);
+    }
+
+    #[test]
+    fn test_v2_vendor_specific_collects_multiple_in_payload_order() {
+        let first = {
+            let mut v = DOLBY_OUI.to_vec();
+            v.push(0x11);
+            v
+        };
+        let second = {
+            let mut v = MICROSOFT_OUI.to_vec();
+            v.extend_from_slice(&[0x22, 0x33]);
+            v
+        };
+        let mut payload = Vec::new();
+        for body in [&first, &second] {
+            payload.push(TAG_V2_VENDOR_SPECIFIC);
+            payload.push(0x00);
+            payload.push(body.len() as u8);
+            payload.extend_from_slice(body);
+        }
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut Vec::new());
+        assert_eq!(did.vendor_specific.len(), 2);
+        assert_eq!(did.vendor_specific[0].oui, DOLBY_OUI);
+        assert_eq!(did.vendor_specific[0].data.as_slice(), &[0x11]);
+        assert_eq!(did.vendor_specific[1].oui, MICROSOFT_OUI);
+        assert_eq!(did.vendor_specific[1].data.as_slice(), &[0x22, 0x33]);
     }
 
     // -----------------------------------------------------------------------
@@ -2202,5 +4392,154 @@ mod tests {
         let topo = caps.tiled_topology.unwrap();
         assert_eq!(topo.h_tile_count, 2);
         assert_eq!(topo.v_tile_count, 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // V2 CTA DisplayID Block (tag 0x81)
+    // -----------------------------------------------------------------------
+
+    /// Builds a CTA-861 Video Data Block holding the given VICs as Short Video Descriptors
+    /// (1 byte each, native bit clear). Returns the bytes including the 1-byte CTA header.
+    fn cta_video_data_block(vics: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(1 + vics.len());
+        out.push((0x02 << 5) | (vics.len() as u8 & 0x1F)); // tag=2, length=N
+        out.extend_from_slice(vics);
+        out
+    }
+
+    /// Wraps a CTA-861 data block collection in a DisplayID 2.x block header (tag 0x81,
+    /// revision `revision`, length = collection.len()). Returns bytes ready to drop into a
+    /// DisplayID V2 section payload.
+    fn make_v2_cta_displayid_block(revision: u8, collection: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(3 + collection.len());
+        out.push(TAG_V2_CTA_DISPLAYID);
+        out.push(revision);
+        out.push(collection.len() as u8);
+        out.extend_from_slice(collection);
+        out
+    }
+
+    #[test]
+    fn test_v2_cta_displayid_basic_decodes_vics() {
+        // VIC 1 = 640x480@60.
+        let collection = cta_video_data_block(&[1]);
+        let payload = make_v2_cta_displayid_block(0, &collection);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut warnings);
+
+        let cea = caps
+            .get_extension_data::<crate::capabilities::cea861::Cea861Capabilities>(0x02)
+            .expect("0x81 must populate the 0x02 Cea861Capabilities entry");
+        assert_eq!(cea.vics, [(1, false)]);
+        assert!(
+            caps.supported_modes
+                .iter()
+                .any(|m| m.width == 640 && m.height == 480),
+            "VIC 1 mode 640x480 must reach caps.supported_modes",
+        );
+        assert!(warnings.is_empty(), "revision 0 must not warn");
+    }
+
+    #[test]
+    fn test_v2_cta_displayid_dispatched_only_for_v2_section() {
+        let collection = cta_video_data_block(&[1]);
+        let payload = make_v2_cta_displayid_block(0, &collection);
+
+        // V1 section: 0x81 is outside the V1 metadata tag space; decoder must not run.
+        let mut caps_v1 = DisplayCapabilities::default();
+        let mut did_v1 = DisplayIdCapabilities::new(0x13, 0);
+        scan_all_metadata_blocks(&payload, 0x13, &mut caps_v1, &mut did_v1, &mut Vec::new());
+        assert!(
+            caps_v1
+                .get_extension_data::<crate::capabilities::cea861::Cea861Capabilities>(0x02)
+                .is_none(),
+        );
+    }
+
+    #[test]
+    fn test_v2_cta_displayid_merges_with_existing_cea_extension_data() {
+        // Pre-populate as if the CEA-861 handler ran first and stored two VICs.
+        let mut caps = DisplayCapabilities::default();
+        let mut existing = crate::capabilities::cea861::Cea861Capabilities::new(
+            crate::capabilities::cea861::Cea861Flags::empty(),
+        );
+        existing.vics.push((16, true)); // VIC 16 = 1920x1080@60
+        caps.set_extension_data(0x02, existing);
+
+        // Now run 0x81 carrying VIC 1 (640x480@60).
+        let collection = cta_video_data_block(&[1]);
+        let payload = make_v2_cta_displayid_block(0, &collection);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut Vec::new());
+
+        let cea = caps
+            .get_extension_data::<crate::capabilities::cea861::Cea861Capabilities>(0x02)
+            .expect("merged Cea861Capabilities must remain at tag 0x02");
+        // Both VICs preserved, in observation order.
+        assert!(cea.vics.contains(&(16, true)));
+        assert!(cea.vics.contains(&(1, false)));
+        assert_eq!(cea.vics.len(), 2);
+    }
+
+    #[test]
+    fn test_v2_cta_displayid_dedupes_modes_against_supported_modes() {
+        // Pre-populate supported_modes with VIC 1's resolution.
+        let mut caps = DisplayCapabilities::default();
+        caps.supported_modes
+            .push(crate::model::capabilities::VideoMode::new(
+                640, 480, 60u32, false,
+            ));
+
+        let collection = cta_video_data_block(&[1]);
+        let payload = make_v2_cta_displayid_block(0, &collection);
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut Vec::new());
+
+        let count_640x480 = caps
+            .supported_modes
+            .iter()
+            .filter(|m| m.width == 640 && m.height == 480)
+            .count();
+        assert_eq!(count_640x480, 1, "duplicate VIC mode must not be appended");
+    }
+
+    #[test]
+    fn test_v2_cta_displayid_warns_on_nonzero_revision_and_parses_anyway() {
+        let collection = cta_video_data_block(&[1]);
+        let payload = make_v2_cta_displayid_block(0x05, &collection);
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        let mut warnings: Vec<ParseWarning> = Vec::new();
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut warnings);
+
+        assert_eq!(warnings.len(), 1);
+        let msg = warnings[0].to_string();
+        assert!(
+            msg.contains("0x81"),
+            "warning text must reference tag 0x81: {msg}"
+        );
+        // Payload still parsed.
+        let cea = caps
+            .get_extension_data::<crate::capabilities::cea861::Cea861Capabilities>(0x02)
+            .expect("payload still decoded under revision-0 wire format");
+        assert_eq!(cea.vics, [(1, false)]);
+    }
+
+    #[test]
+    fn test_v2_cta_displayid_multiple_blocks_accumulate() {
+        // Two 0x81 blocks in a single payload — both should contribute.
+        let mut payload = make_v2_cta_displayid_block(0, &cta_video_data_block(&[1]));
+        payload.extend(make_v2_cta_displayid_block(0, &cta_video_data_block(&[16])));
+        let mut caps = DisplayCapabilities::default();
+        let mut did = DisplayIdCapabilities::new(0x20, 0);
+        scan_all_metadata_blocks(&payload, DISPLAYID_V2, &mut caps, &mut did, &mut Vec::new());
+
+        let cea = caps
+            .get_extension_data::<crate::capabilities::cea861::Cea861Capabilities>(0x02)
+            .expect("Cea861Capabilities must accumulate across multiple 0x81 blocks");
+        assert!(cea.vics.contains(&(1, false)));
+        assert!(cea.vics.contains(&(16, false)));
     }
 }

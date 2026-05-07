@@ -1,6 +1,20 @@
 use crate::capabilities::cea861::{dmt_to_mode, vic_to_mode};
 use crate::model::capabilities::{ModeSink, VideoMode};
 
+/// Resolves a `(code_type, code)` pair against the DMT, VIC, or HDMI VIC tables.
+///
+/// `code_type` follows the DisplayID Type IV / Type VIII encoding (revision byte bits 7:6).
+/// Codes outside the addressable range of the chosen table (e.g. > 255 for VIC/HDMI VIC)
+/// are treated as unknown and return `None`.
+fn resolve_coded_timing(code_type: u8, code: u16) -> Option<VideoMode> {
+    match code_type {
+        0 => dmt_to_mode(code),
+        1 => u8::try_from(code).ok().and_then(vic_to_mode),
+        2 => u8::try_from(code).ok().and_then(hdmi_vic_to_mode),
+        _ => None,
+    }
+}
+
 /// Decodes a Type IV DMT/VIC Code Block payload and pushes resolved modes to `sink`.
 ///
 /// The code space is determined by the revision byte's upper 2 bits, passed in as `code_type`:
@@ -12,15 +26,36 @@ use crate::model::capabilities::{ModeSink, VideoMode};
 /// Codes not found in the respective table are silently skipped.
 pub(super) fn decode_type_iv_block(payload: &[u8], code_type: u8, sink: &mut dyn ModeSink) {
     for &code in payload {
-        let mode = match code_type {
-            0 => dmt_to_mode(code as u16),
-            1 => vic_to_mode(code),
-            2 => hdmi_vic_to_mode(code),
-            _ => None,
-        };
-        if let Some(m) = mode {
+        if let Some(m) = resolve_coded_timing(code_type, code as u16) {
             sink.push_mode(m);
         }
+    }
+}
+
+/// Decodes a Type VIII Enumerated Timing Code block payload and pushes resolved modes to `sink`.
+///
+/// The block's revision byte selects the code space and the per-code byte width:
+/// - bits 7:6 = code type (`0` DMT, `1` VIC, `2` HDMI VIC, `3` reserved)
+/// - bit 3    = `TCS` (Two-byte Code Support): `0` = 1-byte codes, `1` = 2-byte little-endian codes
+///
+/// Codes outside the addressable range of the chosen table or absent from the lookup are
+/// silently skipped. A trailing odd byte in 2-byte mode is ignored.
+pub(super) fn decode_type_viii_block(payload: &[u8], revision: u8, sink: &mut dyn ModeSink) {
+    let code_type = (revision >> 6) & 0x03;
+    let two_byte = (revision >> 3) & 1 != 0;
+    let stride = if two_byte { 2 } else { 1 };
+
+    let mut i = 0;
+    while i + stride <= payload.len() {
+        let code = if two_byte {
+            u16::from_le_bytes([payload[i], payload[i + 1]])
+        } else {
+            payload[i] as u16
+        };
+        if let Some(m) = resolve_coded_timing(code_type, code) {
+            sink.push_mode(m);
+        }
+        i += stride;
     }
 }
 
@@ -32,7 +67,7 @@ pub(super) fn decode_type_iv_block(payload: &[u8], code_type: u8, sink: &mut dyn
 /// - 3: 3840×2160@24 Hz
 /// - 4: 4096×2160@24 Hz
 fn hdmi_vic_to_mode(code: u8) -> Option<VideoMode> {
-    let (w, h, r): (u16, u16, u8) = match code {
+    let (w, h, r): (u16, u16, u16) = match code {
         1 => (3840, 2160, 30),
         2 => (3840, 2160, 25),
         3 => (3840, 2160, 24),
@@ -87,7 +122,7 @@ pub(super) fn decode_cta_video_timing_block(payload: &[u8], sink: &mut dyn ModeS
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod tests {
     use super::*;
-    use crate::model::capabilities::{DisplayCapabilities, SyncDefinition};
+    use crate::model::capabilities::{DisplayCapabilities, RefreshRate, SyncDefinition};
 
     // -----------------------------------------------------------------------
     // Type IV DMT/VIC Code Block (tag 0x06)
@@ -102,7 +137,7 @@ mod tests {
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.width, 1920);
         assert_eq!(mode.height, 1080);
-        assert_eq!(mode.refresh_rate, 60);
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
         assert!(!mode.interlaced);
         assert_eq!(mode.h_front_porch, 88);
         assert_eq!(mode.h_sync_width, 44);
@@ -126,7 +161,7 @@ mod tests {
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.width, 1024);
         assert_eq!(mode.height, 768);
-        assert_eq!(mode.refresh_rate, 43);
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(43)));
         assert!(mode.interlaced);
     }
 
@@ -138,7 +173,10 @@ mod tests {
         assert_eq!(caps.supported_modes.len(), 1);
         assert_eq!(caps.supported_modes[0].width, 640);
         assert_eq!(caps.supported_modes[0].height, 480);
-        assert_eq!(caps.supported_modes[0].refresh_rate, 60);
+        assert_eq!(
+            caps.supported_modes[0].refresh_rate,
+            Some(RefreshRate::integral(60))
+        );
     }
 
     #[test]
@@ -149,7 +187,10 @@ mod tests {
         assert_eq!(caps.supported_modes.len(), 1);
         assert_eq!(caps.supported_modes[0].width, 3840);
         assert_eq!(caps.supported_modes[0].height, 2160);
-        assert_eq!(caps.supported_modes[0].refresh_rate, 30);
+        assert_eq!(
+            caps.supported_modes[0].refresh_rate,
+            Some(RefreshRate::integral(30))
+        );
     }
 
     #[test]
@@ -189,7 +230,10 @@ mod tests {
         assert_eq!(caps.supported_modes.len(), 1);
         assert_eq!(caps.supported_modes[0].width, 1280);
         assert_eq!(caps.supported_modes[0].height, 1024);
-        assert_eq!(caps.supported_modes[0].refresh_rate, 60);
+        assert_eq!(
+            caps.supported_modes[0].refresh_rate,
+            Some(RefreshRate::integral(60))
+        );
     }
 
     #[test]
@@ -213,7 +257,7 @@ mod tests {
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.width, 640);
         assert_eq!(mode.height, 480);
-        assert_eq!(mode.refresh_rate, 60);
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
         assert_eq!(mode.h_front_porch, 16);
         assert_eq!(mode.h_sync_width, 96);
         assert_eq!(mode.v_front_porch, 10);
@@ -278,7 +322,7 @@ mod tests {
         let mode = &caps.supported_modes[0];
         assert_eq!(mode.width, 640);
         assert_eq!(mode.height, 480);
-        assert_eq!(mode.refresh_rate, 60);
+        assert_eq!(mode.refresh_rate, Some(RefreshRate::integral(60)));
         assert!(mode.h_front_porch != 0 || mode.h_sync_width != 0);
     }
 
@@ -307,5 +351,91 @@ mod tests {
         decode_cta_video_timing_block(&bitmap, &mut caps);
         assert_eq!(caps.supported_modes.len(), 1);
         assert_eq!(caps.supported_modes[0].width, 640);
+    }
+
+    // -----------------------------------------------------------------------
+    // Type VIII Enumerated Timing Code (DisplayID 2.x tag 0x23)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_type_viii_dmt_one_byte() {
+        // revision: code_type=DMT(0), TCS=0 (1-byte codes); payload [0x52] → 1920×1080@60.
+        let mut caps = DisplayCapabilities::default();
+        decode_type_viii_block(&[0x52], 0x00, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 1920);
+        assert_eq!(caps.supported_modes[0].height, 1080);
+    }
+
+    #[test]
+    fn test_type_viii_dmt_two_byte() {
+        // revision bit 3 = TCS=1; same DMT code expressed as little-endian u16.
+        let mut caps = DisplayCapabilities::default();
+        decode_type_viii_block(&[0x52, 0x00], 0x08, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 1920);
+        assert_eq!(caps.supported_modes[0].height, 1080);
+    }
+
+    #[test]
+    fn test_type_viii_vic_one_byte() {
+        // code_type=VIC(1); VIC 1 = 640×480@60.
+        let mut caps = DisplayCapabilities::default();
+        decode_type_viii_block(&[0x01], 0x40, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 640);
+        assert_eq!(caps.supported_modes[0].height, 480);
+    }
+
+    #[test]
+    fn test_type_viii_hdmi_vic() {
+        // code_type=HDMI VIC(2); HDMI VIC 1 = 3840×2160@30.
+        let mut caps = DisplayCapabilities::default();
+        decode_type_viii_block(&[0x01], 0x80, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 3840);
+        assert_eq!(
+            caps.supported_modes[0].refresh_rate,
+            Some(RefreshRate::integral(30))
+        );
+    }
+
+    #[test]
+    fn test_type_viii_reserved_code_type_skipped() {
+        // code_type=3 reserved; produces no mode.
+        let mut caps = DisplayCapabilities::default();
+        decode_type_viii_block(&[0x52], 0xC0, &mut caps);
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_type_viii_two_byte_vic_high_byte_nonzero_skipped() {
+        // VIC space is u8 — a 2-byte code with high byte set is unaddressable; skip it.
+        let mut caps = DisplayCapabilities::default();
+        decode_type_viii_block(&[0x01, 0x01], 0x48, &mut caps); // code=0x0101=257
+        assert!(caps.supported_modes.is_empty());
+    }
+
+    #[test]
+    fn test_type_viii_two_byte_trailing_odd_byte_ignored() {
+        // 3-byte payload in 2-byte mode: only the first pair decodes.
+        let mut caps = DisplayCapabilities::default();
+        decode_type_viii_block(&[0x52, 0x00, 0x01], 0x08, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 1);
+        assert_eq!(caps.supported_modes[0].width, 1920);
+    }
+
+    #[test]
+    fn test_type_viii_multiple_one_byte_codes() {
+        let mut caps = DisplayCapabilities::default();
+        decode_type_viii_block(&[0x10, 0x23, 0x52], 0x00, &mut caps);
+        assert_eq!(caps.supported_modes.len(), 3);
+    }
+
+    #[test]
+    fn test_type_viii_unknown_dmt_skipped() {
+        let mut caps = DisplayCapabilities::default();
+        decode_type_viii_block(&[0xFF, 0x00], 0x08, &mut caps); // unknown DMT 0xFF
+        assert!(caps.supported_modes.is_empty());
     }
 }

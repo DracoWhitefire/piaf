@@ -18,7 +18,28 @@ All output types extracted into the
 re-exported from `piaf`; downstream crates can depend on `display-types` directly to
 share types without depending on the parser.
 
+### 0.4 — DisplayID 2.x support
+
+Full coverage of the DisplayID 2.x tag space: Product Identification (`0x20`), Display
+Parameters (`0x21`), Type VII/VIII/IX timings (`0x22`–`0x24`), Dynamic Video Timing
+Range (`0x25`), Display Interface Features (`0x26`), Stereo Display Interface (`0x27`),
+Tiled Display Topology (`0x28`), ContainerID (`0x29`), Vendor-Specific (`0x7E`), and
+the CTA DisplayID block (`0x81`) which merges its CTA-861 payload into the existing
+`Cea861Capabilities` regardless of processing order. Timing blocks (`0x22`–`0x24`,
+`0x81`) decode in both the dynamic and static pipelines; metadata blocks are
+dynamic-only.
+
 ## Planned
+
+### DisplayID 2.x follow-ups
+
+The remaining gap in 2.x coverage:
+
+- **Type IX (`0x24`) standard CVT evaluator** — descriptors with algorithm code `0`
+  (`CvtAlgorithm::Cvt`) pass through with only `(width, height, refresh_rate, cvt_algorithm)`
+  set; no pixel clock or blanking parameters are derived. Standard CVT (non-reduced-blanking)
+  is a distinct VESA algorithm requiring the full CVT spec formulae; deferred until a
+  real-world fixture is available to validate the implementation.
 
 ### Consistency validation
 
