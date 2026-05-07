@@ -13,6 +13,7 @@ jobs:
     permissions:
       contents: write
       actions: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,13 +66,26 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Promote develop → main
+      - name: Promote develop → main via PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
+          BRANCH="release-promote/v${VERSION}"
           git fetch origin main
           git merge origin/main --allow-unrelated-histories -s ours \
             -m "Release v${VERSION}: promote develop to main"
-          git push origin HEAD:main
+          git push origin "HEAD:refs/heads/${BRANCH}"
+          PR_URL=$(gh pr create \
+            --base main \
+            --head "${BRANCH}" \
+            --title "Release v${VERSION}" \
+            --body "Promote release v${VERSION} from develop to main.")
+          for attempt in 1 2 3; do
+            gh pr merge "$PR_URL" --merge && break
+            [ $attempt -lt 3 ] && sleep 10
+          done
+          git push origin --delete "${BRANCH}" || true
 
       - name: Create and push tag
         run: |
