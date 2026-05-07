@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-05-07
+
 ### Breaking changes
 
 - **`VideoMode::refresh_rate` is now `Option<RefreshRate>`** (was `u16`). `VideoMode::new`
