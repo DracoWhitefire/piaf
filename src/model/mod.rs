@@ -77,3 +77,7 @@ pub use capabilities::{
     CvtAlgorithm, DisplayCapabilities, ModeSink, RefreshRate, StaticContext,
     StaticDisplayCapabilities, StereoMode, SyncDefinition, TypeIxStereoMode, VideoMode,
 };
+pub use display_types::{
+    CustomColorSpaceEotfCombo, DisplayIdStereoInterfaceV2, DisplayInterfaceFeatures,
+    StereoTimingCode, StereoTimingCodeType, StereoTimingScopeV2,
+};
