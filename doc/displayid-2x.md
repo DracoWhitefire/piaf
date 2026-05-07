@@ -216,31 +216,22 @@ sourced from the HDMI VIC table carry only `width`, `height`, `refresh_rate`).
 
 ### Type IX Formula-Based Timing Block (`0x24`)
 
-Each 6-byte descriptor encodes width, height, refresh rate, a CVT formula selector,
-and a YCbCr 4:2:0-only flag. Decoded into `VideoMode` as:
+Each 6-byte descriptor encodes width, height, refresh rate, and byte 0 option flags.
+Decoded into `VideoMode` as:
 
-| `VideoMode` field | Source                                                                                    |
-|-------------------|-------------------------------------------------------------------------------------------|
-| `width`, `height` | Bytes 1–2 / 3–4 (LE uint16)                                                               |
-| `refresh_rate`    | Byte 5: `byte + 1` Hz (range 1–256 Hz)                                                    |
-| `cvt_algorithm`   | Byte 0 bits 2:0 → `CvtAlgorithm` (CVT-RB1/RB2/RB3, RB-with-CVT-RB1/RB2, or `Reserved(b)`) |
-| `y420`            | Byte 0 bit 4                                                                              |
+| `VideoMode` field          | Source                                                                        |
+|----------------------------|-------------------------------------------------------------------------------|
+| `width`, `height`          | Bytes 1–2 / 3–4 (LE uint16, stored as `value − 1`)                           |
+| `refresh_rate`             | Byte 5: `byte + 1` Hz (range 1–256 Hz)                                       |
+| `cvt_algorithm`            | Byte 0 bits 2:0 → `CvtAlgorithm` (`Cvt`, `CvtRb`, `CvtR2`, or `Reserved(b)`) |
+| `ntsc_fractional_refresh`  | Byte 0 bit 3                                                                  |
+| `type_ix_stereo`           | Byte 0 bits 6:5 → `TypeIxStereoMode` (Mono / Stereo / MonoOrStereoByUser / Reserved) |
 
-When the algorithm is **CVT-RB v1** (VESA CVT 1.1 §3.4), **CVT-RB v2** (VESA CVT 1.2
-§4), or **CVT-RB v3** (VESA CVT 2.0 §4.5), the descriptor is expanded to a full timing
-via the `display_types::compute_type_ix_timing` evaluator: `pixel_clock_khz`,
-`h_front_porch`, `h_sync_width`, `v_front_porch`, and `v_sync_width` are populated to
-match the spec reference values. CVT-RB v3 baseline timing is identical to v2 for
-fixed-rate Type IX descriptors — the v3 spec additions (VRR vertical blanking scaling,
-`ADDITIONAL_VBLANK_TIME` margin) apply to dynamic-rate operation and aren't expressible
-through Type IX. For the "reduced blanking with CVT-RB1/RB2" encodings (3, 4) and
-`Reserved(_)`, the emitted `VideoMode` carries only `(width, height, refresh_rate,
-cvt_algorithm, y420)` — consumers can apply the named CVT formula themselves, or wait
-for built-in support (see `doc/roadmap.md`).
-
-The stereo bits (byte 0 bits 6:5) are not yet decoded; the encoding is likely distinct
-from the DTD-derived `StereoMode` codes carried elsewhere on `VideoMode` and needs a
-separate type.
+When the algorithm is **CVT-RB v1** (`CvtRb`, VESA CVT 1.1 §3.4) or **CVT-R2**
+(`CvtR2`, VESA CVT 1.2 §4), the descriptor is expanded to a full timing via
+`display_types::compute_type_ix_timing`: `pixel_clock_khz`, `h_front_porch`,
+`h_sync_width`, `v_front_porch`, and `v_sync_width` are populated. Standard CVT (`Cvt`)
+and `Reserved(_)` produce a minimal `VideoMode` with only the algorithm metadata set.
 
 ## Coexistence with DisplayID 1.x
 

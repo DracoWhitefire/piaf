@@ -536,7 +536,7 @@ Bytes 3+:    7-byte timing descriptors
 
 Per descriptor:
   Byte  0:   Options: bits 1:0 = CVT algorithm (0=CVT-RB2, 1=CVT-RB);
-             bit 4 = NTSC optimized; bits 6:5 = stereo; bit 7 = preferred
+             bit 3 = NTSC optimized; bits 6:5 = stereo; bit 7 = preferred
   Bytes 1–2: Horizontal active pixels (exact, LE uint16)
   Bytes 3–4: Vertical active lines (exact, LE uint16)
   Byte  5:   Vertical refresh rate = byte + 1 Hz (1–256 Hz; clamped to 255)

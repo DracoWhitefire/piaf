@@ -613,7 +613,7 @@ supports CVT-RB. Superseded by `0x24` Type IX formula-based timings.
 | Bit/value | Description/format |
 | 0 | Timing options | |
 | Bits 1:0 | Timing formula/algorithm `0` = CVT-RB2 `1` = CVT-RB |
-| Bit 4 | NTSC Video optimized refresh rate × (1000/1001): `0` = not supported `1` = supported |
+| Bit 3 | NTSC Video optimized refresh rate × (1000/1001): `0` = not supported `1` = supported |
 | Bits 6:5 | Stereoscopic 3D: `0` = Mono timing `1` = 3D stereo timing `2` = Mono or 3D stereo depending on user action |
 | Bit 7 | Preferred timing: `1` = preferred detailed timing |
 | 1–2 |  | Horizontal active image pixels |

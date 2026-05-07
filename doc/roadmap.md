@@ -33,25 +33,13 @@ dynamic-only.
 
 ### DisplayID 2.x follow-ups
 
-Several 2.x fields are intentionally not surfaced in the 0.4 release:
+The remaining gap in 2.x coverage:
 
-- **Type IX (`0x24`) byte 0 options** — fully decoded. CVT algorithm (`Cvt`, `CvtRb`,
-  `CvtR2`), NTSC fractional refresh flag, and stereo mode (mono/stereo/mono-or-stereo-by-user)
-  are all reified onto `VideoMode`. Standard CVT (`Cvt`) passes through as metadata only
-  (no evaluator); `CvtRb` and `CvtR2` are fully evaluated via
-  `display_types::compute_type_ix_timing`. Standard CVT timing evaluation is the primary
-  remaining gap — deferred until there is a real-world fixture to test against.
-- **Stereo Display Interface (`0x27`) inline timing-code list** — when the revision
-  byte's timing scope indicates per-method codes, the descriptor is followed by a list
-  of DMT/VIC/HDMI-VIC code records that scope the stereo configuration to specific
-  timings. Currently ignored; needs a new field on `DisplayIdStereoInterfaceV2`.
-- **Display Interface Features (`0x26`) bytes 7–8** — custom color space + EOTF
-  combinations and the additional-bytes count are dropped. Needed once consumers care
-  about HDR10+/non-standard EOTFs beyond the defined-combinations bitmask.
-- **ContainerID (`0x29`) typed UUID wrapper** — the 16 bytes are exposed as `[u8; 16]`
-  so callers can interpret as either Microsoft mixed-endian GUID or RFC 4122 UUID. A
-  typed wrapper (likely behind a feature flag depending on `uuid` crate) would be more
-  ergonomic.
+- **Type IX (`0x24`) standard CVT evaluator** — descriptors with algorithm code `0`
+  (`CvtAlgorithm::Cvt`) pass through with only `(width, height, refresh_rate, cvt_algorithm)`
+  set; no pixel clock or blanking parameters are derived. Standard CVT (non-reduced-blanking)
+  is a distinct VESA algorithm requiring the full CVT spec formulae; deferred until a
+  real-world fixture is available to validate the implementation.
 
 ### Consistency validation
 

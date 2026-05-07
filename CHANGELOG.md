@@ -125,10 +125,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "Zero width/height skipped" tests were repurposed as "raw 0xFFFF overflow
   skipped" since the wire format cannot represent value 0.
 
-  See `doc/displayid-decoder-findings.md` for the full cross-check against the
-  `edid-decode` reference implementation; remaining items (Type IX `CvtAlgorithm`
-  enum miscoding, Type IX bit 4 `y420` mislabel, Type IX/V stereo bits, Type VII
-  Y420 flag) are tracked there.
+  All items identified in the cross-check against `edid-decode` have since been
+  resolved: `CvtAlgorithm` enum reshaped to spec-correct variants (`Cvt`/`CvtRb`/`CvtR2`);
+  Type IX/V byte 0 bit 3 decoded as `ntsc_fractional_refresh` (not bit 4, and not `y420`);
+  Type IX/V bits 6:5 decoded as `TypeIxStereoMode`; Type VII byte 3 bit 7 decoded as
+  `y420` (block revision ≥ 2).
 
 ### Internal
 
