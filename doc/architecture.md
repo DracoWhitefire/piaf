@@ -13,6 +13,8 @@ The library covers:
 - extension block dispatch via a pluggable handler system,
 - full CEA-861 extension decoding covering all major data block types,
 - full DisplayID 1.x extension decoding covering all 20 defined block types,
+- full DisplayID 2.x extension decoding covering all defined metadata, timing, vendor-specific,
+  and CTA DisplayID (`0x81`) block types,
 - conversion into a stable `DisplayCapabilities` consumer model,
 - structured diagnostics: hard errors for structurally invalid input; warnings for malformed, unknown, or suspicious content.
 

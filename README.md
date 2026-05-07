@@ -57,10 +57,11 @@ flowchart LR
 **Complete extension coverage.** Most EDID libraries decode the base block and stop.
 PIAF decodes 20+ CEA-861 data block types — HDR static and dynamic metadata, HDMI 1.x
 and HDMI Forum VSDBs, colorimetry, speaker allocation, video timing blocks, and the HDMI
-Forum Sink Capability block — and all 20 defined DisplayID 1.x block types, covering
-panel identity, color characteristics, device data, power sequencing, transfer
-characteristics, and every defined timing format. If the information is in the EDID,
-PIAF exposes it as typed fields rather than raw bytes.
+Forum Sink Capability block — all 20 defined DisplayID 1.x block types, and the full
+DisplayID 2.x block set including Type VII/VIII/IX timings, dynamic timing range, display
+interface features, stereo, tiled topology, ContainerID, vendor-specific, and the CTA
+DisplayID block (`0x81`) which embeds CTA-861 data inside a DisplayID section. If the
+information is in the EDID, PIAF exposes it as typed fields rather than raw bytes.
 
 **Pluggable handlers.** The extension handler system lets you register your own handler
 for any extension block tag — override either built-in handler (CEA-861 or DisplayID),
@@ -315,6 +316,34 @@ All fields populated from DisplayID blocks land on `DisplayCapabilities` directl
 overlap with EDID base block fields, or in the `DisplayIdCapabilities` struct retrievable via
 `caps.get_extension_data::<DisplayIdCapabilities>(0x70)`.
 
+## DisplayID 2.x coverage
+
+DisplayID 2.x sections (version byte `0x20`) use a disjoint tag space at `0x20`–`0x29`,
+`0x7E`, and `0x81`. Decoded by the same `DisplayIdHandler`:
+
+| Tag    | Block                              | Output                                                                                                                         |
+|--------|------------------------------------|--------------------------------------------------------------------------------------------------------------------------------|
+| `0x20` | Product Identification             | `manufacturer_oui` (on `DisplayIdCapabilities`); `product_code`, `serial_number`, `manufacture_date`, `display_name` on `DisplayCapabilities` |
+| `0x21` | Display Parameters                 | `display_params_v2` (chromaticity, luminance, gamma, display technology, scan orientation, audio routing); `preferred_image_size_mm`, `native_pixels`, `color_bit_depth` mirrored on `DisplayCapabilities` |
+| `0x22` | Type VII Detailed Timing           | `supported_modes` (20-byte descriptors with 24-bit pixel clock)                                                                |
+| `0x23` | Type VIII Enumerated Timing Code   | `supported_modes` via DMT/VIC/HDMI VIC lookup                                                                                  |
+| `0x24` | Type IX Formula-Based Timing       | `supported_modes` with `cvt_algorithm` (CVT-RB1/RB2/RB3, RB-with-CVT-RB1/RB2) and `y420` flag from byte 0; **CVT-RB v1, v2, and v3** fully expanded to `pixel_clock_khz` + blanking via `display_types::compute_type_ix_timing` (RB-with-CVT-RB1/RB2 variants pending) |
+| `0x25` | Dynamic Video Timing Range Limits  | `dynamic_timing_range` (kHz precision pixel clock, VRR flag); `max_pixel_clock_mhz`, `min_v_rate`, `max_v_rate` mirrored        |
+| `0x26` | Display Interface Features         | `interface_features` (per-encoding color depth bitmasks, audio flags, color space + EOTF)                                       |
+| `0x27` | Stereo Display Interface           | `stereo_interface_v2` (Field Sequential, Side-by-Side, Pixel Interleaved, Dual Interface, Multi-View, Stacked Frame, Proprietary) |
+| `0x28` | Tiled Display Topology             | `tiled_topology` (same wire format as 1.x `0x12`)                                                                              |
+| `0x29` | ContainerID                        | `container_id` (raw 16-byte UUID)                                                                                              |
+| `0x7E` | Vendor-Specific                    | `vendor_specific` (OUI + opaque payload, multiple records per section)                                                          |
+| `0x81` | CTA DisplayID                      | merged into `Cea861Capabilities` at extension tag `0x02` (VICs, audio, HDR, colorimetry, etc.); modes in `supported_modes`     |
+
+The 2.x Product Identification Block uses an IEEE OUI rather than a PNP ID; the OUI is
+exposed as `did.manufacturer_oui` and `caps.manufacturer` is left untouched.
+
+The `0x81` CTA DisplayID Block wraps a CTA-861 data block collection. Its decoded
+contents merge into the same `Cea861Capabilities` instance the CEA-861 (`0x02`)
+extension writes to, regardless of which extension is processed first — see
+[`doc/displayid-2x.md`](doc/displayid-2x.md) for the merge semantics.
+
 ## Documentation
 
 Extended documentation lives under [`doc/`](doc/).
@@ -328,7 +357,8 @@ Extended documentation lives under [`doc/`](doc/).
 
 - [`doc/extensibility.md`](doc/extensibility.md) — registering handlers, storing custom data, and emitting warnings
 - [`doc/static-pipeline.md`](doc/static-pipeline.md) — static (no-alloc) pipeline API reference and custom handler examples
-- [`doc/displayid-handler.md`](doc/displayid-handler.md) — DisplayID handler field mapping and timing block details
+- [`doc/displayid-handler.md`](doc/displayid-handler.md) — DisplayID handler field mapping and 1.x timing block details
+- [`doc/displayid-2x.md`](doc/displayid-2x.md) — DisplayID 2.x block-by-block field mapping, the `0x81` merge semantics, and warning variants
 
 **Wire format reference**
 

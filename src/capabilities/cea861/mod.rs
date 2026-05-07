@@ -73,7 +73,13 @@ impl ExtensionHandler for Cea861Handler {
         let Some(first) = blocks.first() else { return };
         let flags = Cea861Flags::from_bits_truncate(first[3]);
 
-        let mut cea_caps = Cea861Capabilities::new(flags);
+        // Take-merge: another source (e.g. DisplayID 2.x block 0x81) may have already
+        // populated CTA-861 caps for this sink. Merge into that struct rather than
+        // overwriting; OR-in this extension's flags onto whatever was there.
+        let mut cea_caps = caps
+            .take_extension_data::<Cea861Capabilities>(0x02)
+            .unwrap_or_else(|| Cea861Capabilities::new(flags));
+        cea_caps.flags |= flags;
 
         for ext in blocks {
             // Parse the data block collection: bytes 4 through dtd_offset-1.
@@ -87,272 +93,12 @@ impl ExtensionHandler for Cea861Handler {
             };
 
             if collection_end > 4 {
-                let collection = &ext[4..collection_end];
-                let mut i = 0;
-
-                while i < collection.len() {
-                    let header = collection[i];
-
-                    // A zero header byte is padding — stop scanning.
-                    if header == 0 {
-                        break;
-                    }
-
-                    let tag = (header >> 5) & 0x07;
-                    let length = (header & 0x1F) as usize;
-                    i += 1;
-
-                    if i + length > collection.len() {
-                        warnings.push(Arc::new(EdidWarning::MalformedDataBlock));
-                        break;
-                    }
-
-                    let block_data = &collection[i..i + length];
-
-                    if tag == 0x01 {
-                        // Audio Data Block: 3-byte Short Audio Descriptors.
-                        cea_caps
-                            .audio_descriptors
-                            .extend(parse_audio_data_block(block_data));
-                    } else if tag == 0x02 {
-                        // Video Data Block: Short Video Descriptors.
-                        // Standard SVD: 1 byte; bits 6:0 = VIC (1–127), bit 7 = native.
-                        // Extended SVD (CTA-861-G+): if bits 6:0 == 0, the *next* byte
-                        // is the full VIC number (128–255); bit 7 of the first byte = native.
-                        let mut j = 0;
-                        while j < block_data.len() {
-                            let b = block_data[j];
-                            let native = (b & 0x80) != 0;
-                            let vic_low = b & 0x7F;
-
-                            let vic = if vic_low == 0 {
-                                // Extended SVD — consume one more byte.
-                                j += 1;
-                                match block_data.get(j).copied() {
-                                    Some(0) | None => {
-                                        j += 1;
-                                        continue; // VIC 0 reserved
-                                    }
-                                    Some(v) => v,
-                                }
-                            } else {
-                                vic_low
-                            };
-                            j += 1;
-
-                            cea_caps.vics.push((vic, native));
-
-                            if let Some(mode) = vic_to_mode(vic) {
-                                let already_present = caps.supported_modes.iter().any(|m| {
-                                    m.width == mode.width
-                                        && m.height == mode.height
-                                        && m.refresh_rate == mode.refresh_rate
-                                        && m.interlaced == mode.interlaced
-                                });
-                                if !already_present {
-                                    caps.supported_modes.push(mode);
-                                }
-                            }
-                        }
-                    } else if tag == 0x03 {
-                        // Vendor-Specific Data Block: dispatch by OUI.
-                        if cea_caps.hdmi_vsdb.is_none() {
-                            cea_caps.hdmi_vsdb = parse_hdmi_vsdb(block_data);
-                        }
-                        if cea_caps.hf_vsdb.is_none() {
-                            cea_caps.hf_vsdb = parse_hf_vsdb(block_data);
-                        }
-                    } else if tag == 0x04 {
-                        // Speaker Allocation Data Block.
-                        if cea_caps.speaker_allocation.is_none() {
-                            cea_caps.speaker_allocation = parse_speaker_allocation(block_data);
-                        }
-                    } else if tag == 0x05 {
-                        // VESA Display Transfer Characteristic Data Block.
-                        if cea_caps.vesa_transfer_characteristic.is_none() {
-                            cea_caps.vesa_transfer_characteristic =
-                                parse_vesa_transfer_characteristic(block_data);
-                        }
-                    } else if tag == 0x07 {
-                        // Extended Tag Data Block: first payload byte is the extended tag.
-                        match block_data.first().copied() {
-                            Some(EXT_TAG_VSVDB) => {
-                                if let Some(b) = parse_vendor_specific_block(&block_data[1..]) {
-                                    cea_caps.vendor_specific_video.push(b);
-                                }
-                            }
-                            Some(EXT_TAG_VSADB) => {
-                                if let Some(b) = parse_vendor_specific_block(&block_data[1..]) {
-                                    cea_caps.vendor_specific_audio.push(b);
-                                }
-                            }
-                            Some(EXT_TAG_VESA_DDDB) if cea_caps.vesa_display_device.is_none() => {
-                                cea_caps.vesa_display_device =
-                                    parse_vesa_display_device(&block_data[1..]);
-                            }
-                            Some(EXT_TAG_VTB_EXT) => {
-                                if let Some(vtb) = parse_vtb_ext(&block_data[1..]) {
-                                    for timing in &vtb.timings {
-                                        let already_present =
-                                            caps.supported_modes.iter().any(|m| {
-                                                m.width == timing.width
-                                                    && m.height == timing.height
-                                                    && m.refresh_rate == timing.refresh_rate
-                                                    && m.interlaced == timing.interlaced
-                                            });
-                                        if !already_present {
-                                            caps.supported_modes.push(timing.clone());
-                                        }
-                                    }
-                                    cea_caps.vtb_ext.push(vtb);
-                                }
-                            }
-                            Some(EXT_TAG_VIDEO_CAPABILITY)
-                                if cea_caps.video_capability.is_none() =>
-                            {
-                                cea_caps.video_capability = parse_video_capability(block_data);
-                            }
-                            Some(EXT_TAG_COLORIMETRY) if cea_caps.colorimetry.is_none() => {
-                                cea_caps.colorimetry = parse_colorimetry(block_data);
-                            }
-                            Some(EXT_TAG_HDR_STATIC_METADATA)
-                                if cea_caps.hdr_static_metadata.is_none() =>
-                            {
-                                cea_caps.hdr_static_metadata =
-                                    parse_hdr_static_metadata(block_data);
-                            }
-                            Some(EXT_TAG_HDR_DYNAMIC_METADATA) => {
-                                cea_caps
-                                    .hdr_dynamic_metadata
-                                    .extend(parse_hdr_dynamic_metadata(block_data));
-                            }
-                            Some(EXT_TAG_VIDEO_FORMAT_PREFERENCE)
-                                if cea_caps.video_format_preferences.is_empty() =>
-                            {
-                                cea_caps.video_format_preferences =
-                                    parse_video_format_preferences(block_data);
-                            }
-                            Some(EXT_TAG_Y420_VIDEO) => {
-                                let vics = parse_y420_vdb(block_data);
-                                for &vic in &vics {
-                                    if let Some(mode) = vic_to_mode(vic) {
-                                        let already_present =
-                                            caps.supported_modes.iter().any(|m| {
-                                                m.width == mode.width
-                                                    && m.height == mode.height
-                                                    && m.refresh_rate == mode.refresh_rate
-                                                    && m.interlaced == mode.interlaced
-                                            });
-                                        if !already_present {
-                                            caps.supported_modes.push(mode);
-                                        }
-                                    }
-                                }
-                                cea_caps.y420_vics.extend(vics);
-                            }
-                            Some(EXT_TAG_Y420_CAPABILITY_MAP)
-                                if cea_caps.y420_capability_map.is_empty() =>
-                            {
-                                cea_caps.y420_capability_map =
-                                    parse_y420_capability_map(block_data);
-                            }
-                            Some(EXT_TAG_INFOFRAME) => {
-                                cea_caps
-                                    .infoframe_descriptors
-                                    .extend(parse_infoframe_db(block_data));
-                            }
-                            Some(EXT_TAG_ROOM_CONFIGURATION)
-                                if cea_caps.room_configuration.is_none() =>
-                            {
-                                cea_caps.room_configuration = parse_room_configuration(block_data);
-                            }
-                            Some(EXT_TAG_SPEAKER_LOCATION) => {
-                                cea_caps
-                                    .speaker_locations
-                                    .extend(parse_speaker_location(block_data));
-                            }
-                            Some(EXT_TAG_T7VTDB) => {
-                                if let Some(t7) = parse_t7vtdb(&block_data[1..]) {
-                                    let already_present = caps.supported_modes.iter().any(|m| {
-                                        m.width == t7.mode.width
-                                            && m.height == t7.mode.height
-                                            && m.refresh_rate == t7.mode.refresh_rate
-                                            && m.interlaced == t7.mode.interlaced
-                                    });
-                                    if !already_present {
-                                        caps.supported_modes.push(t7.mode.clone());
-                                    }
-                                    cea_caps.t7_vtdb.push(t7);
-                                }
-                            }
-                            Some(EXT_TAG_T8VTDB) => {
-                                if let Some(t8) = parse_t8vtdb(&block_data[1..]) {
-                                    for mode in &t8.timings {
-                                        let already_present =
-                                            caps.supported_modes.iter().any(|m| {
-                                                m.width == mode.width
-                                                    && m.height == mode.height
-                                                    && m.refresh_rate == mode.refresh_rate
-                                                    && m.interlaced == mode.interlaced
-                                            });
-                                        if !already_present {
-                                            caps.supported_modes.push(mode.clone());
-                                        }
-                                    }
-                                    cea_caps.t8_vtdb.push(t8);
-                                }
-                            }
-                            Some(EXT_TAG_T10VTDB) => {
-                                if let Some(t10) = parse_t10vtdb(&block_data[1..]) {
-                                    for entry in &t10.entries {
-                                        let mode = VideoMode::new(
-                                            entry.width,
-                                            entry.height,
-                                            entry.refresh_hz,
-                                            false,
-                                        );
-                                        let already_present =
-                                            caps.supported_modes.iter().any(|m| {
-                                                m.width == mode.width
-                                                    && m.height == mode.height
-                                                    && m.refresh_rate == mode.refresh_rate
-                                                    && m.interlaced == mode.interlaced
-                                            });
-                                        if !already_present {
-                                            caps.supported_modes.push(mode);
-                                        }
-                                    }
-                                    cea_caps.t10_vtdb.push(t10);
-                                }
-                            }
-                            Some(EXT_TAG_HF_EEODB)
-                                if cea_caps.hf_eeodb_extension_count.is_none() =>
-                            {
-                                cea_caps.hf_eeodb_extension_count =
-                                    parse_hf_eeodb(&block_data[1..]);
-                            }
-                            Some(EXT_TAG_HF_SCDB) if cea_caps.hf_scdb.is_none() => {
-                                cea_caps.hf_scdb = parse_hf_scdb(&block_data[1..]);
-                            }
-                            Some(EXT_TAG_HDMI_AUDIO) if cea_caps.hdmi_audio.is_none() => {
-                                // block_data[0] = ext tag; block_data[1] = flags; block_data[2..] = SADs.
-                                let multi_stream_audio =
-                                    block_data.get(1).is_some_and(|&b| b & 0x08 != 0);
-                                let audio_descriptors = block_data
-                                    .get(2..)
-                                    .map(parse_audio_data_block)
-                                    .unwrap_or_default();
-                                cea_caps.hdmi_audio = Some(HdmiAudioBlock::new(
-                                    multi_stream_audio,
-                                    audio_descriptors,
-                                ));
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    i += length;
-                }
+                parse_cea861_data_block_collection(
+                    &ext[4..collection_end],
+                    caps,
+                    &mut cea_caps,
+                    warnings,
+                );
             }
 
             // Parse Detailed Timing Descriptors from byte dtd_offset through byte 126.
@@ -372,9 +118,353 @@ impl ExtensionHandler for Cea861Handler {
     }
 }
 
+/// Parses a CTA-861 data block collection into `caps` and `cea_caps`.
+///
+/// `collection` is the raw byte sequence of CTA data blocks: each starts with a
+/// 1-byte header (`tag << 5 | length`) followed by `length` payload bytes. A zero
+/// header byte ends scanning. This is the body of a CEA-861 extension block (between
+/// byte 4 and `dtd_offset`) but is also reused for the DisplayID 2.x CTA DisplayID
+/// block (tag `0x81`), which wraps the same structure.
+///
+/// Modes extracted from VICs and timing data blocks are appended to
+/// `caps.supported_modes` (with dedup against existing entries). All CTA-specific
+/// state — audio descriptors, vendor-specific blocks, HDR metadata, etc. — is
+/// merged into `cea_caps`.
+#[cfg(any(feature = "alloc", feature = "std"))]
+pub(crate) fn parse_cea861_data_block_collection(
+    collection: &[u8],
+    caps: &mut DisplayCapabilities,
+    cea_caps: &mut Cea861Capabilities,
+    warnings: &mut Vec<ParseWarning>,
+) {
+    let mut i = 0;
+    while i < collection.len() {
+        let header = collection[i];
+
+        // A zero header byte is padding — stop scanning.
+        if header == 0 {
+            break;
+        }
+
+        let tag = (header >> 5) & 0x07;
+        let length = (header & 0x1F) as usize;
+        i += 1;
+
+        if i + length > collection.len() {
+            warnings.push(Arc::new(EdidWarning::MalformedDataBlock));
+            break;
+        }
+
+        let block_data = &collection[i..i + length];
+
+        match tag {
+            0x01 => {
+                // Audio Data Block: 3-byte Short Audio Descriptors.
+                cea_caps
+                    .audio_descriptors
+                    .extend(parse_audio_data_block(block_data));
+            }
+            0x02 => handle_video_data_block(block_data, caps, cea_caps),
+            0x03 => {
+                // Vendor-Specific Data Block: dispatch by OUI.
+                if cea_caps.hdmi_vsdb.is_none() {
+                    cea_caps.hdmi_vsdb = parse_hdmi_vsdb(block_data);
+                }
+                if cea_caps.hf_vsdb.is_none() {
+                    cea_caps.hf_vsdb = parse_hf_vsdb(block_data);
+                }
+            }
+            0x04
+                // Speaker Allocation Data Block.
+                if cea_caps.speaker_allocation.is_none() => {
+                cea_caps.speaker_allocation = parse_speaker_allocation(block_data);
+            }
+            0x05
+                // VESA Display Transfer Characteristic Data Block.
+                if cea_caps.vesa_transfer_characteristic.is_none() => {
+                cea_caps.vesa_transfer_characteristic =
+                    parse_vesa_transfer_characteristic(block_data);
+            }
+            0x07 => handle_extended_tag_block(block_data, caps, cea_caps),
+            _ => {}
+        }
+
+        i += length;
+    }
+}
+
+/// Pushes `mode` to `modes` only if no entry with the same
+/// `(width, height, refresh_rate, interlaced)` already exists.
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn push_mode_dedup(modes: &mut Vec<VideoMode>, mode: VideoMode) {
+    let already_present = modes.iter().any(|m| {
+        m.width == mode.width
+            && m.height == mode.height
+            && m.refresh_rate == mode.refresh_rate
+            && m.interlaced == mode.interlaced
+    });
+    if !already_present {
+        modes.push(mode);
+    }
+}
+
+/// Decodes a CTA-861 Video Data Block (`tag = 0x02`): a sequence of Short Video Descriptors.
+///
+/// Standard SVD: 1 byte; bits 6:0 = VIC (1–127), bit 7 = native flag.
+/// Extended SVD (CTA-861-G+): if bits 6:0 == 0, the *next* byte is the full VIC number
+/// (128–255); bit 7 of the first byte = native flag.
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn handle_video_data_block(
+    block_data: &[u8],
+    caps: &mut DisplayCapabilities,
+    cea_caps: &mut Cea861Capabilities,
+) {
+    let mut j = 0;
+    while j < block_data.len() {
+        let b = block_data[j];
+        let native = (b & 0x80) != 0;
+        let vic_low = b & 0x7F;
+
+        let vic = if vic_low == 0 {
+            // Extended SVD — consume one more byte.
+            j += 1;
+            match block_data.get(j).copied() {
+                Some(0) | None => {
+                    j += 1;
+                    continue; // VIC 0 reserved
+                }
+                Some(v) => v,
+            }
+        } else {
+            vic_low
+        };
+        j += 1;
+
+        cea_caps.vics.push((vic, native));
+
+        if let Some(mode) = vic_to_mode(vic) {
+            push_mode_dedup(&mut caps.supported_modes, mode);
+        }
+    }
+}
+
+/// Decodes a CTA-861 Extended Tag Data Block (`tag = 0x07`): the first payload byte is
+/// the extended tag, dispatched against the `EXT_TAG_*` constants.
+#[cfg(any(feature = "alloc", feature = "std"))]
+fn handle_extended_tag_block(
+    block_data: &[u8],
+    caps: &mut DisplayCapabilities,
+    cea_caps: &mut Cea861Capabilities,
+) {
+    match block_data.first().copied() {
+        Some(EXT_TAG_VSVDB) => {
+            if let Some(b) = parse_vendor_specific_block(&block_data[1..]) {
+                cea_caps.vendor_specific_video.push(b);
+            }
+        }
+        Some(EXT_TAG_VSADB) => {
+            if let Some(b) = parse_vendor_specific_block(&block_data[1..]) {
+                cea_caps.vendor_specific_audio.push(b);
+            }
+        }
+        Some(EXT_TAG_VESA_DDDB) if cea_caps.vesa_display_device.is_none() => {
+            cea_caps.vesa_display_device = parse_vesa_display_device(&block_data[1..]);
+        }
+        Some(EXT_TAG_VTB_EXT) => {
+            if let Some(vtb) = parse_vtb_ext(&block_data[1..]) {
+                for timing in &vtb.timings {
+                    push_mode_dedup(&mut caps.supported_modes, timing.clone());
+                }
+                cea_caps.vtb_ext.push(vtb);
+            }
+        }
+        Some(EXT_TAG_VIDEO_CAPABILITY) if cea_caps.video_capability.is_none() => {
+            cea_caps.video_capability = parse_video_capability(block_data);
+        }
+        Some(EXT_TAG_COLORIMETRY) if cea_caps.colorimetry.is_none() => {
+            cea_caps.colorimetry = parse_colorimetry(block_data);
+        }
+        Some(EXT_TAG_HDR_STATIC_METADATA) if cea_caps.hdr_static_metadata.is_none() => {
+            cea_caps.hdr_static_metadata = parse_hdr_static_metadata(block_data);
+        }
+        Some(EXT_TAG_HDR_DYNAMIC_METADATA) => {
+            cea_caps
+                .hdr_dynamic_metadata
+                .extend(parse_hdr_dynamic_metadata(block_data));
+        }
+        Some(EXT_TAG_VIDEO_FORMAT_PREFERENCE) if cea_caps.video_format_preferences.is_empty() => {
+            cea_caps.video_format_preferences = parse_video_format_preferences(block_data);
+        }
+        Some(EXT_TAG_Y420_VIDEO) => {
+            let vics = parse_y420_vdb(block_data);
+            for &vic in &vics {
+                if let Some(mode) = vic_to_mode(vic) {
+                    push_mode_dedup(&mut caps.supported_modes, mode);
+                }
+            }
+            cea_caps.y420_vics.extend(vics);
+        }
+        Some(EXT_TAG_Y420_CAPABILITY_MAP) if cea_caps.y420_capability_map.is_empty() => {
+            cea_caps.y420_capability_map = parse_y420_capability_map(block_data);
+        }
+        Some(EXT_TAG_INFOFRAME) => {
+            cea_caps
+                .infoframe_descriptors
+                .extend(parse_infoframe_db(block_data));
+        }
+        Some(EXT_TAG_ROOM_CONFIGURATION) if cea_caps.room_configuration.is_none() => {
+            cea_caps.room_configuration = parse_room_configuration(block_data);
+        }
+        Some(EXT_TAG_SPEAKER_LOCATION) => {
+            cea_caps
+                .speaker_locations
+                .extend(parse_speaker_location(block_data));
+        }
+        Some(EXT_TAG_T7VTDB) => {
+            if let Some(t7) = parse_t7vtdb(&block_data[1..]) {
+                push_mode_dedup(&mut caps.supported_modes, t7.mode.clone());
+                cea_caps.t7_vtdb.push(t7);
+            }
+        }
+        Some(EXT_TAG_T8VTDB) => {
+            if let Some(t8) = parse_t8vtdb(&block_data[1..]) {
+                for mode in &t8.timings {
+                    push_mode_dedup(&mut caps.supported_modes, mode.clone());
+                }
+                cea_caps.t8_vtdb.push(t8);
+            }
+        }
+        Some(EXT_TAG_T10VTDB) => {
+            if let Some(t10) = parse_t10vtdb(&block_data[1..]) {
+                for entry in &t10.entries {
+                    let mode = VideoMode::new(entry.width, entry.height, entry.refresh_hz, false);
+                    push_mode_dedup(&mut caps.supported_modes, mode);
+                }
+                cea_caps.t10_vtdb.push(t10);
+            }
+        }
+        Some(EXT_TAG_HF_EEODB) if cea_caps.hf_eeodb_extension_count.is_none() => {
+            cea_caps.hf_eeodb_extension_count = parse_hf_eeodb(&block_data[1..]);
+        }
+        Some(EXT_TAG_HF_SCDB) if cea_caps.hf_scdb.is_none() => {
+            cea_caps.hf_scdb = parse_hf_scdb(&block_data[1..]);
+        }
+        Some(EXT_TAG_HDMI_AUDIO) if cea_caps.hdmi_audio.is_none() => {
+            // block_data[0] = ext tag; block_data[1] = flags; block_data[2..] = SADs.
+            let multi_stream_audio = block_data.get(1).is_some_and(|&b| b & 0x08 != 0);
+            let audio_descriptors = block_data
+                .get(2..)
+                .map(parse_audio_data_block)
+                .unwrap_or_default();
+            cea_caps.hdmi_audio = Some(HdmiAudioBlock::new(multi_stream_audio, audio_descriptors));
+        }
+        _ => {}
+    }
+}
+
+/// Extracts video modes from a CTA-861 data block collection into `sink`.
+///
+/// Allocation-free counterpart to [`parse_cea861_data_block_collection`]: emits
+/// [`VideoMode`][crate::VideoMode] entries from VICs and timing data blocks. Reused
+/// from both the CEA-861 extension static path and the DisplayID 2.x CTA DisplayID
+/// block (tag `0x81`) static path.
+pub(crate) fn cea861_collection_into_sink(collection: &[u8], sink: &mut dyn ModeSink) {
+    let mut i = 0;
+    while i < collection.len() {
+        let header = collection[i];
+        if header == 0 {
+            break;
+        }
+
+        let tag = (header >> 5) & 0x07;
+        let length = (header & 0x1F) as usize;
+        i += 1;
+
+        if i + length > collection.len() {
+            sink.push_warning(EdidWarning::MalformedDataBlock);
+            break;
+        }
+
+        let block_data = &collection[i..i + length];
+
+        if tag == 0x02 {
+            // Video Data Block: Short Video Descriptors.
+            let mut j = 0;
+            while j < block_data.len() {
+                let b = block_data[j];
+                let vic_low = b & 0x7F;
+
+                let vic = if vic_low == 0 {
+                    j += 1;
+                    match block_data.get(j).copied() {
+                        Some(0) | None => {
+                            j += 1;
+                            continue;
+                        }
+                        Some(v) => v,
+                    }
+                } else {
+                    vic_low
+                };
+                j += 1;
+
+                if let Some(mode) = vic_to_mode(vic) {
+                    sink.push_mode(mode);
+                }
+            }
+        } else if tag == 0x07 {
+            // Extended Tag Data Block — mode-producing sub-types.
+            #[cfg(any(feature = "alloc", feature = "std"))]
+            match block_data.first().copied() {
+                Some(EXT_TAG_VTB_EXT) => {
+                    if let Some(vtb) = parse_vtb_ext(&block_data[1..]) {
+                        for timing in vtb.timings {
+                            sink.push_mode(timing);
+                        }
+                    }
+                }
+                Some(EXT_TAG_Y420_VIDEO) => {
+                    for &vic in &parse_y420_vdb(block_data) {
+                        if let Some(mode) = vic_to_mode(vic) {
+                            sink.push_mode(mode);
+                        }
+                    }
+                }
+                Some(EXT_TAG_T7VTDB) => {
+                    if let Some(t7) = parse_t7vtdb(&block_data[1..]) {
+                        sink.push_mode(t7.mode);
+                    }
+                }
+                Some(EXT_TAG_T8VTDB) => {
+                    if let Some(t8) = parse_t8vtdb(&block_data[1..]) {
+                        for mode in t8.timings {
+                            sink.push_mode(mode);
+                        }
+                    }
+                }
+                Some(EXT_TAG_T10VTDB) => {
+                    if let Some(t10) = parse_t10vtdb(&block_data[1..]) {
+                        for entry in &t10.entries {
+                            sink.push_mode(VideoMode::new(
+                                entry.width,
+                                entry.height,
+                                entry.refresh_hz,
+                                false,
+                            ));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        i += length;
+    }
+}
+
 /// Extracts video modes from a CEA-861 extension block into `sink`.
 ///
-/// This is the allocation-free counterpart to [`Cea861Handler::process`]: it produces
+/// Allocation-free counterpart to [`Cea861Handler::process`]: produces
 /// [`VideoMode`][crate::VideoMode] entries (SVDs, DTDs, and — in `alloc`/`std` builds —
 /// VTB-EXT/T7VTDB/T8VTDB/T10VTDB/Y420 VDB entries) without requiring heap allocation.
 pub(crate) fn cea861_process_into_sink(ext: &[u8; 128], sink: &mut dyn ModeSink) {
@@ -386,99 +476,7 @@ pub(crate) fn cea861_process_into_sink(ext: &[u8; 128], sink: &mut dyn ModeSink)
     };
 
     if collection_end > 4 {
-        let collection = &ext[4..collection_end];
-        let mut i = 0;
-
-        while i < collection.len() {
-            let header = collection[i];
-            if header == 0 {
-                break;
-            }
-
-            let tag = (header >> 5) & 0x07;
-            let length = (header & 0x1F) as usize;
-            i += 1;
-
-            if i + length > collection.len() {
-                sink.push_warning(EdidWarning::MalformedDataBlock);
-                break;
-            }
-
-            let block_data = &collection[i..i + length];
-
-            if tag == 0x02 {
-                // Video Data Block: Short Video Descriptors.
-                let mut j = 0;
-                while j < block_data.len() {
-                    let b = block_data[j];
-                    let vic_low = b & 0x7F;
-
-                    let vic = if vic_low == 0 {
-                        j += 1;
-                        match block_data.get(j).copied() {
-                            Some(0) | None => {
-                                j += 1;
-                                continue;
-                            }
-                            Some(v) => v,
-                        }
-                    } else {
-                        vic_low
-                    };
-                    j += 1;
-
-                    if let Some(mode) = vic_to_mode(vic) {
-                        sink.push_mode(mode);
-                    }
-                }
-            } else if tag == 0x07 {
-                // Extended Tag Data Block — mode-producing sub-types.
-                #[cfg(any(feature = "alloc", feature = "std"))]
-                match block_data.first().copied() {
-                    Some(EXT_TAG_VTB_EXT) => {
-                        if let Some(vtb) = parse_vtb_ext(&block_data[1..]) {
-                            for timing in vtb.timings {
-                                sink.push_mode(timing);
-                            }
-                        }
-                    }
-                    Some(EXT_TAG_Y420_VIDEO) => {
-                        for &vic in &parse_y420_vdb(block_data) {
-                            if let Some(mode) = vic_to_mode(vic) {
-                                sink.push_mode(mode);
-                            }
-                        }
-                    }
-                    Some(EXT_TAG_T7VTDB) => {
-                        if let Some(t7) = parse_t7vtdb(&block_data[1..]) {
-                            sink.push_mode(t7.mode);
-                        }
-                    }
-                    Some(EXT_TAG_T8VTDB) => {
-                        if let Some(t8) = parse_t8vtdb(&block_data[1..]) {
-                            for mode in t8.timings {
-                                sink.push_mode(mode);
-                            }
-                        }
-                    }
-                    Some(EXT_TAG_T10VTDB) => {
-                        if let Some(t10) = parse_t10vtdb(&block_data[1..]) {
-                            for entry in &t10.entries {
-                                sink.push_mode(VideoMode::new(
-                                    entry.width,
-                                    entry.height,
-                                    entry.refresh_hz,
-                                    false,
-                                ));
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            i += length;
-        }
+        cea861_collection_into_sink(&ext[4..collection_end], sink);
     }
 
     // Parse Detailed Timing Descriptors.
@@ -527,7 +525,7 @@ mod test_static {
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod tests {
     use super::*;
-    use crate::model::capabilities::DisplayCapabilities;
+    use crate::model::capabilities::{DisplayCapabilities, RefreshRate};
 
     #[test]
     fn test_audio_flag() {
@@ -602,22 +600,16 @@ mod tests {
 
         // All three VICs should produce entries in supported_modes
         assert_eq!(caps.supported_modes.len(), 3);
-        assert!(
-            caps.supported_modes.iter().any(|m| m.width == 1920
-                && m.height == 1080
-                && m.refresh_rate == 60
-                && !m.interlaced)
-        );
-        assert!(
-            caps.supported_modes
-                .iter()
-                .any(|m| m.width == 1280 && m.height == 720 && m.refresh_rate == 60)
-        );
-        assert!(
-            caps.supported_modes
-                .iter()
-                .any(|m| m.width == 640 && m.height == 480 && m.refresh_rate == 60)
-        );
+        assert!(caps.supported_modes.iter().any(|m| m.width == 1920
+            && m.height == 1080
+            && m.refresh_rate == Some(RefreshRate::integral(60))
+            && !m.interlaced));
+        assert!(caps.supported_modes.iter().any(|m| m.width == 1280
+            && m.height == 720
+            && m.refresh_rate == Some(RefreshRate::integral(60))));
+        assert!(caps.supported_modes.iter().any(|m| m.width == 640
+            && m.height == 480
+            && m.refresh_rate == Some(RefreshRate::integral(60))));
     }
 
     #[test]
@@ -641,7 +633,9 @@ mod tests {
         assert_eq!(
             caps.supported_modes
                 .iter()
-                .filter(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 60)
+                .filter(|m| m.width == 1920
+                    && m.height == 1080
+                    && m.refresh_rate == Some(RefreshRate::integral(60)))
                 .count(),
             1
         );
@@ -698,9 +692,9 @@ mod tests {
         ExtensionHandler::process(&Cea861Handler, &[&ext], &mut caps, &mut Vec::new());
 
         assert!(
-            caps.supported_modes
-                .iter()
-                .any(|m| m.width == 2560 && m.height == 1440 && m.refresh_rate == 144),
+            caps.supported_modes.iter().any(|m| m.width == 2560
+                && m.height == 1440
+                && m.refresh_rate == Some(RefreshRate::integral(144))),
             "2560×1440@144 not found in supported_modes"
         );
     }
@@ -754,11 +748,9 @@ mod tests {
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         assert_eq!(cea.y420_vics, vec![96]);
         // VIC 96 = 3840×2160@50Hz — should appear in supported_modes
-        assert!(
-            caps.supported_modes
-                .iter()
-                .any(|m| m.width == 3840 && m.height == 2160 && m.refresh_rate == 50)
-        );
+        assert!(caps.supported_modes.iter().any(|m| m.width == 3840
+            && m.height == 2160
+            && m.refresh_rate == Some(RefreshRate::integral(50))));
     }
 
     #[test]
@@ -778,11 +770,9 @@ mod tests {
         let cea = caps.get_extension_data::<Cea861Capabilities>(0x02).unwrap();
         assert_eq!(cea.vics, vec![(193, false)]);
         // VIC 193 = 5120×2160p120 — should appear in supported_modes
-        assert!(
-            caps.supported_modes
-                .iter()
-                .any(|m| m.width == 5120 && m.height == 2160 && m.refresh_rate == 120)
-        );
+        assert!(caps.supported_modes.iter().any(|m| m.width == 5120
+            && m.height == 2160
+            && m.refresh_rate == Some(RefreshRate::integral(120))));
     }
 
     #[test]

@@ -93,6 +93,7 @@ pub struct ExtensionMetadata {
 }
 
 /// Implemented by types that can tell the parser which extension tags are known.
+///
 /// Implemented for both [`ExtensionTagRegistry`] and [`ExtensionLibrary`], so either
 /// can be passed directly to [`parse_edid`][crate::parse_edid].
 pub trait KnownExtensions {
@@ -121,7 +122,7 @@ impl Default for ExtensionTagRegistry {
 #[cfg(any(feature = "alloc", feature = "std"))]
 impl ExtensionTagRegistry {
     /// Creates an empty registry.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             known_tags: Vec::new(),
         }
@@ -206,7 +207,7 @@ impl ExtensionTagRegistry {
 
 impl KnownExtensions for ExtensionTagRegistry {
     fn is_known(&self, tag: u8) -> bool {
-        ExtensionTagRegistry::is_known(self, tag)
+        Self::is_known(self, tag)
     }
 }
 

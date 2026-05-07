@@ -1,0 +1,163 @@
+name: Release Prep
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type (auto = let cargo semver-checks decide)'
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - patch
+          - minor
+          - major
+
+env:
+  CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-release-
+
+      - name: Cache tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-cargo-tools-semver-checks-v1
+
+      - name: Install cargo-semver-checks
+        run: |
+          if ! command -v cargo-semver-checks &>/dev/null; then
+            cargo install cargo-semver-checks --locked
+          fi
+
+      - name: Determine bump type and new version
+        id: version
+        run: |
+          CURRENT=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+          MINOR=$(echo "$CURRENT" | cut -d. -f2)
+          PATCH=$(echo "$CURRENT" | cut -d. -f3)
+
+          BUMP="${{ inputs.bump }}"
+
+          if [ "$BUMP" = "auto" ]; then
+            echo "Running cargo semver-checks to determine required bump..."
+            if cargo semver-checks --release-type patch; then
+              BUMP=patch
+            elif [ "$MAJOR" = "0" ]; then
+              BUMP=minor
+            elif cargo semver-checks --release-type minor; then
+              BUMP=minor
+            else
+              BUMP=major
+            fi
+            echo "Auto-detected minimum required bump: $BUMP"
+          else
+            if [ "$MAJOR" = "0" ] && [ "$BUMP" = "major" ]; then
+              echo "::error::Cannot bump a 0.x crate to 1.0.0 via this workflow — stabilising to 1.0.0 is a deliberate decision. Update Cargo.toml manually."
+              exit 1
+            fi
+            echo "Validating requested bump type: $BUMP"
+            if ! cargo semver-checks --release-type "$BUMP"; then
+              echo "::error::semver-checks reports '$BUMP' is insufficient for the API changes present. Choose a higher bump type."
+              exit 1
+            fi
+          fi
+
+          case "$BUMP" in
+            patch) NEW="${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
+            minor) NEW="${MAJOR}.$((MINOR + 1)).0" ;;
+            major) NEW="$((MAJOR + 1)).0.0" ;;
+          esac
+
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "new=$NEW" >> "$GITHUB_OUTPUT"
+          echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
+          echo "Current: $CURRENT → New: $NEW (bump: $BUMP)"
+
+      - name: Bump Cargo.toml version
+        run: |
+          NEW="${{ steps.version.outputs.new }}"
+          sed -i "s/^version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${NEW}\"/" Cargo.toml
+
+      - name: Update CHANGELOG.md
+        run: |
+          NEW="${{ steps.version.outputs.new }}"
+          TODAY=$(date -u +%Y-%m-%d)
+          if ! grep -q '^## \[Unreleased\]' CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [Unreleased]' section — add one before releasing."
+            exit 1
+          fi
+          awk -v new_hdr="## [${NEW}] - ${TODAY}" '
+            /^## \[Unreleased\]$/ { print; print ""; print new_hdr; next }
+            { print }
+          ' CHANGELOG.md > CHANGELOG.md.tmp && mv CHANGELOG.md.tmp CHANGELOG.md
+
+      - name: Refresh root Cargo.lock
+        run: cargo check
+
+      - name: Refresh fuzz/Cargo.lock
+        run: cargo generate-lockfile --manifest-path fuzz/Cargo.toml
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit and push release branch
+        run: |
+          NEW="${{ steps.version.outputs.new }}"
+          git checkout -b "release/v${NEW}"
+          git add Cargo.toml Cargo.lock fuzz/Cargo.lock CHANGELOG.md
+          git commit -m "Release v${NEW}"
+          git push origin "release/v${NEW}"
+
+      - name: Open pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NEW="${{ steps.version.outputs.new }}"
+          CURRENT="${{ steps.version.outputs.current }}"
+          gh pr create \
+            --base develop \
+            --head "release/v${NEW}" \
+            --title "Release v${NEW}" \
+            --body "$(cat <<EOF
+          Automated release prep for **v${NEW}**.
+
+          | File | Change |
+          |---|---|
+          | \`Cargo.toml\` | \`${CURRENT}\` → \`${NEW}\` |
+          | \`CHANGELOG.md\` | \`[Unreleased]\` stamped with today's date |
+          | \`Cargo.lock\` | regenerated |
+          | \`fuzz/Cargo.lock\` | regenerated |
+
+          Once CI passes and this PR merges, run the [Release Tag](${{ github.server_url }}/${{ github.repository }}/actions/workflows/release-tag.yml) workflow to push the tag and kick off publish.
+          EOF
+          )"

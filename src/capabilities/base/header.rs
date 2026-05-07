@@ -8,7 +8,7 @@ use crate::model::input::{AnalogSyncLevel, VideoInputFlags, VideoInterface};
 use crate::model::manufacture::{ManufactureDate, ManufacturerId};
 use crate::model::screen::ScreenSize;
 
-pub(crate) fn decode_manufacture_date(week: u8, year: u8) -> ManufactureDate {
+pub const fn decode_manufacture_date(week: u8, year: u8) -> ManufactureDate {
     let y = year as u16 + 1990;
     match week {
         0xFF => ManufactureDate::ModelYear(y),
@@ -23,7 +23,7 @@ pub(crate) fn decode_manufacture_date(week: u8, year: u8) -> ManufactureDate {
     }
 }
 
-fn decode_chromaticity(base: &[u8; 128]) -> Chromaticity {
+const fn decode_chromaticity(base: &[u8; 128]) -> Chromaticity {
     let lsb0 = base[0x19];
     let lsb1 = base[0x1A];
     Chromaticity {
@@ -46,7 +46,7 @@ fn decode_chromaticity(base: &[u8; 128]) -> Chromaticity {
     }
 }
 
-fn decode_digital_color_encoding(bits: u8) -> DigitalColorEncoding {
+const fn decode_digital_color_encoding(bits: u8) -> DigitalColorEncoding {
     match (bits >> 3) & 0x03 {
         0b00 => DigitalColorEncoding::Rgb444,
         0b01 => DigitalColorEncoding::Rgb444YCbCr444,
@@ -55,7 +55,7 @@ fn decode_digital_color_encoding(bits: u8) -> DigitalColorEncoding {
     }
 }
 
-fn decode_analog_color_type(bits: u8) -> Option<AnalogColorType> {
+const fn decode_analog_color_type(bits: u8) -> Option<AnalogColorType> {
     match (bits >> 3) & 0x03 {
         0b00 => Some(AnalogColorType::Monochrome),
         0b01 => Some(AnalogColorType::Rgb),
@@ -64,7 +64,7 @@ fn decode_analog_color_type(bits: u8) -> Option<AnalogColorType> {
     }
 }
 
-pub(crate) fn decode_color_bit_depth(bits: u8) -> Option<ColorBitDepth> {
+pub const fn decode_color_bit_depth(bits: u8) -> Option<ColorBitDepth> {
     match bits & 0x07 {
         0b001 => Some(ColorBitDepth::Depth6),
         0b010 => Some(ColorBitDepth::Depth8),
@@ -76,7 +76,7 @@ pub(crate) fn decode_color_bit_depth(bits: u8) -> Option<ColorBitDepth> {
     }
 }
 
-fn decode_video_interface(bits: u8) -> Option<VideoInterface> {
+const fn decode_video_interface(bits: u8) -> Option<VideoInterface> {
     match bits & 0x0F {
         0x1 => Some(VideoInterface::Dvi),
         0x2 => Some(VideoInterface::HdmiA),
@@ -87,7 +87,7 @@ fn decode_video_interface(bits: u8) -> Option<VideoInterface> {
     }
 }
 
-fn decode_analog_sync_level(bits: u8) -> AnalogSyncLevel {
+const fn decode_analog_sync_level(bits: u8) -> AnalogSyncLevel {
     match (bits >> 5) & 0x03 {
         0b00 => AnalogSyncLevel::V700_300,
         0b01 => AnalogSyncLevel::V714_286,

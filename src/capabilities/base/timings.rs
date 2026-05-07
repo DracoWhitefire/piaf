@@ -245,7 +245,7 @@ pub(super) fn decode_detailed_timings(base: &[u8; 128], sink: &mut dyn ModeSink)
 #[cfg(any(feature = "alloc", feature = "std"))]
 mod tests {
     use crate::capabilities::base::BaseBlockHandler;
-    use crate::model::capabilities::{DisplayCapabilities, VideoMode};
+    use crate::model::capabilities::{DisplayCapabilities, RefreshRate, VideoMode};
     use crate::model::extension::ExtensionHandler;
     use crate::model::prelude::Vec;
 
@@ -265,19 +265,19 @@ mod tests {
         assert_eq!(caps.supported_modes.len(), 4);
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(640, 480, 60, false))
+                .contains(&VideoMode::new(640, 480, 60u32, false))
         );
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(800, 600, 60, false))
+                .contains(&VideoMode::new(800, 600, 60u32, false))
         );
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(1024, 768, 60, false))
+                .contains(&VideoMode::new(1024, 768, 60u32, false))
         );
         assert!(
             caps.supported_modes
-                .contains(&VideoMode::new(1280, 1024, 75, false))
+                .contains(&VideoMode::new(1280, 1024, 75u32, false))
         );
     }
 
@@ -299,10 +299,16 @@ mod tests {
         assert_eq!(caps.supported_modes.len(), 2);
         assert_eq!(caps.supported_modes[0].width, 1920);
         assert_eq!(caps.supported_modes[0].height, 1080);
-        assert_eq!(caps.supported_modes[0].refresh_rate, 60);
+        assert_eq!(
+            caps.supported_modes[0].refresh_rate,
+            Some(RefreshRate::integral(60))
+        );
         assert_eq!(caps.supported_modes[1].width, 1280);
         assert_eq!(caps.supported_modes[1].height, 1024);
-        assert_eq!(caps.supported_modes[1].refresh_rate, 75);
+        assert_eq!(
+            caps.supported_modes[1].refresh_rate,
+            Some(RefreshRate::integral(75))
+        );
     }
 
     #[test]
@@ -336,7 +342,10 @@ mod tests {
         assert_eq!(caps.supported_modes.len(), 1);
         assert_eq!(caps.supported_modes[0].width, 1920);
         assert_eq!(caps.supported_modes[0].height, 1080);
-        assert_eq!(caps.supported_modes[0].refresh_rate, 60);
+        assert_eq!(
+            caps.supported_modes[0].refresh_rate,
+            Some(RefreshRate::integral(60))
+        );
         assert_eq!(caps.min_v_rate, Some(48));
         assert_eq!(caps.max_v_rate, Some(75));
         assert_eq!(caps.min_h_rate_khz, Some(30));
@@ -419,7 +428,9 @@ mod tests {
         assert_eq!(
             caps.supported_modes
                 .iter()
-                .filter(|m| m.width == 1920 && m.height == 1080 && m.refresh_rate == 60)
+                .filter(|m| m.width == 1920
+                    && m.height == 1080
+                    && m.refresh_rate == Some(RefreshRate::integral(60)))
                 .count(),
             1
         );

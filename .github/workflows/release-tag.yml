@@ -1,0 +1,90 @@
+name: Release Tag
+
+on:
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  tag:
+    name: Promote to main and tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Read version from Cargo.toml
+        id: version
+        run: |
+          VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Tag will be: v${VERSION}"
+
+      - name: Verify release commit is on develop
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          RELEASE_SHA=$(git log --grep="^Release v${VERSION}$" --format="%H" | head -1)
+          if [ -z "$RELEASE_SHA" ]; then
+            echo "::error::No 'Release v${VERSION}' commit found on develop. Has the release PR been merged into develop?"
+            exit 1
+          fi
+
+      - name: Verify CI is green on develop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA=$(git rev-parse HEAD)
+          CONCLUSION=$(gh run list \
+            --branch develop \
+            --workflow ci.yml \
+            --json headSha,conclusion \
+            --limit 20 \
+            | jq -r --arg sha "$SHA" \
+              '[.[] | select(.headSha == $sha and .conclusion != "")] | first | .conclusion // "not-found"')
+          if [ "$CONCLUSION" != "success" ]; then
+            echo "::error::CI conclusion on develop@${SHA} is '${CONCLUSION}' — must be 'success' before tagging."
+            exit 1
+          fi
+
+      - name: Check tag does not already exist
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if git ls-remote --tags origin "refs/tags/v${VERSION}" | grep -q .; then
+            echo "::error::Tag v${VERSION} already exists — was this release already published?"
+            exit 1
+          fi
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Promote develop → main
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          git fetch origin main
+          git merge origin/main --allow-unrelated-histories -s ours \
+            -m "Release v${VERSION}: promote develop to main"
+          git push origin HEAD:main
+
+      - name: Create and push tag
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          git fetch origin main
+          git checkout main
+          git tag "v${VERSION}" -m "Release v${VERSION}"
+          git push origin "v${VERSION}"
+
+      - name: Trigger publish workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          gh workflow run publish.yml --ref "v${VERSION}"
+          echo "Triggered Publish workflow for v${VERSION}."

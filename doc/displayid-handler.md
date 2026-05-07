@@ -57,6 +57,11 @@ for mode in caps.iter_modes() {
 `DisplayIdCapabilities` is not available from the static pipeline — rich metadata requires
 the dynamic pipeline.
 
+The block-level decoding documented below covers DisplayID 1.x sections (version
+bytes `0x10`–`0x1F`). DisplayID 2.x sections (version byte `0x20`) use the same
+section header and reassembly path but a disjoint data block tag space — see
+[DisplayID 2.x](./displayid-2x.md) for the 2.x block-by-block field mapping.
+
 ## `DisplayIdCapabilities`
 
 Stored under tag `0x70` in `DisplayCapabilities::extension_data`:

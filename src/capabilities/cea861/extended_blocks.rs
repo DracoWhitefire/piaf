@@ -1,3 +1,4 @@
+use crate::capabilities::displayid::decode_type_vii_descriptor_to_mode;
 use crate::model::capabilities::VideoMode;
 use crate::model::prelude::Vec;
 pub use display_types::cea861::colorimetry::{ColorimetryBlock, ColorimetryFlags};
@@ -120,7 +121,7 @@ pub(super) fn parse_colorimetry(block_data: &[u8]) -> Option<ColorimetryBlock> {
 
 /// Decodes the `50 × 2^(raw/32)` luminance encoding used in the HDR block.
 fn decode_luminance(raw: u8) -> f32 {
-    50.0 * 2f32.powf(raw as f32 / 32.0)
+    50.0 * (raw as f32 / 32.0).exp2()
 }
 
 pub(super) fn parse_hdr_static_metadata(block_data: &[u8]) -> Option<HdrStaticMetadata> {
@@ -381,22 +382,20 @@ pub(super) fn parse_vendor_specific_block(block_data: &[u8]) -> Option<VendorSpe
 // ---------------------------------------------------------------------------
 
 /// Parse a T7VTDB payload (`block_data` starts after the extended tag byte, at the descriptor
-/// header). Returns `None` for payloads shorter than 22 bytes, zero pixel clock, or geometry
-/// that would produce a refresh rate outside the range of `u8`.
+/// header). Returns `None` for payloads shorter than 22 bytes, null/degenerate descriptors,
+/// or geometry whose reduced refresh rate doesn't fit in `RefreshRate`.
+///
+/// The CTA wrapper occupies the first two bytes; the 20-byte body that follows is decoded
+/// by the shared DisplayID 2.x Type VII descriptor decoder.
+///
+/// CTA wrapper layout:
+/// - `[0]`: `T7_M[7:5] | DSC_PT[4] | reserved[3] | Block_Rev[2:0]`
+/// - `[1]`: `F37[7]=0 | T7Y420[6] | T7HSP[5] | T7VSP[4] | reserved[3:0]`
+///
+/// `T7HSP` / `T7VSP` mirror the polarity bits already encoded in the descriptor body
+/// (bit 15 of the H/V Front Porch fields) and are not read here — the descriptor is the
+/// authoritative source.
 pub(super) fn parse_t7vtdb(block_data: &[u8]) -> Option<T7VtdbBlock> {
-    // Layout (offsets after the ext tag byte, i.e. starting at the descriptor header):
-    //   [0]      T7_M[7:5] | DSC_PT[4] | reserved[3] | Block_Rev[2:0]
-    //   [1]      F37[7]=0  | T7Y420[6] | T7HSP[5] | T7VSP[4] | reserved[3:0]
-    //   [2..4]   Pixel clock in kHz (24-bit LE)
-    //   [5]      3D_Support[7:6] | reserved[5] | T7IL[4] | T7_Aspect_Ratio[3:0]
-    //   [6..7]   H Active (16-bit LE)
-    //   [8..9]   H Blank  (16-bit LE)
-    //   [10..11] H Offset / Front Porch (15-bit: low byte + high byte bits[6:0])
-    //   [12..13] H Sync Width (16-bit LE)
-    //   [14..15] V Active (16-bit LE)
-    //   [16..17] V Blank  (16-bit LE)
-    //   [18..19] V Offset / Front Porch (15-bit)
-    //   [20..21] V Sync Width (16-bit LE)
     if block_data.len() < 22 {
         return None;
     }
@@ -404,29 +403,10 @@ pub(super) fn parse_t7vtdb(block_data: &[u8]) -> Option<T7VtdbBlock> {
     let version = block_data[0] & 0x07;
     let y420 = (block_data[1] >> 6) & 1 != 0;
 
-    let pixel_clock_khz =
-        (block_data[2] as u32) | ((block_data[3] as u32) << 8) | ((block_data[4] as u32) << 16);
-    if pixel_clock_khz == 0 {
-        return None;
-    }
-
-    let interlaced = (block_data[5] >> 4) & 1 != 0;
-
-    let hactive = u16::from_le_bytes([block_data[6], block_data[7]]);
-    let hblank = u16::from_le_bytes([block_data[8], block_data[9]]);
-    let vactive = u16::from_le_bytes([block_data[14], block_data[15]]);
-    let vblank = u16::from_le_bytes([block_data[16], block_data[17]]);
-
-    if hactive == 0 || vactive == 0 || hblank == 0 || vblank == 0 {
-        return None;
-    }
-
-    let h_total = hactive as u64 + hblank as u64;
-    let v_total = vactive as u64 + vblank as u64;
-    let refresh_hz = (pixel_clock_khz as u64 * 1000) / (h_total * v_total);
-    let refresh_rate = u16::try_from(refresh_hz).ok()?;
-
-    let mode = VideoMode::new(hactive, vactive, refresh_rate, interlaced);
+    let descriptor: &[u8; 20] = block_data[2..22]
+        .try_into()
+        .expect("slice length checked above");
+    let mode = decode_type_vii_descriptor_to_mode(descriptor, 0)?;
 
     Some(T7VtdbBlock::new(version, mode, y420))
 }
@@ -986,6 +966,7 @@ pub(super) fn parse_vtb_ext(block_data: &[u8]) -> Option<VtbExtBlock> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::capabilities::RefreshRate;
 
     #[test]
     fn test_video_capability() {
@@ -1444,7 +1425,7 @@ mod tests {
         assert_eq!(vtb.timings.len(), 1);
         assert_eq!(vtb.timings[0].width, 1280);
         assert_eq!(vtb.timings[0].height, 800); // 1280 * 10 / 16 = 800
-        assert_eq!(vtb.timings[0].refresh_rate, 60);
+        assert_eq!(vtb.timings[0].refresh_rate, Some(RefreshRate::integral(60)));
     }
 
     #[test]
@@ -1456,7 +1437,11 @@ mod tests {
         let data = [0x01u8, 0x00, 0x01, 0x00, 0x1B, 0x24, 0x08];
         let vtb = parse_vtb_ext(&data).unwrap();
         assert!(!vtb.timings.is_empty());
-        let t = vtb.timings.iter().find(|m| m.refresh_rate == 60).unwrap();
+        let t = vtb
+            .timings
+            .iter()
+            .find(|m| m.refresh_rate == Some(RefreshRate::integral(60)))
+            .unwrap();
         assert_eq!(t.height, 1080);
         // 16:9: h = (1080 * 16 / 9) rounded down to multiple of 8 = 1920
         assert_eq!(t.width, 1920);
@@ -1517,23 +1502,24 @@ mod tests {
         let mut d = [0u8; 22];
         d[0] = 0x02; // Block_Rev = 010b
         d[1] = 0x00; // T7Y420=0, T7HSP=0, T7VSP=0
-        // Pixel clock: 148500 kHz
-        d[2] = 0x14;
+        // All multi-byte timing fields use the wire encoding `value − 1`.
+        // Pixel clock 148500 kHz → raw 148499 = 0x024413 → LE [0x13, 0x44, 0x02].
+        d[2] = 0x13;
         d[3] = 0x44;
         d[4] = 0x02;
         d[5] = 0x00; // 3D_Support=00, T7IL=0, T7_Aspect_Ratio=0
-        // H Active: 1920
-        d[6] = 0x80;
+        // H Active 1920 → raw 1919 = 0x077F → LE [0x7F, 0x07].
+        d[6] = 0x7F;
         d[7] = 0x07;
-        // H Blank: 280
-        d[8] = 0x18;
+        // H Blank 280 → raw 279 = 0x0117 → LE [0x17, 0x01].
+        d[8] = 0x17;
         d[9] = 0x01;
-        // H Offset + H Sync: zeros (don't affect VideoMode)
-        // V Active: 1080
-        d[14] = 0x38;
+        // H Offset + H Sync: leave as raw 0 (decoded = 1; doesn't affect refresh).
+        // V Active 1080 → raw 1079 = 0x0437 → LE [0x37, 0x04].
+        d[14] = 0x37;
         d[15] = 0x04;
-        // V Blank: 45
-        d[16] = 0x2D;
+        // V Blank 45 → raw 44 = 0x002C → LE [0x2C, 0x00].
+        d[16] = 0x2C;
         d[17] = 0x00;
         d
     }
@@ -1545,7 +1531,7 @@ mod tests {
         assert_eq!(t7.version, 2);
         assert_eq!(t7.mode.width, 1920);
         assert_eq!(t7.mode.height, 1080);
-        assert_eq!(t7.mode.refresh_rate, 60);
+        assert_eq!(t7.mode.refresh_rate, Some(RefreshRate::integral(60)));
         assert!(!t7.mode.interlaced);
         assert!(!t7.y420);
     }
@@ -1582,39 +1568,42 @@ mod tests {
     }
 
     #[test]
-    fn test_t7vtdb_zero_hactive_returns_none() {
+    fn test_t7vtdb_h_active_overflow_returns_none() {
+        // Raw 0xFFFF on H active overflows the +1 decode → descriptor must be skipped.
+        // (The wire encoding cannot represent value 0; the previous "zero hactive"
+        // semantics no longer apply.)
         let mut d = t7_1080p60();
-        d[6] = 0;
-        d[7] = 0;
+        d[6] = 0xFF;
+        d[7] = 0xFF;
         assert!(parse_t7vtdb(&d).is_none());
     }
 
     #[test]
     fn test_t7vtdb_720p60() {
-        // 1280x720@60Hz: pixel_clock = 74250 kHz, H blank = 370, V blank = 30
-        // h_total = 1650, v_total = 750
-        // refresh = 74250000 / (1650 * 750) = 74250000 / 1237500 = 60 Hz
-        // 74250 = 0x012 24A → LE [0x4A, 0x22, 0x01]
-        // 1280 = 0x0500 → [0x00, 0x05]
-        // 370  = 0x0172 → [0x72, 0x01]
-        // 720  = 0x02D0 → [0xD0, 0x02]
-        // 30   = 0x001E → [0x1E, 0x00]
+        // 1280×720@60: pixel_clock = 74250 kHz, H blank = 370, V blank = 30,
+        // h_total = 1650, v_total = 750 → 74250000 / 1237500 = 60 Hz.
+        // All multi-byte fields use the `value − 1` wire encoding.
+        // pclk 74250 → raw 74249 = 0x012209 → LE [0x09, 0x22, 0x01].
+        // h_active 1280 → raw 1279 = 0x04FF → LE [0xFF, 0x04].
+        // h_blank  370  → raw 369  = 0x0171 → LE [0x71, 0x01].
+        // v_active 720  → raw 719  = 0x02CF → LE [0xCF, 0x02].
+        // v_blank  30   → raw 29   = 0x001D → LE [0x1D, 0x00].
         let mut d = [0u8; 22];
         d[0] = 0x02;
-        d[2] = 0x4A;
+        d[2] = 0x09;
         d[3] = 0x22;
         d[4] = 0x01;
-        d[6] = 0x00;
-        d[7] = 0x05;
-        d[8] = 0x72;
+        d[6] = 0xFF;
+        d[7] = 0x04;
+        d[8] = 0x71;
         d[9] = 0x01;
-        d[14] = 0xD0;
+        d[14] = 0xCF;
         d[15] = 0x02;
-        d[16] = 0x1E;
+        d[16] = 0x1D;
         let t7 = parse_t7vtdb(&d).unwrap();
         assert_eq!(t7.mode.width, 1280);
         assert_eq!(t7.mode.height, 720);
-        assert_eq!(t7.mode.refresh_rate, 60);
+        assert_eq!(t7.mode.refresh_rate, Some(RefreshRate::integral(60)));
     }
 
     // T8VTDB tests
@@ -1630,7 +1619,7 @@ mod tests {
         assert_eq!(t8.timings.len(), 1);
         assert_eq!(t8.timings[0].width, 1920);
         assert_eq!(t8.timings[0].height, 1080);
-        assert_eq!(t8.timings[0].refresh_rate, 60);
+        assert_eq!(t8.timings[0].refresh_rate, Some(RefreshRate::integral(60)));
         assert!(!t8.timings[0].interlaced);
     }
 
@@ -1653,7 +1642,7 @@ mod tests {
         let t8 = parse_t8vtdb(&data).unwrap();
         assert_eq!(t8.timings[0].width, 1024);
         assert_eq!(t8.timings[0].height, 768);
-        assert_eq!(t8.timings[0].refresh_rate, 43);
+        assert_eq!(t8.timings[0].refresh_rate, Some(RefreshRate::integral(43)));
         assert!(t8.timings[0].interlaced);
     }
 
@@ -1664,7 +1653,7 @@ mod tests {
         let t8 = parse_t8vtdb(&data).unwrap();
         assert_eq!(t8.codes, vec![0x0052]);
         assert_eq!(t8.timings[0].width, 1920);
-        assert_eq!(t8.timings[0].refresh_rate, 60);
+        assert_eq!(t8.timings[0].refresh_rate, Some(RefreshRate::integral(60)));
     }
 
     #[test]
@@ -1709,12 +1698,12 @@ mod tests {
         let m = dmt_to_mode(0x55).unwrap();
         assert_eq!(m.width, 1280);
         assert_eq!(m.height, 720);
-        assert_eq!(m.refresh_rate, 60);
+        assert_eq!(m.refresh_rate, Some(RefreshRate::integral(60)));
         assert!(!m.interlaced);
 
         let m = dmt_to_mode(0x0F).unwrap();
         assert!(m.interlaced);
-        assert_eq!(m.refresh_rate, 43);
+        assert_eq!(m.refresh_rate, Some(RefreshRate::integral(43)));
 
         assert!(dmt_to_mode(0x00).is_none());
         assert!(dmt_to_mode(0x59).is_none());

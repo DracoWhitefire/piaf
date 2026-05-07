@@ -2,6 +2,9 @@
 
 Source: VESA DisplayID Standard Version 1.3.
 
+For DisplayID 2.x (version byte `0x20`), which uses a disjoint tag space at `0x20`–`0x29`,
+`0x7E`, and `0x81`, see [DisplayID 2.x](./displayid-2x.md).
+
 Block tags are 8-bit values in the first byte of each data block header within a DisplayID
 section. The section payload starts at byte 4 of the 128-byte EDID extension block; each
 data block has a 3-byte header (tag, revision, payload length) followed by its payload.
@@ -533,7 +536,7 @@ Bytes 3+:    7-byte timing descriptors
 
 Per descriptor:
   Byte  0:   Options: bits 1:0 = CVT algorithm (0=CVT-RB2, 1=CVT-RB);
-             bit 4 = NTSC optimized; bits 6:5 = stereo; bit 7 = preferred
+             bit 3 = NTSC optimized; bits 6:5 = stereo; bit 7 = preferred
   Bytes 1–2: Horizontal active pixels (exact, LE uint16)
   Bytes 3–4: Vertical active lines (exact, LE uint16)
   Byte  5:   Vertical refresh rate = byte + 1 Hz (1–256 Hz; clamped to 255)
