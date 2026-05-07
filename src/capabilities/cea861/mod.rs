@@ -174,18 +174,16 @@ pub(crate) fn parse_cea861_data_block_collection(
                     cea_caps.hf_vsdb = parse_hf_vsdb(block_data);
                 }
             }
-            0x04 => {
+            0x04
                 // Speaker Allocation Data Block.
-                if cea_caps.speaker_allocation.is_none() {
-                    cea_caps.speaker_allocation = parse_speaker_allocation(block_data);
-                }
+                if cea_caps.speaker_allocation.is_none() => {
+                cea_caps.speaker_allocation = parse_speaker_allocation(block_data);
             }
-            0x05 => {
+            0x05
                 // VESA Display Transfer Characteristic Data Block.
-                if cea_caps.vesa_transfer_characteristic.is_none() {
-                    cea_caps.vesa_transfer_characteristic =
-                        parse_vesa_transfer_characteristic(block_data);
-                }
+                if cea_caps.vesa_transfer_characteristic.is_none() => {
+                cea_caps.vesa_transfer_characteristic =
+                    parse_vesa_transfer_characteristic(block_data);
             }
             0x07 => handle_extended_tag_block(block_data, caps, cea_caps),
             _ => {}
