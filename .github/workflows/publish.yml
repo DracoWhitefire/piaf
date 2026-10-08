@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
+  # Dispatched by release-tag.yml: tags pushed with GITHUB_TOKEN do not trigger
+  # push workflows. Only tag refs proceed; see the check-branch guard below.
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -12,6 +15,8 @@ env:
 jobs:
   check-branch:
     name: Check tag is on main
+    # A dispatch against a branch (e.g. main) must not publish or create a release.
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     runs-on: ubuntu-latest
     outputs:
       on_main: ${{ steps.check.outputs.on_main }}
