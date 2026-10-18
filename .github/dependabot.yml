@@ -1,0 +1,41 @@
+version: 2
+updates:
+  # Keeps the commit-SHA pins in .github/workflows current.
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: develop
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  # Lockfile refreshes only: published version requirements in Cargo.toml are
+  # a semver decision and are changed deliberately, not by Dependabot.
+  - package-ecosystem: cargo
+    directory: /
+    target-branch: develop
+    versioning-strategy: lockfile-only
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: deps
+    groups:
+      cargo:
+        patterns: ["*"]
+
+  # The fuzz crate is its own workspace with a tracked Cargo.lock, which the fuzz
+  # workflow builds from.
+  - package-ecosystem: cargo
+    directory: /fuzz
+    target-branch: develop
+    versioning-strategy: lockfile-only
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: deps
+    groups:
+      fuzz:
+        patterns: ["*"]
