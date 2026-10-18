@@ -14,6 +14,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   workflows, so `release-tag`'s "Trigger publish workflow" step
   (`gh workflow run publish.yml`) could not start a publish run. Dispatches against a
   non-tag ref (e.g. `main`) are skipped, so they cannot publish or create a release.
+- **Publishing uses crates.io trusted publishing** — `publish.yml` obtains a short-lived
+  token through OIDC (`rust-lang/crates-io-auth-action`, revoked at the end of the job, and
+  short-lived regardless) instead of the long-lived `CARGO_REGISTRY_TOKEN` secret. The
+  upload job runs in the `release` environment, which only `v*` tags can deploy to and
+  which requires a maintainer's approval. Quality gates moved to a separate `verify` job,
+  so no dependency build scripts run and no cache is restored where publishing credentials
+  exist. The attested `.crate` is kept as a separate copy; after upload the job fails if
+  crates.io's checksum differs from it, and that same copy is attached to the GitHub
+  release. Re-running a partially failed publish reuses an existing GitHub release.
+  `publish.yml` refuses tags that do not match the `Cargo.toml` version.
+- **Release summary before approval** — `publish.yml` gains a `summary` job that shows the
+  crate, version and commit, changes since the previous published release (ignoring
+  pre-release or malformed tags, and flagging a baseline that is not on crates.io), changes
+  to workflow, toolchain and build configuration, manifest changes, the changelog section,
+  and the `.crate` sha256 with a command to reproduce it, on the run page while the publish
+  job waits for approval. The publish job refuses to attest a package whose sha256 differs
+  from the reviewed one.
+- **`release-tag` no longer tags after a failed promotion** — `release-tag` now promotes
+  `develop` to `main` through a `release-promote/v*` branch and PR. A failed merge of the
+  promote PR used to go unnoticed, after which the previous `main` commit could be tagged
+  with the new version. The step now fails, and tagging requires `main` to hold exactly the
+  promoted tree. It dispatches `publish.yml` with `actions: write` (it had only `read`, so
+  the dispatch could not start a run), and it also accepts a squash-merged release commit
+  (`Release vX.Y.Z (#N)`).
+- **`release-tag` requires the fuzz smoke run too** — it now requires both CI and the fuzz
+  smoke run to have passed on `develop`'s head (it checked CI only), and reports a run that
+  has not finished yet as such rather than as `not-found`.
+- **Release workflows only run from `develop`** — `release-prep` and `release-tag` fail when
+  started from another branch, so an outdated copy of the workflow is not run against
+  `develop` by mistake.
+- **`release-prep` leaves the fuzz dependencies alone** — refreshing `fuzz/Cargo.lock` ran
+  `cargo generate-lockfile`, which re-resolved every fuzz dependency inside the release
+  commit. It now updates only `piaf`'s own entry; Dependabot proposes the rest.
+- **No CI or fuzz run on promotion PRs** — CI and the fuzz workflow no longer run on pull
+  requests into `main`. The only ones are `release-tag`'s `release-promote/*` PRs, whose
+  content already passed both on `develop`; opened by `github-actions[bot]`, their runs
+  would be held for approval and listed as `action_required` or failed.
+- **Supply-chain hardening for CI** — every third-party action is pinned to a commit SHA
+  of a release tag, with `dependabot.yml` keeping the pins (and both `Cargo.lock`s, the
+  crate's and the fuzz crate's) current. The Rust toolchains themselves still follow
+  `stable` and `nightly`. `cargo-semver-checks` is installed as a checksum-verified
+  prebuilt binary (the version listed by the pinned `install-action`) instead of being
+  restored from a cached `~/.cargo/bin`; `cargo-fuzz` is installed from crates.io at a fixed
+  version instead of from its Git repository's latest commit. The security audit also runs
+  weekly.
+- **README documents release provenance** — a badge shows whether crates.io requires trusted
+  publishing for this crate, and "Verifying releases" now states that versions up to 0.4.1
+  carry no SLSA provenance and have no GitHub release (it claimed every release was
+  attested), that they were uploaded with an API token (0.1.0 and 0.4.1 by hand, 0.2.0 to
+  0.4.0 from CI), that later releases are attested and uploaded through trusted publishing,
+  and how to look up a version's publishing details on crates.io.
 
 ## [0.4.1] - 2026-05-07
 
