@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `doc/roadmap.md` drops its "Shipped" section, a stale copy of what this changelog
+  records; the roadmap lists only what is planned.
+
 ## [0.4.2] - 2026-10-18
 
 ### Internal
