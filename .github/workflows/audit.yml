@@ -5,12 +5,25 @@ on:
     paths:
       - '**/Cargo.toml'
       - '**/Cargo.lock'
+  # Weekly, so new RustSec advisories against unchanged dependencies are noticed.
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   security_audit:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write   # audit-check reports results as a check run
+      issues: write   # scheduled runs open an issue per new advisory
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
