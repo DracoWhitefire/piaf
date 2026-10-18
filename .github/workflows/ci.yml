@@ -3,8 +3,11 @@ name: CI
 on:
   push:
     branches: [main, develop]
+  # Not main: the only PRs into main are release-tag's release-promote/* PRs,
+  # whose content already passed CI on develop. Opened by github-actions[bot],
+  # their runs would be held for approval and end as action_required/failure.
   pull_request:
-    branches: [main, develop]
+    branches: [develop]
 
 env:
   CARGO_TERM_COLOR: always

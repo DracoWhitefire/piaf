@@ -3,8 +3,12 @@ name: Fuzz
 on:
   push:
     branches: [main, develop]
+  # Not main: the only PRs into main are release-tag's release-promote/* PRs,
+  # whose content already passed the fuzz smoke run on develop. Opened by
+  # github-actions[bot], their runs would be held for approval and end as
+  # action_required/failure.
   pull_request:
-    branches: [main, develop]
+    branches: [develop]
   schedule:
     - cron: '0 2 * * 6'  # weekly, Saturday 02:00 UTC
   workflow_dispatch:       # allow manual trigger
