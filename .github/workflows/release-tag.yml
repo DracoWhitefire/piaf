@@ -12,10 +12,19 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: read
+      actions: write  # `gh workflow run publish.yml` (workflow_dispatch) needs write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      # Always operates on develop (see checkout below). Fail loudly when started
+      # from another branch, whose copy of this workflow may be outdated. (A modified
+      # copy could remove this check; it only guards against mistakes.)
+      - name: Require develop
+        if: github.ref != 'refs/heads/develop'
+        run: |
+          echo "::error::Run this workflow from develop (started from ${GITHUB_REF})."
+          exit 1
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: develop
           fetch-depth: 0
@@ -30,28 +39,41 @@ jobs:
       - name: Verify release commit is on develop
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          RELEASE_SHA=$(git log --grep="^Release v${VERSION}$" --format="%H" | head -1)
+          # The release PR's commit, or its squash merge ("Release vX.Y.Z (#N)").
+          RELEASE_SHA=$(git log -E --grep="^Release v${VERSION//./\\.}( \(#[0-9]+\))?$" \
+            --format="%H" | head -1)
           if [ -z "$RELEASE_SHA" ]; then
             echo "::error::No 'Release v${VERSION}' commit found on develop. Has the release PR been merged into develop?"
             exit 1
           fi
 
-      - name: Verify CI is green on develop
+      # CI and the fuzz smoke run both start on every push to develop. The fuzz run
+      # takes several minutes, so wait for it after merging the release PR.
+      - name: Verify CI and fuzzing are green on develop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           SHA=$(git rev-parse HEAD)
-          CONCLUSION=$(gh run list \
-            --branch develop \
-            --workflow ci.yml \
-            --json headSha,conclusion \
-            --limit 20 \
-            | jq -r --arg sha "$SHA" \
-              '[.[] | select(.headSha == $sha and .conclusion != "")] | first | .conclusion // "not-found"')
-          if [ "$CONCLUSION" != "success" ]; then
-            echo "::error::CI conclusion on develop@${SHA} is '${CONCLUSION}' — must be 'success' before tagging."
-            exit 1
-          fi
+          for WF in ci.yml fuzz.yml; do
+            RESULT=$(gh run list \
+              --branch develop \
+              --workflow "$WF" \
+              --json headSha,status,conclusion \
+              --limit 20 \
+              | jq -r --arg sha "$SHA" '
+                  [.[] | select(.headSha == $sha)] as $runs
+                  | ([$runs[] | select(.status == "completed")] | first | .conclusion)
+                    // (if ($runs | length) > 0 then "still-running" else "not-found" end)')
+            case "$RESULT" in
+              success ) echo "${WF} on develop@${SHA}: success" ;;
+              still-running )
+                echo "::error::${WF} on develop@${SHA} has not finished yet — re-run this workflow once it has."
+                exit 1 ;;
+              * )
+                echo "::error::${WF} conclusion on develop@${SHA} is '${RESULT}' — must be 'success' before tagging."
+                exit 1 ;;
+            esac
+          done
 
       - name: Check tag does not already exist
         run: |
@@ -81,16 +103,30 @@ jobs:
             --head "${BRANCH}" \
             --title "Release v${VERSION}" \
             --body "Promote release v${VERSION} from develop to main.")
+          MERGED=false
           for attempt in 1 2 3; do
-            gh pr merge "$PR_URL" --merge && break
-            [ $attempt -lt 3 ] && sleep 10
+            if gh pr merge "$PR_URL" --merge; then
+              MERGED=true
+              break
+            fi
+            [ "$attempt" -lt 3 ] && sleep 10
           done
+          if [ "$MERGED" != true ]; then
+            echo "::error::Could not merge $PR_URL into main — not tagging."
+            exit 1
+          fi
           git push origin --delete "${BRANCH}" || true
 
       - name: Create and push tag
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           git fetch origin main
+          # Release tags cannot be moved or deleted (ruleset), so refuse to tag
+          # unless main now holds exactly the tree that was promoted.
+          if [ "$(git rev-parse 'origin/main^{tree}')" != "$(git rev-parse 'HEAD^{tree}')" ]; then
+            echo "::error::origin/main does not match the promoted release commit — not tagging v${VERSION}."
+            exit 1
+          fi
           git checkout main
           git tag "v${VERSION}" -m "Release v${VERSION}"
           git push origin "v${VERSION}"

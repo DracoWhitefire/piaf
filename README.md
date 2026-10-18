@@ -6,6 +6,7 @@
 [![License: MPL-2.0](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](https://github.com/DracoWhitefire/piaf/blob/main/LICENSE)
 [![Rust 1.85+](https://img.shields.io/badge/rustc-1.85+-orange.svg)](https://blog.rust-lang.org/2025/02/20/Rust-1.85.0.html)
 [![SLSA Level 2](https://slsa.dev/images/gh-badge-level2.svg)](https://slsa.dev)
+[![trusted publishing only](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcrates.io%2Fapi%2Fv1%2Fcrates%2Fpiaf&query=%24.crate.trustpub_only&label=trusted%20publishing%20only)](#verifying-releases)
 
 A Rust library for decoding binary capability data into a clean, typed model, specialized for EDID.
 
@@ -375,9 +376,9 @@ Extended documentation lives under [`doc/`](doc/).
 
 ## Verifying releases
 
-Each release is built on GitHub Actions and attested with
-[SLSA Build Level 2](https://slsa.dev) provenance. To verify a release
-`.crate` against its signed provenance, install the
+Releases are built on GitHub Actions and attested with
+[SLSA Build Level 2](https://slsa.dev) provenance (from the next release after 0.4.1). To
+verify a release `.crate` against its signed provenance, install the
 [GitHub CLI](https://cli.github.com/) and run:
 
 ```sh
@@ -386,6 +387,21 @@ gh attestation verify piaf-X.Y.Z.crate --repo DracoWhitefire/piaf
 
 The attested `.crate` is attached to each
 [GitHub release](https://github.com/DracoWhitefire/piaf/releases).
+
+Those releases are also uploaded through crates.io
+[trusted publishing](https://rust-lang.github.io/rfcs/3691-trusted-publishing-cratesio.html): the publish
+workflow obtains a short-lived token via OpenID Connect instead of using a stored
+API token. crates.io can also reject uploads made with an API token for this crate;
+the badge above shows whether that setting is on. Each version's publishing details,
+including the workflow run and commit, are available from the crates.io API:
+
+```sh
+curl -A "your-tool (contact)" https://crates.io/api/v1/crates/piaf/X.Y.Z
+# see .version.trustpub_data
+```
+
+Versions up to 0.4.1 were uploaded with an API token (0.1.0 and 0.4.1 by hand, 0.2.0 to
+0.4.0 from CI); none of them carries provenance or has a GitHub release.
 
 ## License
 

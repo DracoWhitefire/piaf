@@ -26,16 +26,27 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      # Always operates on develop (see checkout below). Fail loudly when started
+      # from another branch, whose copy of this workflow may be outdated. (A modified
+      # copy could remove this check; it only guards against mistakes.)
+      - name: Require develop
+        if: github.ref != 'refs/heads/develop'
+        run: |
+          echo "::error::Run this workflow from develop (started from ${GITHUB_REF})."
+          exit 1
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: develop
           fetch-depth: 0
 
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
 
       - name: Cache
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -44,17 +55,15 @@ jobs:
           key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-release-
 
-      - name: Cache tools
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/bin
-          key: ${{ runner.os }}-cargo-tools-semver-checks-v1
-
+      # Prebuilt, checksum-verified binary: the newest version listed in the pinned
+      # install-action's manifest, so it advances whenever Dependabot bumps the
+      # action. A fixed version would stop understanding the rustdoc JSON of newer
+      # stable toolchains. (Previously ~/.cargo/bin was restored from the Actions
+      # cache, which also holds the cargo/rustc proxies used by this job.)
       - name: Install cargo-semver-checks
-        run: |
-          if ! command -v cargo-semver-checks &>/dev/null; then
-            cargo install cargo-semver-checks --locked
-          fi
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-semver-checks
 
       - name: Determine bump type and new version
         id: version
@@ -71,6 +80,8 @@ jobs:
             if cargo semver-checks --release-type patch; then
               BUMP=patch
             elif [ "$MAJOR" = "0" ]; then
+              # For 0.x crates the minor bump is the highest meaningful breaking
+              # release; bumping to 1.0.0 is a deliberate stabilisation decision.
               BUMP=minor
             elif cargo semver-checks --release-type minor; then
               BUMP=minor
@@ -114,16 +125,24 @@ jobs:
             echo "::error::CHANGELOG.md has no '## [Unreleased]' section — add one before releasing."
             exit 1
           fi
+          # Insert the new versioned header immediately after [Unreleased], leaving
+          # that section empty for the next cycle. The original blank line that
+          # followed [Unreleased] becomes the separator before the content.
           awk -v new_hdr="## [${NEW}] - ${TODAY}" '
             /^## \[Unreleased\]$/ { print; print ""; print new_hdr; next }
             { print }
           ' CHANGELOG.md > CHANGELOG.md.tmp && mv CHANGELOG.md.tmp CHANGELOG.md
 
-      - name: Refresh root Cargo.lock
+      - name: Refresh Cargo.lock
+        # Runs without --locked so Cargo regenerates the lock file to reflect
+        # the new package version; also acts as a quick compile sanity check.
         run: cargo check
 
       - name: Refresh fuzz/Cargo.lock
-        run: cargo generate-lockfile --manifest-path fuzz/Cargo.toml
+        # The fuzz crate is its own workspace with a tracked lock file, which records
+        # this crate's version through the path dependency. Update only that entry:
+        # a plain `cargo update` would also bump every fuzz dependency unreviewed.
+        run: cargo update --manifest-path fuzz/Cargo.toml -p piaf
 
       - name: Configure git
         run: |
@@ -155,8 +174,7 @@ jobs:
           |---|---|
           | \`Cargo.toml\` | \`${CURRENT}\` → \`${NEW}\` |
           | \`CHANGELOG.md\` | \`[Unreleased]\` stamped with today's date |
-          | \`Cargo.lock\` | regenerated |
-          | \`fuzz/Cargo.lock\` | regenerated |
+          | \`Cargo.lock\`, \`fuzz/Cargo.lock\` | regenerated |
 
           Once CI passes and this PR merges, run the [Release Tag](${{ github.server_url }}/${{ github.repository }}/actions/workflows/release-tag.yml) workflow to push the tag and kick off publish.
           EOF
