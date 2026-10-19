@@ -7,7 +7,8 @@ description = "A library for reading and interpreting display capability data (E
 readme = "README.md"
 license = "MPL-2.0"
 repository = "https://github.com/DracoWhitefire/piaf"
-keywords = ["edid", "display", "hdmi", "cea861", "no-std"]
+homepage = "https://ashlar-display.org"
+keywords = ["ashlar", "hdmi", "no-std", "edid", "displayid"]
 categories = ["hardware-support", "embedded", "parser-implementations"]
 
 [features]
