@@ -94,6 +94,7 @@ panel = "42-inch OLED"                        # for a driver board: the panel ac
 native_resolution = [3840, 2160]
 measured_size_mm = [924, 520]                 # the real active area
 size_source = "measured"                      # or "manufacturer spec"
+reference = "https://..."                     # where a spec value came from (spec sheet, database page)
 running_mode = "3840x2160 @ 144 Hz"           # what the OS actually drives
 
 [notes]

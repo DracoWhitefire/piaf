@@ -46,21 +46,22 @@ Each fixture added from now on has a context file next to it, with the same name
 claims, so a test can check a decoded value or a warning against reality, not only against
 piaf's previous output. The fixtures that existed before this convention have none.
 
-| Table | Key | Meaning |
-|---|---|---|
-| `capture` | `contributor` | Who captured it |
-| | `date` | Capture date |
-| | `method` | How: `capture_fixture`, Linux sysfs, Windows registry, … |
-| | `os` | Operating system of the capture |
-| | `connection` | Direct, via a driver board, via adapters, … |
-| | `serials` | `original` or `anonymised` |
-| `display` | `make_model` | The display, as sold |
-| | `panel` | The panel; for a driver board, the panel behind it |
-| | `native_resolution` | `[width, height]` in pixels |
-| | `measured_size_mm` | `[width, height]` of the active area |
-| | `size_source` | `measured` or `manufacturer spec` |
-| | `running_mode` | What the OS actually drives |
-| `notes` | `known_issues` | List of what the EDID gets wrong or does oddly |
+| Table     | Key                 | Meaning                                                                         |
+|-----------|---------------------|---------------------------------------------------------------------------------|
+| `capture` | `contributor`       | Who captured it                                                                 |
+|           | `date`              | Capture date                                                                    |
+|           | `method`            | How: `capture_fixture`, Linux sysfs, Windows registry, …                        |
+|           | `os`                | Operating system of the capture                                                 |
+|           | `connection`        | Direct, via a driver board, via adapters, …                                     |
+|           | `serials`           | `original` or `anonymised`                                                      |
+| `display` | `make_model`        | The display, as sold                                                            |
+|           | `panel`             | The panel; for a driver board, the panel behind it                              |
+|           | `native_resolution` | `[width, height]` in pixels                                                     |
+|           | `measured_size_mm`  | `[width, height]` of the active area                                            |
+|           | `size_source`       | `measured` or `manufacturer spec`                                               |
+|           | `reference`         | URL of the source for spec values, e.g. a spec sheet or a display database page |
+|           | `running_mode`      | What the OS actually drives                                                     |
+| `notes`   | `known_issues`      | List of what the EDID gets wrong or does oddly                                  |
 
 Every key is optional: a gap is better than a guess. New keys may be added as tests need
 them.
