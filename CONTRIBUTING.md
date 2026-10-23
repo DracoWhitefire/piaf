@@ -49,15 +49,23 @@ administrator):
 ```powershell
 $out = "$env:USERPROFILE\Desktop\edid"
 New-Item -ItemType Directory -Force $out | Out-Null
+
 Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Enum\DISPLAY' | ForEach-Object {
-  $id = $_.PSChildName
-  Get-ChildItem $_.PSPath | ForEach-Object {
-    $edid = (Get-ItemProperty -Path (Join-Path $_.PSPath 'Device Parameters') `
-              -Name EDID -ErrorAction SilentlyContinue).EDID
-    if ($edid) {
-      [IO.File]::WriteAllBytes((Join-Path $out ("{0}_{1}.bin" -f $id, ($_.PSChildName -replace '[^\w]', '_'))), $edid)
+    $id = $_.PSChildName
+
+    Get-ChildItem $_.PSPath | ForEach-Object {
+        $edid = (Get-ItemProperty `
+            -Path (Join-Path $_.PSPath 'Device Parameters') `
+            -Name EDID `
+            -ErrorAction SilentlyContinue
+        ).EDID
+
+        if ($edid) {
+            $instance = $_.PSChildName -replace '[^\w]', '_'
+            $file = Join-Path $out ("{0}_{1}.bin" -f $id, $instance)
+            [IO.File]::WriteAllBytes($file, $edid)
+        }
     }
-  }
 }
 ```
 
